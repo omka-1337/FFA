@@ -1,0 +1,9 @@
+# Decompiled game script. This is the copyrighted content of the games the
+# tools are run against, not part of this project. Keep it out of the repo.
+decompiled/
+
+# Extracted game data used as a test corpus.
+work/
+
+__pycache__/
+*.pyc
