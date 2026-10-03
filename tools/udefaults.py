@@ -135,6 +135,8 @@ class Tagged:
         name = entry['name']
         if entry['index']:
             name = '%s(%d)' % (name, entry['index'])
+        if entry.get('enum'):
+            return '%s=%s' % (name, entry['enum'])
         if t == T_BOOL:
             return '%s=%s' % (name, 'True' if v else 'False')
         if t == T_STR:
@@ -169,19 +171,23 @@ class World:
             self.pkgs.update(packages)      # reuse already loaded packages
         for key, p in self.pkgs.items():
             self.readers[key] = Reader(p)
-        self.classes = {}
+        self.classes, self.enums = {}, {}
         for key, p in self.pkgs.items():
             for i, e in enumerate(p.exports):
-                if p.classof(e) == 'Class':
+                cls = p.classof(e)
+                if cls == 'Class':
                     self.classes.setdefault(e['name'], (key, i + 1))
+                elif cls == 'Enum':
+                    self.enums.setdefault(e['name'], (key, i + 1))
 
     def inherited_properties(self, key, idx, depth=0):
-        out = set()
+        """Property name -> (package key, field) for a class and its ancestors."""
+        out = {}
         while idx and depth < 50:
             p, rd = self.pkgs[key], self.readers[key]
             for m in rd.members(idx):
                 if m['cls'].endswith('Property'):
-                    out.add(m['name'])
+                    out.setdefault(m['name'], (key, m))
             sup = rd.field(idx)['super']
             if sup > 0:
                 idx = sup
@@ -194,6 +200,19 @@ class World:
                 break
             depth += 1
         return out
+
+    def enum_for(self, key, field):
+        """Value names of the enum a ByteProperty refers to, across packages."""
+        if field['cls'] != 'ByteProperty' or not field['refs']:
+            return None
+        ref = field['refs'][0]
+        if ref > 0:
+            return self.readers[key].enum_values(ref) or None
+        name = self.pkgs[key].refname(ref)
+        if name in self.enums:
+            ekey, eidx = self.enums[name]
+            return self.readers[ekey].enum_values(eidx) or None
+        return None
 
     def defaults(self, key, idx):
         """Locate and parse the defaults block of one class. Returns entries."""
@@ -217,6 +236,12 @@ class World:
         if best is None:
             return None
         entries, _ = tag.parse(best[0], end)      # decode values for the winner
+        for x in entries:                         # name enum values where we can
+            if x['type'] == T_BYTE and x['name'] in known:
+                pkey, field = known[x['name']]
+                vals = self.enum_for(pkey, field)
+                if vals and isinstance(x['value'], int) and x['value'] < len(vals):
+                    x['enum'] = vals[x['value']]
         return entries, best[1]
 
 

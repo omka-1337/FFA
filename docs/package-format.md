@@ -231,7 +231,18 @@ Type codes: 1 Byte, 2 Int, 3 Bool, 4 Float, 5 Object, 6 Name, 7 String,
 15 FixedArray.
 
 Structs named Vector, Plane, Rotator, Color, Range and Scale hold plain binary
-rather than a nested tagged list. Rotations are in UE units, where 65536 is a
+rather than a nested tagged list. A byte value whose property refers to an enum
+is rendered by name, which needs the Enum record:
+
+```
+index  three leading indices, as for a property record
+index  value count
+index  that many name indices
+```
+
+Verified on every enum of both corpora, 157 in Shrek 2 and 107 in the Runtime,
+and the recovered EPhysics matches the documented UE2 enum, with one value
+added by KnowWonder. Rotations are in UE units, where 65536 is a
 full turn.
 
 ### Finding the block

@@ -95,6 +95,25 @@ class Reader:
         out.extend(m for m in self.owned(idx) if m['idx'] not in seen)
         return out
 
+    def enum_values(self, idx):
+        """Value names of an Enum record: three leading indices, a compact count,
+        then that many name indices. Verified on every enum of two package
+        versions."""
+        e = self.p.exports[idx - 1]
+        end = e['off'] + e['size']
+        r = R(self.p.b, e['off'])
+        try:
+            r.idx(); r.idx(); r.idx()
+            out = []
+            for _ in range(r.idx()):
+                if r.p > end:
+                    return []
+                i = r.idx()
+                out.append(self.p.names[i] if 0 <= i < len(self.p.names) else '?')
+            return out if r.p == end else []
+        except Exception:
+            return []
+
     def typename(self, d):
         cls = d['cls']
         if cls in SIMPLE:
