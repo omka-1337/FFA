@@ -134,7 +134,7 @@ class Tagged:
         t, v = entry['type'], entry['value']
         name = entry['name']
         if entry['index']:
-            name = '%s[%d]' % (name, entry['index'])
+            name = '%s(%d)' % (name, entry['index'])
         if t == T_BOOL:
             return '%s=%s' % (name, 'True' if v else 'False')
         if t == T_STR:
@@ -160,12 +160,14 @@ class Tagged:
 class World:
     """Every package of one game, so super chains can cross package boundaries."""
 
-    def __init__(self, paths):
+    def __init__(self, paths=(), packages=None):
         self.pkgs, self.readers = {}, {}
         for f in sorted(paths):
             p = Package(f)
-            key = os.path.basename(f)
-            self.pkgs[key] = p
+            self.pkgs[os.path.basename(f)] = p
+        if packages:
+            self.pkgs.update(packages)      # reuse already loaded packages
+        for key, p in self.pkgs.items():
             self.readers[key] = Reader(p)
         self.classes = {}
         for key, p in self.pkgs.items():

@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from upkg import Package
 from uscript import Script, build_native_table, read_tail, FUNC_NATIVE
 from uclass import Reader, CPF_PARM, CPF_RETURN, CPF_OUT, CPF_OPTIONAL, CPF_COERCE
+from udefaults import World, Tagged
 
 # Statements that end a basic block, used only to keep blank lines sensible.
 TERMINATORS = {'Return', 'Jump', 'Stop', 'GotoLabel'}
@@ -202,7 +203,7 @@ class Printer:
         return lines
 
 
-def decompile_class(pkg, natives, name, out=sys.stdout):
+def decompile_class(pkg, natives, name, out=sys.stdout, world=None):
     pr = Printer(pkg, natives)
     rd = pr.rd
     sc = Script(pkg)
@@ -244,6 +245,15 @@ def decompile_class(pkg, natives, name, out=sys.stdout):
         except Exception as exc:
             print('\t// could not decompile: %s' % exc, file=out)
         print('}', file=out)
+    if world is not None:
+        key = next((k for k, v in world.pkgs.items() if v is pkg), None)
+        best = world.defaults(key, idx) if key else None
+        if best and best[0]:
+            tag = Tagged(pkg)
+            print('\ndefaultproperties\n{', file=out)
+            for x in best[0]:
+                print('\t' + tag.render(x), file=out)
+            print('}', file=out)
 
 
 def main(argv):
@@ -252,6 +262,7 @@ def main(argv):
              if f.endswith('.u')]
     pkgs = {os.path.basename(f): Package(f) for f in files}
     natives = build_native_table(pkgs.values())
+    world = World(packages=pkgs)
     pkg = pkgs[argv[1]]
     if argv[2] == '--all':
         outdir = argv[3]
@@ -261,11 +272,11 @@ def main(argv):
             if pkg.classof(e) != 'Class':
                 continue
             with open(os.path.join(outdir, e['name'] + '.uc'), 'w') as f:
-                decompile_class(pkg, natives, e['name'], out=f)
+                decompile_class(pkg, natives, e['name'], out=f, world=world)
             n += 1
         print('classes written: %d' % n)
     else:
-        decompile_class(pkg, natives, argv[2])
+        decompile_class(pkg, natives, argv[2], world=world)
 
 
 if __name__ == '__main__':
