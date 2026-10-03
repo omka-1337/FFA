@@ -206,6 +206,54 @@ The conversion block 0x39 to 0x5F is a single run of cast tokens, each taking
 exactly one expression. Not knowing this is what stalls a first parser: those
 opcodes look like unrelated unknowns.
 
+## Default properties, and the tagged value format
+
+A class record ends with its `defaultproperties`: a tagged list of name and
+value pairs terminated by the name `None`. The same format carries actor
+properties inside `.unr` maps, so this is also the way into level data.
+
+```
+index  property name            terminator when it is None
+u8     info
+         bits 0..3   type code
+         bits 4..6   size: 0->1, 1->2, 2->4, 3->12, 4->16, 5->u8, 6->u16, 7->u32
+         bit  7      array flag; for BoolProperty this bit IS the value
+index  struct name               only when the type is StructProperty
+       array index               only when the array flag is set and not a bool:
+                                 one byte, unless bit 0x80 is set, then a two
+                                 byte form, or a four byte form when 0x40 is
+                                 also set
+bytes  value                     `size` bytes, absent for BoolProperty
+```
+
+Type codes: 1 Byte, 2 Int, 3 Bool, 4 Float, 5 Object, 6 Name, 7 String,
+8 Class, 9 Array, 10 Struct, 11 Vector, 12 Rotator, 13 Str, 14 Map,
+15 FixedArray.
+
+Structs named Vector, Plane, Rotator, Color, Range and Scale hold plain binary
+rather than a nested tagged list. Rotations are in UE units, where 65536 is a
+full turn.
+
+### Finding the block
+
+The fields between the struct header and the defaults are not decoded yet: state
+masks, class flags, a GUID, and variable length dependency and import arrays sit
+in between. So the block is located rather than seeked to. Scan for an offset
+from which a tagged parse lands exactly on the end of the record, then choose
+the candidate whose property names all resolve to real properties of the class
+or one of its ancestors.
+
+**The semantic check is not optional.** Several offsets per record usually parse
+cleanly to the end, and the earliest of them is the right answer only about a
+third of the time. Picking the first match would produce quietly wrong output.
+Ancestors must be followed across packages, which is what turns a partial result
+into a complete one: restricted to a single package the check validated 162 of
+220 classes, and following imports it validates all of them.
+
+Verified on every class of two package versions: 2002 of 2002 in Shrek 2 PC
+(version 129) and 607 of 607 in the UnrealEngine2 Runtime (version 126), with
+every property name resolving.
+
 ## A warning about parsers
 
 A desynchronised parse will happily read garbage as opcodes and walk off the end
@@ -221,5 +269,6 @@ budget per record. Run bulk passes under an external memory cap.
   wrong somewhere, most likely in a rarely used operand kind.
 - The seventh index of struct-like records is zero everywhere seen, so its
   meaning is unknown.
-- Class defaults, the tagged property block at the end of a UClass record, are
-  not parsed yet.
+- The fields between a class's struct header and its defaults block are still
+  unknown: state masks, class flags, GUID, dependency and import arrays. The
+  block is found by scanning instead.

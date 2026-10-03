@@ -102,11 +102,14 @@ class Package:
                                      size=ssz, off=soff))
 
     def refname(self, ref):
-        if ref > 0:
+        """Name behind an object reference. Out of range references are not an
+        error here: callers that scan for structure will produce them, and they
+        need a value back rather than an exception."""
+        if 0 < ref <= len(self.exports):
             return self.exports[ref - 1]['name']
-        if ref < 0:
+        if 0 < -ref <= len(self.imports):
             return self.imports[-ref - 1]['name']
-        return 'None'
+        return 'None' if ref == 0 else '?'
 
     def classof(self, e):
         return self.refname(e['cls_ref']) if e['cls_ref'] else 'Class'

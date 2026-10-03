@@ -10,6 +10,7 @@ in [../docs/package-format.md](../docs/package-format.md).
 | `uscript.py` | Bytecode parser, builds token trees with disk and memory offsets |
 | `uclass.py` | Classes, properties, states, function signatures |
 | `udecompile.py` | Renders bytecode back to UnrealScript source |
+| `udefaults.py` | Default property blocks, and the tagged value format |
 | `natives.py` | Which engine natives the game's script actually calls |
 
 ## Usage
@@ -23,6 +24,8 @@ python3 natives.py    $SYS/*.u                  # native surface, writes natives
 python3 uclass.py     $SYS/SHGame.u Shrek       # one class, declarations only
 python3 udecompile.py $SYS SHGame.u ShrekController     # one class with bodies
 python3 udecompile.py $SYS SHGame.u --all out/SHGame    # every class in a package
+python3 udefaults.py  $SYS SHGame.u Shrek       # one class's defaultproperties
+python3 udefaults.py  $SYS                      # validate every class's block
 ```
 
 `udecompile.py` takes the `System` directory rather than one file because the
