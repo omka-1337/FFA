@@ -288,6 +288,41 @@ and Polys are the BSP, so level geometry remains a separate decoding problem,
 but actor placement, lights, triggers, path nodes and their properties are all
 readable.
 
+## Static meshes
+
+A StaticMesh record is a tagged property block followed by a native payload:
+
+```
+FBox      6 floats then a u8 valid flag        bounding box
+FSphere   4 floats, centre and radius          no valid flag
+index     section count
+sections  14 bytes each: i32 then five u16
+FBox      25 bytes, the render bounding box
+stream    vertices:  24 bytes each, position and normal, then u32 revision
+stream    colours:    4 bytes each, then u32 revision
+stream    alpha:      4 bytes each, then u32 revision
+index     number of UV streams
+stream    each UV:    8 bytes each, two floats, then u32 revision
+u32       one further word after the UV streams
+stream    index buffer:      u16 each, then u32 revision
+stream    wireframe buffer:  u16 each, then u32 revision
+...       raw triangles and collision data, not decoded
+```
+
+The trap is the byte after the bounding sphere. By analogy with the box it looks
+like the sphere's valid flag, but it is the section count, and reading it as a
+flag puts every later field one byte out. The section count predicting exactly
+where the next bounding box begins is what confirmed it: 413 of 413 meshes.
+
+Confidence here is lower than for the script formats, and worth stating. The
+tail is undecoded, so a parse cannot be checked by landing exactly on the end of
+the record. What is checked instead is consistency: the index buffer length is a
+multiple of three, every index is inside the vertex array, and the walk stays
+within the record. All 835 static meshes of Shrek 2 pass, for 122011 vertices
+and 102414 triangles. Raising confidence further means comparing against an
+independent implementation such as UE Viewer, which is MIT licensed and can
+export the same meshes.
+
 ## A warning about parsers
 
 A desynchronised parse will happily read garbage as opcodes and walk off the end

@@ -12,6 +12,7 @@ in [../docs/package-format.md](../docs/package-format.md).
 | `udecompile.py` | Renders bytecode back to UnrealScript source |
 | `udefaults.py` | Default property blocks, and the tagged value format |
 | `umap.py` | Actors of a level and their properties |
+| `umesh.py` | Static mesh geometry: vertices, UVs, colours, triangles |
 | `natives.py` | Which engine natives the game's script actually calls |
 
 ## Usage
@@ -29,6 +30,7 @@ python3 udefaults.py  $SYS SHGame.u Shrek       # one class's defaultproperties
 python3 udefaults.py  $SYS                      # validate every class's block
 python3 umap.py       ../work/Shrek2/Maps       # object counts for every level
 python3 umap.py       ../work/Shrek2/Maps/1_Shreks_Swamp.unr Light
+python3 umesh.py      ../work/Shrek2/StaticMeshes  # geometry totals
 ```
 
 `udecompile.py` takes the `System` directory rather than one file because the
@@ -44,6 +46,13 @@ raises instead of allocating, but a bulk run is still worth capping:
 ```sh
 ( ulimit -v 3000000; python3 udecompile.py $SYS SHGame.u --all out/SHGame )
 ```
+
+## Credits
+
+The formats here were recovered by measurement against the game files, without
+taking code from any existing implementation. UE Viewer by Konstantin Nosov is
+MIT licensed and covers UE1 to UE4 assets; it is worth knowing about both as a
+cross check and as a far more complete asset exporter.
 
 ## State
 
