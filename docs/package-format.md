@@ -265,6 +265,29 @@ Verified on every class of two package versions: 2002 of 2002 in Shrek 2 PC
 (version 129) and 607 of 607 in the UnrealEngine2 Runtime (version 126), with
 every property name resolving.
 
+## Levels
+
+A `.unr` map is the same container, same version, same tables. The difference is
+what the exports hold: object instances rather than classes and functions. An
+instance is the same tagged property block, with one addition in front when the
+object carries RF_HasStack (0x02000000), the execution state frame:
+
+```
+index  Node            the state's UStruct
+index  StateNode
+u64    ProbeMask
+u32    LatentAction
+index  Offset          only when Node is non zero
+```
+
+Skip that and every actor parses exactly to the end of its record. Measured over
+all 29 Shrek 2 maps: 36111 objects parse, 16406 do not, and the ones that do not
+are exactly the engine classes with native C++ serialisation behind their
+properties, headed by StaticMeshInstance, Model, Polys and TerrainSector. Model
+and Polys are the BSP, so level geometry remains a separate decoding problem,
+but actor placement, lights, triggers, path nodes and their properties are all
+readable.
+
 ## A warning about parsers
 
 A desynchronised parse will happily read garbage as opcodes and walk off the end
