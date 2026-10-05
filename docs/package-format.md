@@ -323,6 +323,52 @@ and 102414 triangles. Raising confidence further means comparing against an
 independent implementation such as UE Viewer, which is MIT licensed and can
 export the same meshes.
 
+## BSP, the Model record
+
+A level's brush geometry lives in Model records: a tagged property block, the
+same UPrimitive prefix as a static mesh, then the BSP arrays.
+
+```
+FBox      6 floats and a u8 valid flag
+FSphere   4 floats
+index     vector count, then that many FVector   plane normals
+index     point count,  then that many FVector   brush corners
+index     node count,   then that many FBspNode
+...       surfaces, verts and the rest, not decoded yet
+```
+
+A node is variable length, because seven of its fields are compact indices:
+
+```
+FPlane    16 bytes, normal and distance
+u64       zone mask
+u8        node flags
+index x7  iVertPool, iSurf, iBack, iFront, iPlane, iCollisionBound, iRenderBound
+FSphere   16 bytes, the node's bounding sphere
+17 bytes  zero in every node seen, meaning unknown
+u8        vertex count of the node's polygon
+u8        zone
+i32 x5    typically -1, -1, 0, leaf, -1
+```
+
+### How the node was found
+
+Variable length records cannot be stepped through until the layout is known, and
+the layout cannot be checked without stepping through them. The way out was to
+find the node boundaries independently: a node starts with a unit length plane
+normal followed by a small zone mask, and scanning a level's node array for that
+pattern found exactly 245 candidates where the array declared 245, with no false
+positives.
+
+That gives the exact length of every node, which turns the problem into a search:
+how many compact indices after the flags byte, and how many fixed bytes at the
+end? Over all 244 measurable gaps there is exactly one answer, seven indices and
+a 55 byte tail, and it fits every one of them.
+
+Checked across all 29 Shrek 2 maps: 2727 Model records and 32690 nodes, with
+every child and plane reference inside its array and every plane normal unit
+length.
+
 ## A warning about parsers
 
 A desynchronised parse will happily read garbage as opcodes and walk off the end
