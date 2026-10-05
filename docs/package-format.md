@@ -335,7 +335,9 @@ index     vector count, then that many FVector   plane normals
 index     point count,  then that many FVector   brush corners
 index     node count,   then that many FBspNode
 index     surf count,   then that many FBspSurf
-...       verts and the rest, not decoded yet
+index     vert count,   then that many FVert, two compact indices each:
+          pBase into Points, and iSide
+...       zones, lightmaps, bounds and leaves, not decoded yet
 ```
 
 A surface is also variable length:
@@ -358,8 +360,8 @@ u8        node flags
 index x7  iVertPool, iSurf, iBack, iFront, iPlane, iCollisionBound, iRenderBound
 FSphere   16 bytes, the node's bounding sphere
 17 bytes  zero in every node seen, meaning unknown
-u8        vertex count of the node's polygon
 u8        zone
+u8        vertex count of the node's polygon
 i32 x5    typically -1, -1, 0, leaf, -1
 ```
 
@@ -386,9 +388,29 @@ separated them: the right layout gives 196 of 196 unit length plane normals and
 196 of 196 indices inside the vector and point arrays, while the wrong one gives
 36 and 0 and resolves materials to objects that are not textures.
 
-Checked across all 29 Shrek 2 maps: 2727 Model records, 32690 nodes and 18539
-surfaces, with every child, plane and texture reference inside its array and
-every plane normal unit length.
+Verts came last, and they carried two lessons.
+
+The first is about what to measure. A quarter of the vertex pool holds indices
+that point outside the point array, which looks like a broken parse. It is not:
+those entries are simply unreferenced, left behind by editing. The check has to
+be over the vertices a node actually points at, not over the pool.
+
+The second is sharper. With the pool checked properly, 108 of 32690 nodes still
+failed, all of them in five large models. The cause was two adjacent bytes in
+the node whose meaning I had swapped: a zone and a vertex count. Both readings
+parse, both produce plausible polygons, and nothing crashes. Two independent
+measurements settle it. With the second byte as the count, no node in the game
+indexes outside its point array, against 108 the other way; and the spacing
+between consecutive vertex pools matches the second byte 16402 times against 533
+for the first.
+
+Also useful as a check on the link fields: following iBack, iFront and iPlane
+from the root reaches every node in every model, exactly once each. A wrong
+field there would not give a complete traversal.
+
+Checked across all 29 Shrek 2 maps: 2727 Model records, 32690 nodes, 18539
+surfaces and 602807 verts, with every reference in range and every plane normal
+unit length.
 
 ## A warning about parsers
 

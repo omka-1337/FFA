@@ -9,7 +9,8 @@ then the UPrimitive prefix shared with static meshes, then the BSP arrays:
     index     point count,  then that many FVector  (brush corners)
     index     node count,   then that many FBspNode
     index     surf count,   then that many FBspSurf
-    ...       verts and the rest, not decoded yet
+    index     vert count,   then that many FVert: two compact indices
+    ...       zones, lightmaps, bounds and leaves, not decoded yet
 
 A node is variable length, because seven of its fields are compact indices:
 
@@ -20,8 +21,8 @@ A node is variable length, because seven of its fields are compact indices:
               iRenderBound
     FSphere   16 bytes, the node's bounding sphere
     17 bytes  zero in every node seen, meaning unknown
-    u8        vertex count of the node's polygon
     u8        zone
+    u8        vertex count of the node's polygon
     i32 x5    typically -1, -1, 0, leaf, -1
 
 The layout was not guessed. Node starts are findable independently, because a
@@ -59,6 +60,7 @@ class Model:
         self.points = []
         self.nodes = []
         self.surfs = []
+        self.verts = []
         self.rest = 0
         self.parse()
 
@@ -84,6 +86,8 @@ class Model:
             self.nodes.append(self.node(r))
         for _ in range(r.idx()):
             self.surfs.append(self.surf(r))
+        for _ in range(r.idx()):
+            self.verts.append((r.idx(), r.idx()))
         self.rest = end - r.p
 
     def node(self, r):
@@ -99,8 +103,12 @@ class Model:
          n.collision_bound, n.render_bound) = [r.idx() for _ in range(NODE_INDICES)]
         n.sphere = struct.unpack_from('<4f', b, r.p)
         r.p += 16 + 17
-        n.num_vertices = r.u8()
+        # These two are easy to swap, and swapping them still parses. The
+        # vertex count is the second: with it no node in the game indexes
+        # outside the point array, and the spacing between consecutive vertex
+        # pools matches it rather than the first byte.
         n.zone = r.u8()
+        n.num_vertices = r.u8()
         n.ints = struct.unpack_from('<5i', b, r.p)
         r.p += 20
         n.size = r.p - n.size
@@ -142,6 +150,13 @@ class Model:
             L = math.sqrt(sum(x * x for x in s.plane[:3]))
             if abs(L - 1.0) > 1e-4:
                 return False
+        # Only the vertices a node actually points at have to be valid. The
+        # pool also holds entries no node references, left over from editing,
+        # and those carry stale indices.
+        for n in self.nodes:
+            for pv, _ in self.verts[n.vert_pool:n.vert_pool + n.num_vertices]:
+                if not 0 <= pv < np:
+                    return False
         return True
 
 
@@ -163,21 +178,22 @@ def main(argv):
                       if f.lower().endswith('.unr')]
         else:
             paths.append(a)
-    total = good = nodes = surfs = 0
+    total = good = nodes = surfs = verts = 0
     for f in paths:
         for m in models(f):
             total += 1
             nodes += len(m.nodes)
             surfs += len(m.surfs)
+            verts += len(m.verts)
             if m.sane():
                 good += 1
             if len(paths) == 1:
-                print('  %-16s %5d vectors %6d points %6d nodes %5d surfs  '
-                      'rest %d bytes'
+                print('  %-16s %5d vectors %6d points %6d nodes %5d surfs '
+                      '%6d verts  rest %d bytes'
                       % (m.e['name'], len(m.vectors), len(m.points),
-                         len(m.nodes), len(m.surfs), m.rest))
-    print('%d models, %d pass the reference checks, %d BSP nodes, %d surfaces'
-          % (total, good, nodes, surfs))
+                         len(m.nodes), len(m.surfs), len(m.verts), m.rest))
+    print('%d models, %d pass the reference checks, %d nodes, %d surfaces, '
+          '%d verts' % (total, good, nodes, surfs, verts))
 
 
 if __name__ == '__main__':
