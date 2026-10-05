@@ -88,7 +88,7 @@ the bytecode and its opcode table, default properties, levels, and static
 meshes. It also lists what is still unknown.
 
 Facts about a file format are not anyone's property, so that document is free to
-use regardless of the licence on the code.
+use whatever licence the code carries.
 
 ## Credits
 
@@ -98,4 +98,8 @@ excellent independent check on anything this project claims about meshes.
 
 ## Licence
 
-GPL-3.0. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
+
+Permissive on purpose: the point of a format reader is that other projects can
+use it, and the ones most likely to want it, such as SurrealEngine and UE
+Viewer, are not copyleft.
