@@ -8,7 +8,8 @@ then the UPrimitive prefix shared with static meshes, then the BSP arrays:
     index     vector count, then that many FVector  (plane normals)
     index     point count,  then that many FVector  (brush corners)
     index     node count,   then that many FBspNode
-    ...       surfaces, verts and the rest, not decoded yet
+    index     surf count,   then that many FBspSurf
+    ...       verts and the rest, not decoded yet
 
 A node is variable length, because seven of its fields are compact indices:
 
@@ -46,12 +47,18 @@ class Node:
                  'sphere', 'num_vertices', 'zone', 'ints', 'size')
 
 
+class Surf:
+    __slots__ = ('material', 'flags', 'base', 'normal', 'texture_u', 'texture_v',
+                 'light_map', 'brush_poly', 'plane', 'pan')
+
+
 class Model:
     def __init__(self, pkg, export):
         self.p, self.e = pkg, export
         self.vectors = []
         self.points = []
         self.nodes = []
+        self.surfs = []
         self.rest = 0
         self.parse()
 
@@ -75,6 +82,8 @@ class Model:
         r.p += n * 12
         for _ in range(r.idx()):
             self.nodes.append(self.node(r))
+        for _ in range(r.idx()):
+            self.surfs.append(self.surf(r))
         self.rest = end - r.p
 
     def node(self, r):
@@ -97,6 +106,21 @@ class Model:
         n.size = r.p - n.size
         return n
 
+    def surf(self, r):
+        """Material reference, flags, six indices into the vector and point
+        arrays, the surface plane, and a trailing float."""
+        b = self.p.b
+        s = Surf()
+        s.material = r.idx()
+        s.flags = r.u32()
+        (s.base, s.normal, s.texture_u, s.texture_v,
+         s.light_map, s.brush_poly) = [r.idx() for _ in range(6)]
+        s.plane = struct.unpack_from('<4f', b, r.p)
+        r.p += 16
+        s.pan = struct.unpack_from('<f', b, r.p)[0]
+        r.p += 4
+        return s
+
     def sane(self):
         """Every node must reference the arrays it is supposed to reference."""
         nn = len(self.nodes)
@@ -106,6 +130,16 @@ class Model:
             if n.plane_index < -1 or n.plane_index >= nn:
                 return False
             L = math.sqrt(sum(x * x for x in n.plane[:3]))
+            if abs(L - 1.0) > 1e-4:
+                return False
+        nv, np = len(self.vectors), len(self.points)
+        for s in self.surfs:
+            if not (0 <= s.base < np) and np:
+                return False
+            if nv and not all(0 <= i < nv for i in
+                              (s.normal, s.texture_u, s.texture_v)):
+                return False
+            L = math.sqrt(sum(x * x for x in s.plane[:3]))
             if abs(L - 1.0) > 1e-4:
                 return False
         return True
@@ -129,19 +163,21 @@ def main(argv):
                       if f.lower().endswith('.unr')]
         else:
             paths.append(a)
-    total = good = nodes = 0
+    total = good = nodes = surfs = 0
     for f in paths:
         for m in models(f):
             total += 1
             nodes += len(m.nodes)
+            surfs += len(m.surfs)
             if m.sane():
                 good += 1
             if len(paths) == 1:
-                print('  %-16s %5d vectors %6d points %6d nodes  rest %d bytes'
+                print('  %-16s %5d vectors %6d points %6d nodes %5d surfs  '
+                      'rest %d bytes'
                       % (m.e['name'], len(m.vectors), len(m.points),
-                         len(m.nodes), m.rest))
-    print('%d models, %d pass the reference checks, %d BSP nodes'
-          % (total, good, nodes))
+                         len(m.nodes), len(m.surfs), m.rest))
+    print('%d models, %d pass the reference checks, %d BSP nodes, %d surfaces'
+          % (total, good, nodes, surfs))
 
 
 if __name__ == '__main__':

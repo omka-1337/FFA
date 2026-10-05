@@ -21,7 +21,7 @@ copying even if the code is not.
 | `tools/udecompile.py` | Renders a class back to readable UnrealScript |
 | `tools/umap.py` | Actors of a level and their properties |
 | `tools/umesh.py` | Static mesh geometry: vertices, normals, UVs, colours, triangles |
-| `tools/ubsp.py` | BSP: level vectors, points and nodes |
+| `tools/ubsp.py` | BSP: level vectors, points, nodes and surfaces |
 | `tools/natives.py` | Which engine natives a game's script actually calls |
 
 Pure Python, standard library only, no dependencies.
@@ -40,8 +40,8 @@ UnrealEngine2 Runtime (version 126):
   not are exactly the engine classes with native payloads: Model and Polys (the
   BSP), StaticMeshInstance, TerrainSector.
 - **Meshes.** All 835 static meshes, 122011 vertices and 102414 triangles.
-- **BSP.** All 2727 Model records and their 32690 nodes, with every reference in
-  range. Surfaces and verts are still undecoded.
+- **BSP.** All 2727 Model records, 32690 nodes and 18539 surfaces, with every
+  reference in range. Verts and the rest are still undecoded.
 
 Not done yet: the rest of the BSP, terrain, textures, and structuring the
 decompiler's control flow into `if` and `for` rather than labels and gotos.

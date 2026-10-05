@@ -334,7 +334,19 @@ FSphere   4 floats
 index     vector count, then that many FVector   plane normals
 index     point count,  then that many FVector   brush corners
 index     node count,   then that many FBspNode
-...       surfaces, verts and the rest, not decoded yet
+index     surf count,   then that many FBspSurf
+...       verts and the rest, not decoded yet
+```
+
+A surface is also variable length:
+
+```
+index     material, usually an import, resolving to a texture name
+u32       poly flags
+index x6  pBase into Points, vNormal, vTextureU, vTextureV into Vectors,
+          iLightMap, iBrushPoly
+FPlane    16 bytes
+f32       pan
 ```
 
 A node is variable length, because seven of its fields are compact indices:
@@ -365,9 +377,18 @@ how many compact indices after the flags byte, and how many fixed bytes at the
 end? Over all 244 measurable gaps there is exactly one answer, seven indices and
 a 55 byte tail, and it fits every one of them.
 
-Checked across all 29 Shrek 2 maps: 2727 Model records and 32690 nodes, with
-every child and plane reference inside its array and every plane normal unit
-length.
+Surfaces were found the same way, using a different anchor. Nodes carry an iSurf
+index, so the surface array's length is known before it is parsed: the largest
+iSurf was 195 and the array declared 196. Nodes also carry iVertPool, so the
+array that follows the surfaces must be at least that large, and that constraint
+alone narrowed a search over field counts to two candidates. Semantics then
+separated them: the right layout gives 196 of 196 unit length plane normals and
+196 of 196 indices inside the vector and point arrays, while the wrong one gives
+36 and 0 and resolves materials to objects that are not textures.
+
+Checked across all 29 Shrek 2 maps: 2727 Model records, 32690 nodes and 18539
+surfaces, with every child, plane and texture reference inside its array and
+every plane normal unit length.
 
 ## A warning about parsers
 
