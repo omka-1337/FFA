@@ -1,8 +1,13 @@
-# ue2tools
+# FFA-Tools
 
-Readers for Unreal Engine 2 packages, written from scratch against the game
-files. They open the container, decompile UnrealScript back to source, read class
-defaults, list the actors of a level, and pull static mesh geometry out.
+Tools for Unreal Engine 2 packages, written from scratch against the game files.
+They open the container, decompile UnrealScript back to source, read class
+defaults, and assemble whole levels from their BSP, static meshes and terrain.
+
+FFA stands for Far Far Away. FFA-Tools is the part of the project that reads the
+formats; a planned engine, FFA-Engine, is meant to run a game's original data on
+top of what is learned here. The tools are not tied to one game: they read UE2
+packages generally, and Shrek 2 PC is the corpus they were proven on.
 
 Nothing here was taken from an existing implementation. Every format was
 recovered by measurement, and every reader has to prove itself against the whole
