@@ -13,6 +13,7 @@ import sys, os, json, base64, struct, zlib, colorsys, collections
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from upkg import Package, R
+from umap import Map
 from ulevel import (level_model, polygons, MeshLibrary, static_mesh_instances,
                     ClassDefaults, skeletal_instances, skeletal_local_points,
                     import_path)
@@ -93,7 +94,14 @@ def tint(name):
     return colorsys.hsv_to_rgb(h, 0.35, 1.0)
 
 
-def build_bsp(pkg, path=None, textures=None):
+# BSP surface flag 0x80, PF_FakeBackdrop: a window onto the sky. It is set on
+# surfaces of the 17 levels with a SkyZoneInfo and of none of the 12 without,
+# always facing a playable zone and backing onto the outside.
+PF_FAKE_BACKDROP = 0x80
+LEVEL, BACKDROP, SKY = 0, 1, 2
+
+
+def build_bsp(pkg, path=None, textures=None, model=None, sky_zone=None):
     """BSP polygons, each triangle wound so it faces the way its node's plane
     does. Drawn front side only, a level can then be looked into from outside,
     since its faces point into the playable space.
@@ -101,12 +109,16 @@ def build_bsp(pkg, path=None, textures=None):
     Texture coordinates come from the surface: a texel position is the offset
     from the surface's base point projected on its two texture vectors, and
     dividing by the texture's size makes it the 0 to 1 range of the image.
-    Triangles are grouped by texture, as (first index, count, texture id)."""
-    m = level_model(pkg)
+    Triangles are grouped by part and texture, as (first index, count, texture
+    id, part), the part being the level, its sky windows, or the sky zone."""
+    m = model or level_model(pkg)
     pos, col, uv, by_tex = [], [], [], collections.defaultdict(list)
     mats = collections.Counter()
     V, Pts = m.vectors, m.points
-    for pts, s, flags, nrm in polygons(m, with_surf=True):
+    for pts, s, flags, node in polygons(m, with_surf=True):
+        nrm = node.plane[:3]
+        part = (SKY if sky_zone is not None and node.zone == sky_zone
+                else BACKDROP if flags & PF_FAKE_BACKDROP else LEVEL)
         mat = pkg.refname(s.material) if s else 'None'
         tid = textures.for_material(pkg, path, s.material) if (textures and s) else -1
         base = len(pos) // 3
@@ -128,14 +140,14 @@ def build_bsp(pkg, path=None, textures=None):
         for i in range(1, len(P) - 1):
             g = cross(sub(P[i], P[0]), sub(P[i + 1], P[0]))
             if g[0] * N[0] + g[1] * N[1] + g[2] * N[2] >= 0:
-                by_tex[tid] += [base, base + i, base + i + 1]
+                by_tex[part, tid] += [base, base + i, base + i + 1]
             else:
-                by_tex[tid] += [base, base + i + 1, base + i]
+                by_tex[part, tid] += [base, base + i + 1, base + i]
         mats[mat] += 1
     idx, groups = [], []
-    for tid in sorted(by_tex):
-        groups.append([len(idx), len(by_tex[tid]), tid])
-        idx += by_tex[tid]
+    for part, tid in sorted(by_tex):
+        groups.append([len(idx), len(by_tex[part, tid]), tid, part])
+        idx += by_tex[part, tid]
     return pos, col, idx, mats, uv, groups
 
 
@@ -170,7 +182,7 @@ def instance_matrix(cols, loc):
             A3[0][2], A3[1][2], A3[2][2], 0.0, t[0], t[1], t[2], 1.0]
 
 
-def build_skeletal(pkg, path, lib, defaults, textures=None):
+def build_skeletal(pkg, path, lib, defaults, textures=None, in_sky=lambda loc: False):
     """Skeletal meshes in their reference pose, laid out per wedge so that each
     corner carries its own texture coordinates, with faces grouped by material."""
     uniq, inst = {}, collections.defaultdict(list)
@@ -193,13 +205,13 @@ def build_skeletal(pkg, path, lib, defaults, textures=None):
                 tid = textures.for_material(sk.p, key[0], ref) if textures else -1
                 groups.append([start, len(idx) - start, tid])
             uniq[key] = (sk.name, pos, idx, uv, groups)
-        inst[key].append(instance_matrix(cols, loc))
+        inst[key, in_sky(loc)].append(instance_matrix(cols, loc))
     return uniq, inst
 
 
-def build_meshes(pkg, path, lib, defaults=None, textures=None):
-    """Unique (mesh, skins) pairs once each, plus one transform per actor."""
-    from ulevel import Map
+def build_meshes(pkg, path, lib, defaults=None, textures=None, in_sky=lambda loc: False):
+    """Unique (mesh, skins) pairs once each, plus one transform per actor,
+    kept apart by whether the actor stands in the sky zone."""
     uniq, inst = {}, collections.defaultdict(list)
     skins_of = {}
     for e, d in Map(pkg).actors(values=True):
@@ -224,7 +236,7 @@ def build_meshes(pkg, path, lib, defaults=None, textures=None):
                 tid = textures.for_material(hp, hpath, ref) if textures else -1
                 groups.append([first, nfaces * 3, tid])
             uniq[ukey] = (mesh.name, pos, list(mesh.indices), uv, groups)
-        inst[ukey].append(instance_matrix(cols, loc))
+        inst[ukey, in_sky(loc)].append(instance_matrix(cols, loc))
     return uniq, inst
 
 
@@ -244,7 +256,8 @@ html,body{margin:0;height:100%%;background:#18181f;overflow:hidden;font:13px sys
 <b>Fly:</b> W A S D move · E or Space up · Q or C down · arrows look<br>
 Shift fast · [ and ] change speed · R back to the overview<br>
 mouse or touchpad drag also looks, wheel changes speed<br>
-<b>Show:</b> B BSP one or both sides · M static meshes · T terrain · K skeletal meshes<br><br>%(legend)s</div>
+<b>Show:</b> B BSP one or both sides · M static meshes · T terrain · K skeletal meshes<br>
+Y sky as a background, or where it stands<br><br>%(legend)s</div>
 <script src="%(three)s"></script>
 <script>
 function dec(s, T){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new T(u.buffer)}
@@ -285,16 +298,45 @@ function instanced(list, group, fallback){
     for(let i=0;i<n;i++){M.fromArray(mat,i*16); im.setMatrixAt(i,M);}
     im.instanceMatrix.needsUpdate=true; group.add(im);
   }}
-// BSP: one material per texture, front side only; untextured surfaces keep
-// their tint by material name.
-const bspMats=%(groups)s.map((gr,i)=>{ g.addGroup(gr[0],gr[1],i); const t=gr[2];
-  return t>=0 ? new THREE.MeshLambertMaterial({map:TEX[t].tx, side:THREE.FrontSide, alphaTest:TEX[t].alpha?0.5:0})
-              : new THREE.MeshLambertMaterial({vertexColors:true, side:THREE.FrontSide}); });
-scene.add(new THREE.Mesh(g,bspMats));
+// BSP in three parts sharing one vertex buffer: the level, its windows onto
+// the sky (PF_FakeBackdrop), and the sky zone. One material per texture, front
+// side only; untextured surfaces keep their tint by material name.
+const bspMats=[], parts=[[],[],[]];
+%(groups)s.forEach(gr=>parts[gr[3]].push(gr));
+function bspMesh(list){
+  const bg=new THREE.BufferGeometry();
+  for(const k of ['position','color','uv','normal']) bg.setAttribute(k,g.attributes[k]);
+  const s=list.length?list[0][0]:0, e=list.length?list[list.length-1][0]+list[list.length-1][1]:0;
+  bg.setIndex(new THREE.BufferAttribute(idx.subarray(s,e),1));
+  const ms=list.map((gr,i)=>{ bg.addGroup(gr[0]-s,gr[1],i); const t=gr[2];
+    const m = t>=0 ? new THREE.MeshLambertMaterial({map:TEX[t].tx, side:THREE.FrontSide, alphaTest:TEX[t].alpha?0.5:0})
+                   : new THREE.MeshLambertMaterial({vertexColors:true, side:THREE.FrontSide});
+    bspMats.push(m); return m; });
+  return new THREE.Mesh(bg, ms.length?ms:new THREE.MeshBasicMaterial());
+}
+const levelBsp=bspMesh(parts[0]), backdrop=bspMesh(parts[1]); scene.add(levelBsp, backdrop);
 const meshes=new THREE.Group(); scene.add(meshes);
 const terrain=new THREE.Group(); scene.add(terrain);
 const skeletal=new THREE.Group(); scene.add(skeletal);
-instanced(%(skeletal)s, skeletal, 0xb08ce0);
+// The sky zone, drawn first from SKY with the player camera's rotation, so it
+// stays at infinity. Y shows it where it really stands instead.
+const SKY=%(sky)s, skyGroup=new THREE.Group(), skyScene=new THREE.Scene();
+skyGroup.add(bspMesh(parts[2]));
+const skyMeshes=new THREE.Group(); skyGroup.add(skyMeshes);
+const SKEL=%(skeletal)s, MESH=%(meshes)s;
+instanced(SKEL.filter(m=>!m.sky), skeletal, 0xb08ce0);
+instanced(SKEL.filter(m=>m.sky), skyMeshes, 0xb08ce0);
+instanced(MESH.filter(m=>m.sky), skyMeshes, 0xc89070);
+let skyAsBackground=!!SKY;
+function placeSky(){
+  (skyAsBackground?skyScene:scene).add(skyGroup);
+  backdrop.visible=!skyAsBackground;
+}
+placeSky();
+for(const sc of [scene, skyScene]){
+  sc.add(new THREE.HemisphereLight(0xffffff,0x404050,0.75));
+  const sun=new THREE.DirectionalLight(0xffffff,0.6); sun.position.set(0.4,1,0.3); sc.add(sun);
+}
 for (const t of %(terrain)s){
   const tg=new THREE.BufferGeometry();
   tg.setAttribute('position',new THREE.BufferAttribute(dec(t.pos,Float32Array),3));
@@ -303,19 +345,28 @@ for (const t of %(terrain)s){
   tg.computeVertexNormals();
   terrain.add(new THREE.Mesh(tg,new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.FrontSide})));
 }
-instanced(%(meshes)s, meshes, 0xc89070);
+instanced(MESH.filter(m=>!m.sky), meshes, 0xc89070);
 
-scene.add(new THREE.HemisphereLight(0xffffff,0x404050,0.75));
-const sun=new THREE.DirectionalLight(0xffffff,0.6); sun.position.set(0.4,1,0.3); scene.add(sun);
-// Frame the level on BSP and terrain only: three.js bounds an InstancedMesh by
-// its base geometry at the origin, not by where the instances are placed.
-const box=new THREE.Box3(); g.computeBoundingBox(); box.union(g.boundingBox);
+// Frame the level on its BSP and terrain only: three.js bounds an InstancedMesh
+// by its base geometry at the origin, not by where the instances are placed,
+// and the sky zone stands far from the playable space.
+const box=new THREE.Box3(), pv=new THREE.Vector3();
+for(const li of [levelBsp, backdrop]){ const ix=li.geometry.index.array;
+  for(let i=0;i<ix.length;i++){ pv.fromArray(pos, ix[i]*3); box.expandByPoint(pv); } }
+if(box.isEmpty()) box.expandByPoint(pv.set(0,0,0));
 terrain.children.forEach(m=>{m.geometry.computeBoundingBox(); box.union(m.geometry.boundingBox)});
 const sph=box.getBoundingSphere(new THREE.Sphere()); const R=sph.radius, C=sph.center;
 const cam=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,Math.max(0.05,R/4000),R*20);
+const skyCam=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.05,R*20);
+if(SKY) skyCam.position.fromArray(SKY);
 const ren=new THREE.WebGLRenderer({antialias:true}); ren.setPixelRatio(devicePixelRatio);
 ren.setSize(innerWidth,innerHeight); document.body.appendChild(ren.domElement);
-addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();ren.setSize(innerWidth,innerHeight)});
+ren.autoClear=false;
+// Frames are drawn only when something changes, so an idle page costs nothing.
+let dirty=true; const redraw=()=>{dirty=true};
+THREE.DefaultLoadingManager.onLoad=redraw;
+addEventListener('resize',()=>{for(const c of [cam,skyCam]){c.aspect=innerWidth/innerHeight;c.updateProjectionMatrix()}
+  ren.setSize(innerWidth,innerHeight); redraw()});
 
 // Noclip fly camera. Keys are read by physical position (event.code), so W is
 // W on any layout, Cyrillic included.
@@ -337,23 +388,28 @@ addEventListener('keydown',e=>{
   if(e.code==='KeyT'){terrain.visible=!terrain.visible}
   if(e.code==='KeyK'){skeletal.visible=!skeletal.visible}
   if(e.code==='KeyR'){overview()}
+  if(e.code==='KeyY'&&SKY){skyAsBackground=!skyAsBackground; placeSky()}
+  redraw();
   if(e.code==='BracketRight'){speed*=1.5}
   if(e.code==='BracketLeft'){speed/=1.5}
 });
-addEventListener('keyup',e=>{held[e.code]=false});
+addEventListener('keyup',e=>{held[e.code]=false; redraw()});
 addEventListener('blur',()=>{for(const k in held) held[k]=false});
 let dragging=false, lx=0, ly=0;
 ren.domElement.addEventListener('pointerdown',e=>{dragging=true;lx=e.clientX;ly=e.clientY});
 addEventListener('pointerup',()=>{dragging=false});
 addEventListener('pointermove',e=>{
   if(!dragging) return;
-  yaw-=(e.clientX-lx)*0.005; pitch-=(e.clientY-ly)*0.005; lx=e.clientX; ly=e.clientY;
+  yaw-=(e.clientX-lx)*0.005; pitch-=(e.clientY-ly)*0.005; lx=e.clientX; ly=e.clientY; redraw();
 });
 ren.domElement.addEventListener('wheel',e=>{e.preventDefault(); speed*=e.deltaY<0?1.15:1/1.15},{passive:false});
 const clock=new THREE.Clock(), up=new THREE.Vector3(0,1,0);
 (function loop(){
   requestAnimationFrame(loop);
   const dt=Math.min(clock.getDelta(),0.1), h=k=>held[k]?1:0;
+  const moving=['KeyW','KeyA','KeyS','KeyD','KeyE','KeyQ','KeyC','Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].some(k=>held[k]);
+  if(!moving&&!dirty) return;
+  dirty=false;
   yaw  +=(h('ArrowLeft')-h('ArrowRight'))*1.8*dt;
   pitch+=(h('ArrowUp')-h('ArrowDown'))*1.4*dt;
   pitch=Math.max(-1.55,Math.min(1.55,pitch));
@@ -366,6 +422,8 @@ const clock=new THREE.Clock(), up=new THREE.Vector3(0,1,0);
   const fast=(held['ShiftLeft']||held['ShiftRight'])?4:1;
   if(v.lengthSq()>0) cam.position.addScaledVector(v.normalize(),speed*fast*dt);
   cam.lookAt(cam.position.clone().add(fwd));
+  ren.clear();
+  if(skyAsBackground){ skyCam.quaternion.copy(cam.quaternion); ren.render(skyScene,skyCam); ren.clearDepth(); }
   ren.render(scene,cam);
 })();
 </script></body></html>
@@ -383,21 +441,27 @@ def main(argv):
     sysdir = os.path.join(root, 'System')
     defaults = ClassDefaults(sysdir) if os.path.isdir(sysdir) else None
     textures = TextureTable(lib)
-    pos, col, idx, mats, bsp_uv, bsp_groups = build_bsp(pkg, src, textures)
-    uniq, inst = build_meshes(pkg, src, lib, defaults, textures)
+    model = level_model(pkg)
+    # The sky is the zone its SkyZoneInfo stands in. The engine draws it as a
+    # background, from that point, with the player camera's rotation.
+    sky = next((d['Location']['value'] for e, d in Map(pkg).actors(values=True)
+                if pkg.classof(e) == 'SkyZoneInfo' and 'Location' in d), None)
+    sky_zone = model.zone_at(sky) if sky else None
+    in_sky = lambda loc: sky_zone is not None and model.zone_at(loc) == sky_zone
+    pos, col, idx, mats, bsp_uv, bsp_groups = build_bsp(pkg, src, textures, model, sky_zone)
+    uniq, inst = build_meshes(pkg, src, lib, defaults, textures, in_sky)
     terr = build_terrain(pkg, lib.files)
-    suniq, sinst = build_skeletal(pkg, src, lib, defaults, textures)
-    skel_json = json.dumps([dict(pos=b64('f', suniq[k][1]), idx=b64('I', suniq[k][2]),
-                                 uv=b64('f', suniq[k][3]), groups=suniq[k][4],
-                                 mat=b64('f', [x for m in sinst[k] for x in m]))
-                            for k in suniq])
-    mesh_json = json.dumps([
-        dict(pos=b64('f', uniq[k][1]), idx=b64('I', uniq[k][2]),
-             uv=b64('f', uniq[k][3]), groups=uniq[k][4],
-             mat=b64('f', [x for m in inst[k] for x in m]))
-        for k in uniq])
+    suniq, sinst = build_skeletal(pkg, src, lib, defaults, textures, in_sky)
+
+    def instances_json(uniq, inst):
+        return json.dumps([dict(pos=b64('f', uniq[k][1]), idx=b64('I', uniq[k][2]),
+                                uv=b64('f', uniq[k][3]), groups=uniq[k][4], sky=s,
+                                mat=b64('f', [x for m in inst[k, s] for x in m]))
+                           for k, s in inst])
+    skel_json = instances_json(suniq, sinst)
+    mesh_json = instances_json(uniq, inst)
     ninst = sum(len(v) for v in inst.values())
-    ntri = sum(len(uniq[k][2]) // 3 * len(inst[k]) for k in uniq)
+    ntri = sum(len(uniq[k][2]) // 3 * len(v) for (k, s), v in inst.items())
     title = os.path.splitext(os.path.basename(src))[0]
     legend = '<br>'.join(
         '<span class="sw" style="background:rgb(%d,%d,%d)"></span>%s (%d)'
@@ -413,6 +477,7 @@ def main(argv):
                        meshes=mesh_json,
                        terrain=json.dumps([{k: t[k] for k in ('pos', 'col', 'idx')} for t in terr]),
                        skeletal=skel_json,
+                       sky=json.dumps(conv(sky) if sky else None),
                        textures=json.dumps(textures.items))
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     open(out, 'w').write(html)

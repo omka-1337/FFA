@@ -20,8 +20,9 @@ A node is variable length, because seven of its fields are compact indices:
     index x7  iVertPool, iSurf, iBack, iFront, iPlane, iCollisionBound,
               iRenderBound
     FSphere   16 bytes, the node's bounding sphere
-    17 bytes  zero in every node seen, meaning unknown
-    u8        zone
+    16 bytes  zero in every node seen, meaning unknown
+    u8        zone behind the plane
+    u8        zone in front of the plane
     u8        vertex count of the node's polygon
     i32 x5    typically -1, -1, 0, leaf, -1
 
@@ -45,7 +46,7 @@ NODE_INDICES = 7
 class Node:
     __slots__ = ('plane', 'zone_mask', 'flags', 'vert_pool', 'surf', 'back',
                  'front', 'plane_index', 'collision_bound', 'render_bound',
-                 'sphere', 'num_vertices', 'zone', 'ints', 'size')
+                 'sphere', 'num_vertices', 'zone_back', 'zone', 'ints', 'size')
 
 
 class Surf:
@@ -102,7 +103,8 @@ class Model:
         (n.vert_pool, n.surf, n.back, n.front, n.plane_index,
          n.collision_bound, n.render_bound) = [r.idx() for _ in range(NODE_INDICES)]
         n.sphere = struct.unpack_from('<4f', b, r.p)
-        r.p += 16 + 17
+        r.p += 16 + 16
+        n.zone_back = r.u8()
         # These two are easy to swap, and swapping them still parses. The
         # vertex count is the second: with it no node in the game indexes
         # outside the point array, and the spacing between consecutive vertex
@@ -131,6 +133,21 @@ class Model:
         s.light_map_scale = struct.unpack_from('<f', b, r.p)[0]
         r.p += 4
         return s
+
+    def zone_at(self, p):
+        """Zone number of a point: walk from the root, front or back by the
+        side of each plane the point is on, until there is no child on that
+        side; the zone byte for that side is the answer. A child index of 0
+        means none, as the root is nobody's child."""
+        i, nn = 0, len(self.nodes)
+        for _ in range(nn + 1):
+            n = self.nodes[i]
+            front = (n.plane[0] * p[0] + n.plane[1] * p[1] + n.plane[2] * p[2]) >= n.plane[3]
+            nxt = n.front if front else n.back
+            if not 0 < nxt < nn:
+                return n.zone if front else n.zone_back
+            i = nxt
+        raise ValueError('BSP walk did not end')
 
     def sane(self):
         """Every node must reference the arrays it is supposed to reference."""
@@ -173,7 +190,41 @@ def models(path):
                 continue
 
 
+def zone_check(paths):
+    """Compare the zone a BSP walk gives for each actor's location with the
+    ZoneNumber the engine stored in the actor's Region when the level was
+    saved. Only the level Model is walked, the one no Brush refers to."""
+    from umap import Map
+    from ulevel import level_model
+    total = agree = 0
+    misses = collections.Counter()
+    for f in paths:
+        pkg = Package(f)
+        try:
+            m = level_model(pkg)
+        except ValueError:
+            continue
+        for e, d in Map(pkg).actors(values=True):
+            reg, loc = d.get('Region'), d.get('Location', {}).get('value')
+            if not reg or not loc:
+                continue
+            v = Tagged(pkg).parse(reg['at'], reg['at'] + reg['size'])
+            zn = {x['name']: x for x in v[0]}.get('ZoneNumber') if v else None
+            if zn is None:
+                continue
+            total += 1
+            if m.zone_at(loc) == zn['value']:
+                agree += 1
+            else:
+                misses[pkg.classof(e)] += 1
+    print('%d of %d actors are in the zone their Region names' % (agree, total))
+    for cls, n in misses.most_common(5):
+        print('  %5d %s' % (n, cls))
+
+
 def main(argv):
+    zones = '--zones' in argv
+    argv = [a for a in argv if a != '--zones']
     paths = []
     for a in argv:
         if os.path.isdir(a):
@@ -181,6 +232,8 @@ def main(argv):
                       if f.lower().endswith('.unr')]
         else:
             paths.append(a)
+    if zones:
+        return zone_check(paths)
     total = good = nodes = surfs = verts = 0
     for f in paths:
         for m in models(f):

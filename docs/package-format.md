@@ -416,11 +416,49 @@ u64       zone mask
 u8        node flags
 index x7  iVertPool, iSurf, iBack, iFront, iPlane, iCollisionBound, iRenderBound
 FSphere   16 bytes, the node's bounding sphere
-17 bytes  zero in every node seen, meaning unknown
-u8        zone
+16 bytes  zero in all 29512 nodes of the game, meaning unknown
+u8        zone behind the plane
+u8        zone in front of the plane
 u8        vertex count of the node's polygon
 i32 x5    typically -1, -1, 0, leaf, -1
 ```
+
+### Zones
+
+A level is divided into zones, rooms joined by portals, and every node carries
+the zone on each side of its plane. A point's zone is found by walking the tree:
+from the root, go to the front or back child by the side of the plane the point
+is on, until there is no child on that side, and the zone byte for that side is
+the answer. A child index of 0 means none, since the root is nobody's child.
+
+The check is independent of the BSP: every actor stores a `Region`, a tagged
+PointRegion struct of Zone, iLeaf and ZoneNumber, written by the engine when it
+saved the level. `ubsp.py --zones <maps>` walks the tree for every actor's
+location and compares. 22662 of 30795 agree. 7702 of the rest are AutoLadder
+actors, and their stored Region is a copy rather than a lookup: in the Fairy
+Godmother factory 740 of them, standing all over the level, name the same leaf.
+Without them, 22662 of 23093 agree, 98 percent; the remaining few hundred are
+coins, lights and path markers, most likely on or inside a zone boundary.
+
+### The sky
+
+A level's sky is BSP like the rest, built around its SkyZoneInfo far from the
+playable space: a box of six polygons, with a sky dome and distant treelines as
+static meshes inside it. The engine draws that zone first, as a background, from
+the SkyZoneInfo's location with the player camera's rotation only, so the sky
+stays at infinity however far the player walks. The sky zone is simply the zone
+the SkyZoneInfo stands in.
+
+The level shows it through surfaces with poly flag 0x80, PF_FakeBackdrop. The
+value is from the engine family, and the data agrees with it: the flag is on
+surfaces in all 17 levels that have a SkyZoneInfo and in none of the 12 that do
+not, every such surface faces a playable zone, and almost all of them back onto
+zone 0, the outside. They are the outer walls a player looks at the sky through.
+
+Several other zones on Shrek's swamp stand near the sky and look like part of
+it, ringed with the same treeline texture. They are not: they hold
+CutCamPosition, CSPeasant and the potion bottles, sets for the cutscenes, and one
+is a tavern interior with pool balls and a shelf of skull candles.
 
 ### How the node was found
 
@@ -962,9 +1000,8 @@ budget per record. Run bulk passes under an external memory cap.
 - The editor's material preview meshes in Editor.u, TexPropSphere and
   TexPropCube, do not follow the static mesh layout. No level uses them.
 - Whether and how PrePivot applies to skeletal meshes; see placing them.
-- The skybox. A level's sky is BSP like the rest, built around its
-  SkyZoneInfo far from the playable space, and the engine draws it as a
-  background from that point. The viewer still draws it where it stands.
+- The sky dome is drawn lit like the rest of the scene; the game probably
+  draws it unlit.
 
 - 39 of 8638 functions still fail end alignment, 33 of them in GUI.u.
 - 212 functions align but disagree on size, so one token's memory size is still

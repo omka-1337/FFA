@@ -220,13 +220,23 @@ addEventListener('keydown',e=>{
   if(e.code==='PageUp'&&PREV) location.href=PREV;
   if(e.code==='PageDown'&&NEXT) location.href=NEXT;
   if(e.code==='Home') location.href='index.html';
+  dirty=true;
 });
-addEventListener('keyup',e=>{held[e.code]=false});
+addEventListener('keyup',e=>{held[e.code]=false; dirty=true});
 addEventListener('blur',()=>{for(const k in held) held[k]=false});
 const clock=new THREE.Clock(), out=new Float64Array(n*3);
+// A frame is drawn only while the animation plays, a view key is held, or
+// something changed, so a paused or still page costs nothing.
+let dirty=true;
+THREE.DefaultLoadingManager.onLoad=()=>{dirty=true};
+addEventListener('resize',()=>{dirty=true});
+sel.addEventListener('change',()=>{dirty=true});
 (function loop(){
   requestAnimationFrame(loop);
   const dt=Math.min(clock.getDelta(),0.1), h=k=>held[k]?1:0;
+  const viewing=['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyW','KeyS'].some(k=>held[k]);
+  if(!(playing&&M.seqs.length)&&!viewing&&!dirty) return;
+  dirty=false;
   yaw+=(h('ArrowLeft')-h('ArrowRight'))*1.6*dt; pitch+=(h('ArrowUp')-h('ArrowDown'))*1.2*dt;
   pitch=Math.max(-1.4,Math.min(1.4,pitch)); dist*=Math.pow(1.8,(h('KeyS')-h('KeyW'))*dt);
   cam.position.set(C.x+dist*Math.cos(pitch)*Math.sin(yaw),C.y+dist*Math.sin(pitch),C.z+dist*Math.cos(pitch)*Math.cos(yaw));

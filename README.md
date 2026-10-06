@@ -79,8 +79,8 @@ UnrealEngine2 Runtime (version 126):
   game itself.
 
 The level viewer draws BSP, static meshes and characters with their textures,
-and the gallery its characters. Not done yet: the skybox drawn as a background,
-terrain textures, animation inside the level viewer, the rest of the BSP
+and the sky as the game does, as a background seen from the SkyZoneInfo; the
+gallery draws its characters textured. Not done yet: terrain textures, animation inside the level viewer, the rest of the BSP
 record, and structuring the decompiler's control flow into `if` and `for`
 rather than labels and gotos.
 
@@ -113,6 +113,7 @@ python3 udefaults.py  $SYS Engine.u Pawn             # one class's defaults
 python3 umap.py       ../Maps                        # object counts per level
 python3 umesh.py      ../StaticMeshes                # geometry totals
 python3 umaterial.py  ..                             # every static mesh's materials
+python3 ubsp.py --zones ../Maps                      # BSP zones against every actor's Region
 python3 uview.py      ../Maps/7_Prison_Donkey.unr ../out/prison.html
 python3 ugallery.py   ../Animations ../out/gallery   # one page per skeletal mesh
 ```
@@ -125,8 +126,10 @@ between meshes.
 
 The viewer is a noclip camera: W A S D to move, E or Space up, Q or C down, the
 arrow keys to look, Shift to go faster, R back to the overview, and B, M, T and K
-to toggle BSP sides, static meshes, terrain and skeletal meshes. Keys are read by physical position,
-so they work on any keyboard layout.
+to toggle BSP sides, static meshes, terrain and skeletal meshes. Y shows the sky
+where it really stands instead of as the background. Keys are read by physical
+position, so they work on any keyboard layout. Pages draw only when something
+changes, so an open tab that is not being used costs nothing.
 
 The viewer output contains the game's own geometry, so it goes to the gitignored
 `out/` and is for looking at your own copy only.
