@@ -186,9 +186,10 @@ def rotation_axes(pitch, yaw, roll):
     return X, Yax, Z
 
 
-def actor_matrix(d):
+def actor_matrix(d, pre_pivot=False):
     """3x3 linear part (as three column vectors) and translation, in Unreal
-    space, for an actor's property dict."""
+    space, for an actor's property dict. With `pre_pivot`, the actor's
+    PrePivot is applied, which is proven for static meshes only."""
     loc = d.get('Location', {}).get('value') or (0.0, 0.0, 0.0)
     rot = d.get('Rotation', {}).get('value') or (0, 0, 0)
     s = d.get('DrawScale', {}).get('value')
@@ -197,6 +198,13 @@ def actor_matrix(d):
     X, Y, Z = rotation_axes(*rot)
     cols = (tuple(v * s * s3[0] for v in X), tuple(v * s * s3[1] for v in Y),
             tuple(v * s * s3[2] for v in Z))
+    # PrePivot is subtracted from the mesh's own coordinates, before scale and
+    # rotation: Location + R S (v - PrePivot). Measured on the 26 actors with a
+    # PrePivot standing on terrain: ignored, 21 of them float, up to 391 units;
+    # subtracted in world space, two rocks on Shrek's swamp still float, by 71
+    # and 191; subtracted in mesh space, none does.
+    pp = (d.get('PrePivot', {}).get('value') if pre_pivot else None) or (0.0, 0.0, 0.0)
+    loc = tuple(loc[i] - sum(cols[k][i] * pp[k] for k in range(3)) for i in range(3))
     return cols, loc
 
 
@@ -279,7 +287,7 @@ def static_mesh_instances(pkg, path, lib, defaults=None):
         key, mesh = lib.resolve(hp, hpath, sm['ref'])
         if mesh is None:
             continue
-        cols, loc = actor_matrix(d)
+        cols, loc = actor_matrix(d, pre_pivot=True)
         yield key, mesh, cols, loc, e['name']
 
 

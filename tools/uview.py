@@ -1,7 +1,7 @@
 """Write a level's geometry as a self contained HTML viewer.
 
-Open the file in any browser and orbit with the mouse. The page loads three.js
-from a CDN and carries the geometry inline, so nothing else is needed.
+Open the file in any browser and fly through it. The page loads three.js from a
+CDN and carries the geometry and the textures inline, so nothing else is needed.
 
 The output contains the game's own level geometry. It is for looking at your own
 copy and must not be committed or published; `out/` is gitignored for that.
@@ -12,10 +12,62 @@ Z does both conversions at once, because a single axis swap flips handedness.
 import sys, os, json, base64, struct, zlib, colorsys, collections
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from upkg import Package
+from upkg import Package, R
 from ulevel import (level_model, polygons, MeshLibrary, static_mesh_instances,
-                    ClassDefaults, skeletal_instances, skeletal_local_points)
+                    ClassDefaults, skeletal_instances, skeletal_local_points,
+                    import_path)
 from uterrain import terrains
+from umaterial import MaterialResolver, mesh_materials
+from utexture import Texture, png_bytes
+
+
+class TextureTable:
+    """Unique textures of a page, each once, as PNG data URIs no larger than
+    MAX_SIDE, with a flag for whether alpha is in use (foliage cards and the
+    like are drawn with an alpha test)."""
+    MAX_SIDE = 256
+
+    def __init__(self, lib):
+        self.lib, self.mr = lib, MaterialResolver(lib)
+        self.ids, self.items = {}, []
+
+    def palette(self, pkg, ref):
+        """A Palette held by another package, for paletted textures."""
+        ch = import_path(pkg, ref)
+        p = self.lib.package(self.lib.files[ch[0].lower()])
+        return p, next(e for e in p.exports if e['name'].lower() == ch[-1].lower()
+                       and p.classof(e) == 'Palette')
+
+    def for_material(self, pkg, path, ref):
+        """Texture id for a material reference, or -1."""
+        hit = self.mr.texture(pkg, path, ref) if ref else None
+        if not hit:
+            return -1
+        if hit in self.ids:
+            return self.ids[hit]
+        p = self.lib.package(hit[0])
+        try:
+            t = Texture(p, p.exports[hit[1] - 1])
+            w, h, px = t.rgba(t.pick_mip(self.MAX_SIDE), self.palette)
+        except Exception:
+            self.ids[hit] = -1
+            return -1
+        alpha = any(px[i] < 250 for i in range(3, len(px), 4))
+        png = png_bytes(w, h, px)
+        self.items.append(dict(uri='data:image/png;base64,' + base64.b64encode(png).decode(),
+                               alpha=alpha))
+        self.ids[hit] = len(self.items) - 1
+        return self.ids[hit]
+
+
+def object_array(pkg, entry):
+    """Object references held in an array property: a compact count, then
+    that many compact indices."""
+    if not entry or entry.get('type') != 9:
+        return []
+    r = R(pkg.b, entry['at'])
+    return [r.idx() for _ in range(r.idx())]
+
 
 # Unreal (x, y, z) to three.js (x, z, y), in metres. One swap flips handedness
 # and moves Z up to Y up; Unreal units are roughly centimetres.
@@ -35,7 +87,7 @@ THREE = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'
 
 
 def tint(name):
-    """A stable pastel colour per material name, until real textures exist."""
+    """A stable pastel colour per material name, for the untextured BSP."""
     h = (zlib.crc32(name.encode()) % 360) / 360.0
     return colorsys.hsv_to_rgb(h, 0.35, 1.0)
 
@@ -96,43 +148,61 @@ def instance_matrix(cols, loc):
             A3[0][2], A3[1][2], A3[2][2], 0.0, t[0], t[1], t[2], 1.0]
 
 
-def build_skeletal(pkg, path, lib, defaults):
-    """Skeletal meshes in their reference pose, one geometry per mesh and one
-    instance per actor."""
+def build_skeletal(pkg, path, lib, defaults, textures=None):
+    """Skeletal meshes in their reference pose, laid out per wedge so that each
+    corner carries its own texture coordinates, with faces grouped by material."""
     uniq, inst = {}, collections.defaultdict(list)
     if defaults is None:
         return uniq, inst
     for key, sk, cols, loc, name in skeletal_instances(pkg, path, lib, defaults):
         if key not in uniq:
             pts, wedges, faces = skeletal_local_points(sk)
-            pos = []
-            for v in pts:
-                pos += conv(v)
-            idx = []
-            for f in faces:
-                idx += [wedges[f[0]][0], wedges[f[1]][0], wedges[f[2]][0]]
-            uniq[key] = (sk.name, pos, idx)
+            pos, uv = [], []
+            for w in wedges:
+                pos += conv(pts[w[0]])
+                uv += [w[1], w[2]]
+            idx, groups = [], []
+            for mat in sorted({f[3] for f in faces}):
+                start = len(idx)
+                for f in faces:
+                    if f[3] == mat:
+                        idx += [f[0], f[1], f[2]]
+                ref = sk.textures[mat] if mat < len(sk.textures) else 0
+                tid = textures.for_material(sk.p, key[0], ref) if textures else -1
+                groups.append([start, len(idx) - start, tid])
+            uniq[key] = (sk.name, pos, idx, uv, groups)
         inst[key].append(instance_matrix(cols, loc))
     return uniq, inst
 
 
-def build_meshes(pkg, path, lib, defaults=None):
-    """Unique static meshes once each, plus one transform per placed actor."""
+def build_meshes(pkg, path, lib, defaults=None, textures=None):
+    """Unique (mesh, skins) pairs once each, plus one transform per actor."""
+    from ulevel import Map
     uniq, inst = {}, collections.defaultdict(list)
+    skins_of = {}
+    for e, d in Map(pkg).actors(values=True):
+        skins_of[e['name']] = object_array(pkg, d.get('Skins'))
     for key, mesh, cols, loc, name in static_mesh_instances(pkg, path, lib, defaults):
-        if key not in uniq:
-            pos = []
+        skins = tuple(skins_of.get(name, ()))
+        ukey = (key, skins)
+        if ukey not in uniq:
+            pos, uv = [], []
             for v in mesh.verts:
                 pos += conv(v[:3])
-            uniq[key] = (mesh.name, pos, list(mesh.indices))
-        # three.js matrix = P A P with P the Y/Z swap; column major for three.js
-        p = (0, 2, 1)
-        A3 = [[cols[p[c]][p[r]] for c in range(3)] for r in range(3)]
-        t = conv(loc)
-        inst[key].append([A3[0][0], A3[1][0], A3[2][0], 0.0,
-                          A3[0][1], A3[1][1], A3[2][1], 0.0,
-                          A3[0][2], A3[1][2], A3[2][2], 0.0,
-                          t[0], t[1], t[2], 1.0])
+            uvs = mesh.uvs[0] if mesh.uvs else [(0.0, 0.0)] * len(mesh.verts)
+            for u in uvs:
+                uv += [u[0], u[1]]
+            groups = []
+            mats = mesh_materials(mesh) or []
+            for k, (first, nfaces) in enumerate(mesh.section_ranges()):
+                if nfaces <= 0:
+                    continue
+                ref = skins[k] if k < len(skins) and skins[k] else (mats[k] if k < len(mats) else 0)
+                hp, hpath = (pkg, path) if (k < len(skins) and skins[k]) else (mesh.p, key[0])
+                tid = textures.for_material(hp, hpath, ref) if textures else -1
+                groups.append([first, nfaces * 3, tid])
+            uniq[ukey] = (mesh.name, pos, list(mesh.indices), uv, groups)
+        inst[ukey].append(instance_matrix(cols, loc))
     return uniq, inst
 
 
@@ -165,20 +235,39 @@ g.computeVertexNormals(); g.computeBoundingSphere();
 const scene=new THREE.Scene();
 const bspMat=new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.FrontSide});
 scene.add(new THREE.Mesh(g,bspMat));
+// Unreal texture coordinates start at the top left of the image, so textures
+// are uploaded without the vertical flip three.js applies by default.
+const TEX=%(textures)s.map(t=>{
+  const tx=new THREE.TextureLoader().load(t.uri); tx.flipY=false;
+  tx.wrapS=tx.wrapT=THREE.RepeatWrapping; return {tx, alpha:t.alpha};});
+const matCache={};
+function material(tid, fallback){
+  const k=tid+'/'+fallback; if(matCache[k]) return matCache[k];
+  const m = tid>=0
+    ? new THREE.MeshLambertMaterial({map:TEX[tid].tx, side:THREE.DoubleSide, alphaTest:TEX[tid].alpha?0.5:0})
+    : new THREE.MeshLambertMaterial({color:fallback, side:THREE.DoubleSide});
+  return matCache[k]=m;}
+// One instanced mesh per unique model, with a geometry group per material.
+function instanced(list, group, fallback){
+  for (const m of list){
+    const mg=new THREE.BufferGeometry();
+    mg.setAttribute('position',new THREE.BufferAttribute(dec(m.pos,Float32Array),3));
+    mg.setAttribute('uv',new THREE.BufferAttribute(dec(m.uv,Float32Array),2));
+    mg.setIndex(new THREE.BufferAttribute(dec(m.idx,Uint32Array),1));
+    let mats=[material(-1, fallback)];
+    if(m.groups.length){ mats=m.groups.map(gr=>material(gr[2], fallback));
+      m.groups.forEach((gr,i)=>mg.addGroup(gr[0],gr[1],i)); }
+    mg.computeVertexNormals();
+    const mat=dec(m.mat,Float32Array), n=mat.length/16;
+    const im=new THREE.InstancedMesh(mg, m.groups.length?mats:mats[0], n);
+    const M=new THREE.Matrix4();
+    for(let i=0;i<n;i++){M.fromArray(mat,i*16); im.setMatrixAt(i,M);}
+    im.instanceMatrix.needsUpdate=true; group.add(im);
+  }}
 const meshes=new THREE.Group(); scene.add(meshes);
 const terrain=new THREE.Group(); scene.add(terrain);
 const skeletal=new THREE.Group(); scene.add(skeletal);
-for (const m of %(skeletal)s){
-  const mg=new THREE.BufferGeometry();
-  mg.setAttribute('position',new THREE.BufferAttribute(dec(m.pos,Float32Array),3));
-  mg.setIndex(new THREE.BufferAttribute(dec(m.idx,Uint32Array),1));
-  mg.computeVertexNormals();
-  const mat=dec(m.mat,Float32Array), n=mat.length/16;
-  const im=new THREE.InstancedMesh(mg,new THREE.MeshLambertMaterial({color:0xb08ce0,side:THREE.DoubleSide}),n);
-  const M=new THREE.Matrix4();
-  for(let i=0;i<n;i++){M.fromArray(mat,i*16); im.setMatrixAt(i,M);}
-  im.instanceMatrix.needsUpdate=true; skeletal.add(im);
-}
+instanced(%(skeletal)s, skeletal, 0xb08ce0);
 for (const t of %(terrain)s){
   const tg=new THREE.BufferGeometry();
   tg.setAttribute('position',new THREE.BufferAttribute(dec(t.pos,Float32Array),3));
@@ -187,17 +276,7 @@ for (const t of %(terrain)s){
   tg.computeVertexNormals();
   terrain.add(new THREE.Mesh(tg,new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.FrontSide})));
 }
-for (const m of %(meshes)s){
-  const mg=new THREE.BufferGeometry();
-  mg.setAttribute('position',new THREE.BufferAttribute(dec(m.pos,Float32Array),3));
-  mg.setIndex(new THREE.BufferAttribute(dec(m.idx,Uint32Array),1));
-  mg.computeVertexNormals();
-  const mat=dec(m.mat,Float32Array), n=mat.length/16;
-  const im=new THREE.InstancedMesh(mg,new THREE.MeshLambertMaterial({color:m.col,side:THREE.DoubleSide}),n);
-  const M=new THREE.Matrix4();
-  for(let i=0;i<n;i++){M.fromArray(mat,i*16); im.setMatrixAt(i,M);}
-  im.instanceMatrix.needsUpdate=true; meshes.add(im);
-}
+instanced(%(meshes)s, meshes, 0xc89070);
 
 scene.add(new THREE.HemisphereLight(0xffffff,0x404050,0.75));
 const sun=new THREE.DirectionalLight(0xffffff,0.6); sun.position.set(0.4,1,0.3); scene.add(sun);
@@ -277,19 +356,18 @@ def main(argv):
                                    ('Textures', 'Animations', 'System', 'Maps')])
     sysdir = os.path.join(root, 'System')
     defaults = ClassDefaults(sysdir) if os.path.isdir(sysdir) else None
-    uniq, inst = build_meshes(pkg, src, lib, defaults)
+    textures = TextureTable(lib)
+    uniq, inst = build_meshes(pkg, src, lib, defaults, textures)
     terr = build_terrain(pkg, lib.files)
-    suniq, sinst = build_skeletal(pkg, src, lib, defaults)
+    suniq, sinst = build_skeletal(pkg, src, lib, defaults, textures)
     skel_json = json.dumps([dict(pos=b64('f', suniq[k][1]), idx=b64('I', suniq[k][2]),
+                                 uv=b64('f', suniq[k][3]), groups=suniq[k][4],
                                  mat=b64('f', [x for m in sinst[k] for x in m]))
                             for k in suniq])
     mesh_json = json.dumps([
         dict(pos=b64('f', uniq[k][1]), idx=b64('I', uniq[k][2]),
-             mat=b64('f', [x for m in inst[k] for x in m]),
-             col='#%02x%02x%02x' % tuple(int(min(1.0, v) * 255) for v in
-                                          (tint(uniq[k][0])[0] * 1.15,
-                                           tint(uniq[k][0])[1] * 0.75,
-                                           tint(uniq[k][0])[2] * 0.6)))
+             uv=b64('f', uniq[k][3]), groups=uniq[k][4],
+             mat=b64('f', [x for m in inst[k] for x in m]))
         for k in uniq])
     ninst = sum(len(v) for v in inst.values())
     ntri = sum(len(uniq[k][2]) // 3 * len(inst[k]) for k in uniq)
@@ -306,7 +384,8 @@ def main(argv):
                        legend=legend, pos=b64('f', pos), col=b64('B', col), idx=b64('I', idx),
                        meshes=mesh_json,
                        terrain=json.dumps([{k: t[k] for k in ('pos', 'col', 'idx')} for t in terr]),
-                       skeletal=skel_json)
+                       skeletal=skel_json,
+                       textures=json.dumps(textures.items))
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     open(out, 'w').write(html)
     print('%s: BSP %d triangles, %d mesh instances (%d unique), %.1f MB -> %s'

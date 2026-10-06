@@ -103,11 +103,12 @@ licence comes with it.
 
 Open work, roughly in order of how much it unblocks:
 
-- BSP geometry: the `Model` and `Polys` records. The largest remaining piece of
-  a level, and the one everything visual depends on.
-- Textures, the `.utx` packages. Independent of everything else and
-  self verifying: decode one and look at it.
-- Terrain: `TerrainSector`, and `StaticMeshInstance` alongside it.
+- BSP texture coordinates, from each surface's base point and texture vectors,
+  and the rest of the BSP record: zones, lightmaps, bounds.
+- Terrain layers: which textures a terrain blends, and with what alpha maps.
+- PrePivot on skeletal meshes, and the props that float: both written up as
+  open questions in the format document, with the measurements so far.
+- `TerrainSector` and `StaticMeshInstance` payloads.
 - The static mesh tail: raw triangles and the collision tree.
 - Control flow structuring in the decompiler, turning labels and gotos into `if`
   and `for`. No binary work at all, pure analysis of data already parsed.

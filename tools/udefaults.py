@@ -90,7 +90,8 @@ class Tagged:
                 if r.p > end:
                     return None
             entry = dict(name=p.names[nm], type=t, index=index,
-                         struct=struct_name, size=size, value=value)
+                         struct=struct_name, size=size, value=value,
+                         at=r.p - (0 if t == T_BOOL else size))
             if want_values and t in (T_OBJECT, T_CLASS):
                 # keep the raw reference too: resolving it to another package
                 # needs the import, not just the name
@@ -162,6 +163,24 @@ class Tagged:
             kind = entry['struct'] or {T_ARRAY: 'array', T_MAP: 'map'}.get(t, 'raw')
             return '%s=<%s, %d bytes>' % (name, kind, len(v))
         return '%s=%s' % (name, v)
+
+
+def struct_array(pkg, entry):
+    """Elements of an array of structs held in a tagged property: a compact
+    count, then each element as its own tagged list ending in None."""
+    if entry is None or entry.get('type') != T_ARRAY:
+        return None
+    end = entry['at'] + entry['size']
+    r = R(pkg.b, entry['at'])
+    n = r.idx()
+    tag, out, pos = Tagged(pkg), [], r.p
+    for _ in range(n):
+        v = tag.parse(pos, end)
+        if not v:
+            return None
+        out.append({x['name']: x for x in v[0]})
+        pos = v[1]
+    return out if pos == end else None
 
 
 class World:

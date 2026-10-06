@@ -165,14 +165,18 @@ def decode_dxt(data, w, h, fmt):
     return bytes(out)
 
 
-def write_png(path, w, h, rgba):
+def png_bytes(w, h, rgba):
+    """An RGBA image as the bytes of a PNG file."""
     raw = b''.join(b'\x00' + rgba[y * w * 4:(y + 1) * w * 4] for y in range(h))
 
     def chunk(t, d):
         return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
-    open(path, 'wb').write(b'\x89PNG\r\n\x1a\n'
-                           + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0))
-                           + chunk(b'IDAT', zlib.compress(raw, 6)) + chunk(b'IEND', b''))
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(raw, 6)) + chunk(b'IEND', b''))
+
+
+def write_png(path, w, h, rgba):
+    open(path, 'wb').write(png_bytes(w, h, rgba))
 
 
 def main(argv):

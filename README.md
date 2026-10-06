@@ -32,6 +32,8 @@ This project uses AI to write code and documentation. All code and documentation
 | `tools/umesh.py` | Static mesh geometry: vertices, normals, UVs, colours, triangles |
 | `tools/ubsp.py` | BSP: level vectors, points, nodes, surfaces and verts |
 | `tools/ulevel.py` | Assembles a level: BSP polygons and placed static meshes |
+| `tools/umaterial.py` | Materials: from shaders and modifiers down to the base texture |
+| `tools/utexture.py` | Textures: every format the game uses, decoded to RGBA and PNG |
 | `tools/uterrain.py` | Terrain: heightmaps, holes, and the world transform |
 | `tools/uskel.py` | Skeletal meshes: reference pose and skeleton |
 | `tools/uanim.py` | Animations: bones, keyframe tracks, sequences, playback |
@@ -66,6 +68,9 @@ UnrealEngine2 Runtime (version 126):
   their collision height. That offset is not in the script, the animations or
   the mesh data, which leaves native code.
 - **Textures.** All 2121, in every format the game uses, decoded.
+- **Materials.** Shaders, blends and modifiers followed down to their texture.
+  Of the 11429 static meshes placed in the levels, every section with triangles
+  finds its texture except 7 whose material slot is empty.
 - **Animations.** All 134 animation sets, 1574 sequences and 1.7 million
   rotation keys, read to the exact end of every record, and played back by
   skinning, with the quaternion convention established by measurement.
@@ -73,8 +78,10 @@ UnrealEngine2 Runtime (version 126):
   in a browser, with orientation, rotation and terrain holes checked against the
   game itself.
 
-Not done yet: textures and animation inside the viewers, the rest of the BSP record, and structuring the
-decompiler's control flow into `if` and `for` rather than labels and gotos.
+The level viewer draws static meshes and characters with their textures. Not
+done yet: textures on BSP and terrain, animation inside the level viewer, the
+rest of the BSP record, and structuring the decompiler's control flow into `if`
+and `for` rather than labels and gotos.
 
 ## Getting a corpus
 
@@ -104,6 +111,7 @@ python3 udecompile.py $SYS Engine.u Pawn             # one class with bodies
 python3 udefaults.py  $SYS Engine.u Pawn             # one class's defaults
 python3 umap.py       ../Maps                        # object counts per level
 python3 umesh.py      ../StaticMeshes                # geometry totals
+python3 umaterial.py  ..                             # every static mesh's materials
 python3 uview.py      ../Maps/7_Prison_Donkey.unr ../out/prison.html
 python3 ugallery.py   ../Animations ../out/gallery   # one page per skeletal mesh
 ```

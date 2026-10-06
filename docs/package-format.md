@@ -231,7 +231,9 @@ Type codes: 1 Byte, 2 Int, 3 Bool, 4 Float, 5 Object, 6 Name, 7 String,
 15 FixedArray.
 
 Structs named Vector, Plane, Rotator, Color, Range and Scale hold plain binary
-rather than a nested tagged list. A byte value whose property refers to an enum
+rather than a nested tagged list. An array holds a compact count and then its
+elements: an object reference is a compact index, and a struct is a tagged
+list of its own, ending in None. A byte value whose property refers to an enum
 is rendered by name, which needs the Enum record:
 
 ```
@@ -322,6 +324,38 @@ within the record. All 835 static meshes of Shrek 2 pass, for 122011 vertices
 and 102414 triangles. Raising confidence further means comparing against an
 independent implementation such as UE Viewer, which is MIT licensed and can
 export the same meshes.
+
+### Sections and their materials
+
+A section is one material's share of the triangles:
+
+```
+i32   not decoded
+u16   FirstIndex     where the section starts in the index buffer
+u16   FirstVertex
+u16   LastVertex
+u16   a copy of the face count
+u16   NumFaces
+```
+
+A material slot with no triangles still gets a section, with 65535 for both
+vertex bounds and no faces. Skipping those, the sections of a mesh tile its
+index buffer exactly, end to end in order, which is the check that fixes the
+field order.
+
+The materials themselves are in the tagged block, as `Materials`, an array of
+structs `{Material, EnableCollision}` with one element per section. An array of
+structs is a compact count and then each element as its own tagged list ending
+in None; the whole array lands exactly on the size its tag gives.
+
+`umaterial.py <game dir>` checks all of this on every static mesh in the game,
+870 of them counting the 28 kept in texture packages, 6 embedded in maps and 1
+in Editor.u. The Materials array parses for all 870, there is one material per
+section in all 870, and the sections tile the index buffer in 869. The one
+exception, and a 871st mesh that does not parse at all, are the editor's
+material preview shapes in Editor.u, TexPropSphere and TexPropCube. The sphere
+claims 960 faces over an index buffer of 9 entries, so the editor's own meshes
+are stored differently or not stored at all. Nothing in a level uses them.
 
 ## BSP, the Model record
 
@@ -472,6 +506,30 @@ the Donkey prison the placed objects face the way they do in play.
 For a right handed, Y up viewer the instance matrix is `P A P` with P the Y and
 Z swap, and the translation `P Location`. Checked numerically against baking the
 transform in Unreal space first: 9560 vertices, worst disagreement 1.7e-14.
+
+**PrePivot** moves the drawn mesh relative to the actor, and it is subtracted
+in the mesh's own coordinates, before scale and rotation:
+
+```
+Location + R S (v - PrePivot)
+```
+
+This was found from a mossy rock hanging in the air on Shrek's swamp. Every
+rock_step there has a PrePivot of about (0, 0, 200) and a mesh 405 units tall
+with its origin at the bottom. The sign and the space were settled on all 26
+static mesh actors with a PrePivot that stand on terrain, comparing the
+lowest point of the mesh with the terrain height beneath it:
+
+| PrePivot | floating | worst |
+|--|--|--|
+| ignored | 21 of 26 | 391 above the ground |
+| subtracted in world space | 2 of 26 | 191 above |
+| subtracted in mesh space | 0 of 26 | every one 9 to 763 into the ground |
+
+Bushes in the Beanstalk bonus levels, at scale 1 where the two spaces agree, go
+from 53 to 84 units in the air to 16 to 47 units planted, which is how bushes
+are placed everywhere else. Grates and potion wheelbarrows in the Fairy
+Godmother factory levels have a PrePivot from their class.
 
 ### Properties come from the class too
 
@@ -687,6 +745,17 @@ What is left is native code, KnowWonder's KWPawnNative or the engine's own C++,
 which this project does not reconstruct. The behaviour can still be matched by
 observation, but it is not in the data.
 
+**Open question: PrePivot on skeletal meshes.** The rule proven for static
+meshes is not applied to skeletal ones, because the one usable measurement
+points the other way. Five KnightMelee in the Shrek prison carry a PrePivot of
+(0, 0, -20) and stand on BSP floor. With PrePivot ignored their feet are 16.4
+units above the floor; with the static mesh rule, 40.4 above; with the opposite
+sign, 7.6 below. That is one hand placed setup copied five times. The 4
+VentSlimes with a PrePivot sit in vents with no floor to measure against, and
+the 10 BounceLeaves have theirs along an axis that does not move them
+vertically. The props that float are not explained by it either: none of them
+has a PrePivot.
+
 Not decoded yet: the sections and index buffers inside a LOD model, most of the
 skeleton's surroundings, and the animations, which live in MeshAnimation
 records.
@@ -825,6 +894,38 @@ imports `ShCharacters.Shrek` from the file `SHCharacters.utx`.
 All 2121 textures decode, the paletted ones finding their palettes across
 packages.
 
+## Materials
+
+A mesh section or a BSP surface names a material, and a material is rarely a
+Texture. Between them stand shaders, blends and modifiers, each keeping the
+material it wraps under its own property name. Surveyed over every package,
+these are the links that lead to the texture that gives a surface its colour:
+
+| Class | Followed through |
+|--|--|
+| Shader | Diffuse, else FallbackMaterial |
+| Combiner | Material1, else FallbackMaterial |
+| FinalBlend, TexPanner, TexOscillator, TexRotator, TexScaler, TexEnvMap, ColorModifier, OpacityModifier, MaterialSwitch | Material, else FallbackMaterial |
+| MaterialSequence | the first Material in SequenceItems |
+| Cubemap | nothing: a reflection, not a colour |
+
+An actor's `Skins` array overrides the mesh's materials slot by slot where it
+is set. It is a compact count and that many compact object references: all 133
+Skins arrays in the levels, 221 references, end exactly on the size their tag
+gives.
+
+Of the 1263 material slots of the 870 static meshes, 1164 lead to a texture and
+74 are empty. The other 25 point at textures that are not in the shipped
+packages at all: the package exists, the object does not. `Ambush_TX.rock_moss`
+and 20 more come from `Ambush_SM.usx`, which is package version 127 while the
+rest of the game is 129, and which no level or script package names; the other four,
+`2_Carriage_Hijack_Tex.red_bush` and `AmbCreaturesTX.pillar`, are named in
+meshes that are also never placed. Leftovers, then. A name close to the missing
+one usually does exist, `bush_red` beside the missing `red_bush`.
+
+Over the 11429 static meshes placed in the 26 levels, every section with
+triangles finds its texture except 7, and those 7 have an empty material slot.
+
 ## A warning about parsers
 
 A desynchronised parse will happily read garbage as opcodes and walk off the end
@@ -834,6 +935,10 @@ the record end as a hard limit, raise as soon as it is passed, and keep a node
 budget per record. Run bulk passes under an external memory cap.
 
 ## What is known to be incomplete
+
+- The editor's material preview meshes in Editor.u, TexPropSphere and
+  TexPropCube, do not follow the static mesh layout. No level uses them.
+- Whether and how PrePivot applies to skeletal meshes; see placing them.
 
 - 39 of 8638 functions still fail end alignment, 33 of them in GUI.u.
 - 212 functions align but disagree on size, so one token's memory size is still

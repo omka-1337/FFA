@@ -86,6 +86,13 @@ class Mesh:
         r.p += n * 2 + 4
         self.tail = end - r.p
 
+    def section_ranges(self):
+        """(first index, triangle count) per section, in material order. A
+        section is i32, then u16 FirstIndex, FirstVertex, LastVertex, a copy of
+        the face count, and NumFaces. Empty sections, a material slot with no
+        triangles, carry 65535 for both vertex bounds and no faces."""
+        return [(s[1], s[5]) for s in self.sections]
+
     def sane(self):
         """Consistency checks that do not depend on the undecoded tail."""
         if not self.verts or not self.indices:
