@@ -103,8 +103,8 @@ licence comes with it.
 
 Open work, roughly in order of how much it unblocks:
 
-- BSP texture coordinates, from each surface's base point and texture vectors,
-  and the rest of the BSP record: zones, lightmaps, bounds.
+- The rest of the BSP record: zones, lightmaps, bounds. Zones are what the
+  skybox needs, to tell its geometry from the level's.
 - Terrain layers: which textures a terrain blends, and with what alpha maps.
 - PrePivot on skeletal meshes, and the props that float: both written up as
   open questions in the format document, with the measurements so far.

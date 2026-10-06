@@ -29,7 +29,7 @@ class TextureTable:
 
     def __init__(self, lib):
         self.lib, self.mr = lib, MaterialResolver(lib)
-        self.ids, self.items = {}, []
+        self.ids, self.items, self.sizes = {}, [], {}
 
     def palette(self, pkg, ref):
         """A Palette held by another package, for paletted textures."""
@@ -57,6 +57,7 @@ class TextureTable:
         self.items.append(dict(uri='data:image/png;base64,' + base64.b64encode(png).decode(),
                                alpha=alpha))
         self.ids[hit] = len(self.items) - 1
+        self.sizes[self.ids[hit]] = t.mips[0][:2]
         return self.ids[hit]
 
 
@@ -92,29 +93,50 @@ def tint(name):
     return colorsys.hsv_to_rgb(h, 0.35, 1.0)
 
 
-def build_bsp(pkg):
+def build_bsp(pkg, path=None, textures=None):
     """BSP polygons, each triangle wound so it faces the way its node's plane
     does. Drawn front side only, a level can then be looked into from outside,
-    since its faces point into the playable space."""
+    since its faces point into the playable space.
+
+    Texture coordinates come from the surface: a texel position is the offset
+    from the surface's base point projected on its two texture vectors, and
+    dividing by the texture's size makes it the 0 to 1 range of the image.
+    Triangles are grouped by texture, as (first index, count, texture id)."""
     m = level_model(pkg)
-    pos, col, idx = [], [], []
+    pos, col, uv, by_tex = [], [], [], collections.defaultdict(list)
     mats = collections.Counter()
-    for pts, mat, flags, nrm in polygons(m):
+    V, Pts = m.vectors, m.points
+    for pts, s, flags, nrm in polygons(m, with_surf=True):
+        mat = pkg.refname(s.material) if s else 'None'
+        tid = textures.for_material(pkg, path, s.material) if (textures and s) else -1
         base = len(pos) // 3
         c = tint(mat)
         P = [conv(p) for p in pts]
         N = (nrm[0], nrm[2], nrm[1])
-        for p in P:
+        if tid >= 0:
+            us, vs = textures.sizes[tid]
+            o, tu, tv = Pts[s.base], V[s.texture_u], V[s.texture_v]
+        for p, q in zip(P, pts):
             pos += p
             col += [int(c[0] * 255), int(c[1] * 255), int(c[2] * 255)]
+            if tid >= 0:
+                d = (q[0] - o[0], q[1] - o[1], q[2] - o[2])
+                uv += [(d[0] * tu[0] + d[1] * tu[1] + d[2] * tu[2]) / us,
+                       (d[0] * tv[0] + d[1] * tv[1] + d[2] * tv[2]) / vs]
+            else:
+                uv += [0.0, 0.0]
         for i in range(1, len(P) - 1):
             g = cross(sub(P[i], P[0]), sub(P[i + 1], P[0]))
             if g[0] * N[0] + g[1] * N[1] + g[2] * N[2] >= 0:
-                idx += [base, base + i, base + i + 1]
+                by_tex[tid] += [base, base + i, base + i + 1]
             else:
-                idx += [base, base + i + 1, base + i]
+                by_tex[tid] += [base, base + i + 1, base + i]
         mats[mat] += 1
-    return pos, col, idx, mats
+    idx, groups = [], []
+    for tid in sorted(by_tex):
+        groups.append([len(idx), len(by_tex[tid]), tid])
+        idx += by_tex[tid]
+    return pos, col, idx, mats, uv, groups
 
 
 def build_terrain(pkg, files):
@@ -230,11 +252,10 @@ const pos=dec("%(pos)s",Float32Array), col=dec("%(col)s",Uint8Array), idx=dec("%
 const g=new THREE.BufferGeometry();
 g.setAttribute('position',new THREE.BufferAttribute(pos,3));
 g.setAttribute('color',new THREE.BufferAttribute(col,3,true));
+g.setAttribute('uv',new THREE.BufferAttribute(dec("%(uv)s",Float32Array),2));
 g.setIndex(new THREE.BufferAttribute(idx,1));
 g.computeVertexNormals(); g.computeBoundingSphere();
 const scene=new THREE.Scene();
-const bspMat=new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.FrontSide});
-scene.add(new THREE.Mesh(g,bspMat));
 // Unreal texture coordinates start at the top left of the image, so textures
 // are uploaded without the vertical flip three.js applies by default.
 const TEX=%(textures)s.map(t=>{
@@ -264,6 +285,12 @@ function instanced(list, group, fallback){
     for(let i=0;i<n;i++){M.fromArray(mat,i*16); im.setMatrixAt(i,M);}
     im.instanceMatrix.needsUpdate=true; group.add(im);
   }}
+// BSP: one material per texture, front side only; untextured surfaces keep
+// their tint by material name.
+const bspMats=%(groups)s.map((gr,i)=>{ g.addGroup(gr[0],gr[1],i); const t=gr[2];
+  return t>=0 ? new THREE.MeshLambertMaterial({map:TEX[t].tx, side:THREE.FrontSide, alphaTest:TEX[t].alpha?0.5:0})
+              : new THREE.MeshLambertMaterial({vertexColors:true, side:THREE.FrontSide}); });
+scene.add(new THREE.Mesh(g,bspMats));
 const meshes=new THREE.Group(); scene.add(meshes);
 const terrain=new THREE.Group(); scene.add(terrain);
 const skeletal=new THREE.Group(); scene.add(skeletal);
@@ -305,7 +332,7 @@ addEventListener('keydown',e=>{
   held[e.code]=true;
   if(PASS.includes(e.code)) e.preventDefault();
   if(e.repeat) return;
-  if(e.code==='KeyB'){bspMat.side=bspMat.side===THREE.FrontSide?THREE.DoubleSide:THREE.FrontSide;bspMat.needsUpdate=true}
+  if(e.code==='KeyB'){for(const m of bspMats){m.side=m.side===THREE.FrontSide?THREE.DoubleSide:THREE.FrontSide;m.needsUpdate=true}}
   if(e.code==='KeyM'){meshes.visible=!meshes.visible}
   if(e.code==='KeyT'){terrain.visible=!terrain.visible}
   if(e.code==='KeyK'){skeletal.visible=!skeletal.visible}
@@ -350,13 +377,13 @@ def main(argv):
     meshdir = argv[2] if len(argv) > 2 else os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(src))), 'StaticMeshes')
     pkg = Package(src)
-    pos, col, idx, mats = build_bsp(pkg)
     root = os.path.dirname(meshdir)
     lib = MeshLibrary([meshdir] + [os.path.join(root, d) for d in
                                    ('Textures', 'Animations', 'System', 'Maps')])
     sysdir = os.path.join(root, 'System')
     defaults = ClassDefaults(sysdir) if os.path.isdir(sysdir) else None
     textures = TextureTable(lib)
+    pos, col, idx, mats, bsp_uv, bsp_groups = build_bsp(pkg, src, textures)
     uniq, inst = build_meshes(pkg, src, lib, defaults, textures)
     terr = build_terrain(pkg, lib.files)
     suniq, sinst = build_skeletal(pkg, src, lib, defaults, textures)
@@ -382,6 +409,7 @@ def main(argv):
                                 len(terr), sum(t['tris'] for t in terr),
                                 sum(len(v) for v in sinst.values()), len(suniq)),
                        legend=legend, pos=b64('f', pos), col=b64('B', col), idx=b64('I', idx),
+                       uv=b64('f', bsp_uv), groups=json.dumps(bsp_groups),
                        meshes=mesh_json,
                        terrain=json.dumps([{k: t[k] for k in ('pos', 'col', 'idx')} for t in terr]),
                        skeletal=skel_json,

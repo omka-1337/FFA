@@ -50,7 +50,7 @@ class Node:
 
 class Surf:
     __slots__ = ('material', 'flags', 'base', 'normal', 'texture_u', 'texture_v',
-                 'light_map', 'brush_poly', 'plane', 'pan')
+                 'light_map', 'brush_poly', 'plane', 'light_map_scale')
 
 
 class Model:
@@ -116,7 +116,10 @@ class Model:
 
     def surf(self, r):
         """Material reference, flags, six indices into the vector and point
-        arrays, the surface plane, and a trailing float."""
+        arrays, the surface plane, and the lightmap scale. That last float is
+        32, the UE2 default, on 15355 of the game's 15361 surfaces and 16 on
+        the rest. There is no texture panning field: panning is folded into
+        the base point."""
         b = self.p.b
         s = Surf()
         s.material = r.idx()
@@ -125,7 +128,7 @@ class Model:
          s.light_map, s.brush_poly) = [r.idx() for _ in range(6)]
         s.plane = struct.unpack_from('<4f', b, r.p)
         r.p += 16
-        s.pan = struct.unpack_from('<f', b, r.p)[0]
+        s.light_map_scale = struct.unpack_from('<f', b, r.p)[0]
         r.p += 4
         return s
 

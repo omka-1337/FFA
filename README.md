@@ -78,10 +78,11 @@ UnrealEngine2 Runtime (version 126):
   in a browser, with orientation, rotation and terrain holes checked against the
   game itself.
 
-The level viewer draws static meshes and characters with their textures. Not
-done yet: textures on BSP and terrain, animation inside the level viewer, the
-rest of the BSP record, and structuring the decompiler's control flow into `if`
-and `for` rather than labels and gotos.
+The level viewer draws BSP, static meshes and characters with their textures,
+and the gallery its characters. Not done yet: the skybox drawn as a background,
+terrain textures, animation inside the level viewer, the rest of the BSP
+record, and structuring the decompiler's control flow into `if` and `for`
+rather than labels and gotos.
 
 ## Getting a corpus
 

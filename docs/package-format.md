@@ -382,8 +382,31 @@ u32       poly flags
 index x6  pBase into Points, vNormal, vTextureU, vTextureV into Vectors,
           iLightMap, iBrushPoly
 FPlane    16 bytes
-f32       pan
+f32       lightmap scale
 ```
+
+The last float is 32, the UE2 default lightmap scale, on 15355 of the game's
+15361 surfaces and 16 on the other six. There is no panning field: panning is
+folded into the base point.
+
+**Texture coordinates** come from pBase, vTextureU and vTextureV. A point's texel
+coordinates are its offset from the base projected on the two texture vectors,
+and dividing by the texture's size gives the 0 to 1 range of the image:
+
+```
+u = (P - Base) . TextureU / USize
+v = (P - Base) . TextureV / VSize
+```
+
+USize and VSize are those of the texture the material leads to (see
+materials). The vectors were checked before the formula was trusted: on all
+15361 surfaces of the 26 levels, the normal is unit length, TextureU and
+TextureV are perpendicular in 15317, and their lengths are plain texture scales,
+1 on 7777 surfaces, then 0.5, 0.727, 2, 4, 1.25, 0.75, 0.25 and 8. Most lie in
+the plane of their surface; 406 are tilted 45 degrees out of it, a projection
+the editor allows. Whether a texture comes out mirrored or turned is not in the
+numbers, so that part was checked by eye against the game, on brick, planks and
+lettering.
 
 A node is variable length, because seven of its fields are compact indices:
 
@@ -939,6 +962,9 @@ budget per record. Run bulk passes under an external memory cap.
 - The editor's material preview meshes in Editor.u, TexPropSphere and
   TexPropCube, do not follow the static mesh layout. No level uses them.
 - Whether and how PrePivot applies to skeletal meshes; see placing them.
+- The skybox. A level's sky is BSP like the rest, built around its
+  SkyZoneInfo far from the playable space, and the engine draws it as a
+  background from that point. The viewer still draws it where it stands.
 
 - 39 of 8638 functions still fail end alignment, 33 of them in GUI.u.
 - 212 functions align but disagree on size, so one token's memory size is still

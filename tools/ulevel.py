@@ -37,10 +37,11 @@ def level_model(pkg):
     return Model(pkg, candidates[0])
 
 
-def polygons(model, skip_hidden=True):
+def polygons(model, skip_hidden=True, with_surf=False):
     """Yield (vertices, material name, surface flags, plane normal) for every
-    BSP polygon. The node's plane normal points into playable space, which is
-    the side the polygon is meant to be seen from."""
+    BSP polygon, or with `with_surf` the surface record in place of the
+    material name. The node's plane normal points into playable space, which
+    is the side the polygon is meant to be seen from."""
     pkg = model.p
     for n in model.nodes:
         if n.num_vertices < 3:
@@ -51,7 +52,10 @@ def polygons(model, skip_hidden=True):
             continue
         pts = [model.points[pv] for pv, _ in
                model.verts[n.vert_pool:n.vert_pool + n.num_vertices]]
-        yield pts, (pkg.refname(s.material) if s else 'None'), flags, n.plane[:3]
+        if with_surf:
+            yield pts, s, flags, n.plane[:3]
+        else:
+            yield pts, (pkg.refname(s.material) if s else 'None'), flags, n.plane[:3]
 
 
 def main(argv):
