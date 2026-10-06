@@ -667,18 +667,83 @@ is (0, -33, 0) and its CollisionHeight 33.
 mushrooms, trees, pumpkins and the like, come out floating, and the gap is close
 to their CollisionHeight: 26.7 for a CollisionHeight of 30, 24.4 for 25, 97.9 for
 100, 78.6 for 80. In play they stand on the ground, so something lowers them
-that this reconstruction does not do. It is not the script: none of their class
-chain, ShProps, shpawn, KWPawn, assigns PrePivot from the collision height. Two
-candidates remain. KnowWonder's native KWPawnNative could do it in C++, which is
-out of reach here. Or the in game pose is an animation rather than the reference
-pose, with the root lower down. The second has some support: the two such meshes
-whose root bone sits well away from the origin follow it. The pumpkin's gap is
--6.8 with a CollisionHeight of 20 and its root at 26.8, and Shrek's switch's is
-1.0 with 41 and 40.2. Reading animations should settle it.
+that this reconstruction does not do. Four places were checked and ruled out,
+each by measurement:
+
+- **Script.** None of their class chain, ShProps, shpawn, KWPawn, assigns PrePivot
+  from the collision height, and the collision and location changes in shpawn
+  belong to the shrink potion, not to level start.
+- **Class variables.** Nothing in KWPawnNative, KWPawn, shpawn or ShProps reads
+  like a flag for drawing from the feet.
+- **Animation.** The obvious suspect, and wrong. The root bone in the first frame
+  of each prop's idle animation sits exactly where it sits in the reference
+  pose, a difference of 0.0 for every one of them, while characters move it by
+  about a unit, which is breathing.
+- **Mesh data.** Each LOD model holds positions twice, in the lazy point array and
+  in a 16 byte skinning stream. The two are identical to the last bit, for props
+  and characters alike.
+
+What is left is native code, KnowWonder's KWPawnNative or the engine's own C++,
+which this project does not reconstruct. The behaviour can still be matched by
+observation, but it is not in the data.
 
 Not decoded yet: the sections and index buffers inside a LOD model, most of the
 skeleton's surroundings, and the animations, which live in MeshAnimation
 records.
+
+## Skeletons
+
+A skeletal mesh's reference skeleton is found by its signature rather than by
+decoding everything before it: a compact count, then per bone a name index, u32
+flags, a unit quaternion, a position, a length, three sizes, a child count and a
+parent index, the root being its own parent. The reference to the mesh's
+default animation follows the last bone. That gives a check: on 121 of the 141
+meshes, the bones are the same names in the same order as the default
+animation's. Of the 17 that differ, most share an animation with a different
+bone order or carry extra bones in the animation, such as Knight's 33 against 38
+with the weapon; Unreal matches animation bones to mesh bones by name.
+
+## Animations
+
+MeshAnimation records sit next to the meshes in the `.ukx` packages. Proven on
+all 134 by landing on the exact end of each:
+
+```
+u32       Version, 0 or 4
+index     bone count; per bone: name index, u32 flags, i32 parent
+index     motion chunk count; per chunk:
+  FVector   RootSpeed3D
+  f32       TrackTime
+  i32       StartBone
+  u32       Flags
+  index     bone index count, then that many i32
+  index     track count, then that many tracks
+  track     the root track
+  index     one more field, version 4 only, zero in all 1543 chunks
+index     sequence count; per sequence:
+  f32       unknown, between 0 and 1
+  index     name
+  index     group count, then that many name indices
+  i32       StartFrame
+  i32       NumFrames
+  index     notify count; per notify: f32 time, name index, object index
+  f32       Rate, frames per second
+```
+
+A track is a u32 of flags and three arrays: rotation keys as quaternions, 16
+bytes each, position keys as FVector, and key times as f32. A sequence's chunk
+holds one track per animated bone; with bone indices present, track i animates
+bone `BoneIndices[i]`, otherwise bone i.
+
+The per chunk field is the one that took finding. In a record with a single
+chunk it looks like a stray byte after all the motion data; only a record with
+two chunks shows where it belongs, because the second chunk starts exactly one
+byte after the first one ends. It is absent in version 0.
+
+Of 1709743 rotation keys, 418 are not unit length, and all 418 are exactly
+(0, 0, 0, 0). They are the exporter's mark for a key with no rotation, in
+character animations, and a player has to treat them as such rather than
+normalise them.
 
 ## A warning about parsers
 

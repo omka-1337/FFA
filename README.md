@@ -33,7 +33,8 @@ This project uses AI to write code and documentation. All code and documentation
 | `tools/ubsp.py` | BSP: level vectors, points, nodes, surfaces and verts |
 | `tools/ulevel.py` | Assembles a level: BSP polygons and placed static meshes |
 | `tools/uterrain.py` | Terrain: heightmaps, holes, and the world transform |
-| `tools/uskel.py` | Skeletal meshes in their reference pose |
+| `tools/uskel.py` | Skeletal meshes: reference pose and skeleton |
+| `tools/uanim.py` | Animations: bones, keyframe tracks, sequences |
 | `tools/uview.py` | Writes a level as a self contained HTML viewer |
 | `tools/natives.py` | Which engine natives a game's script actually calls |
 
@@ -61,12 +62,15 @@ UnrealEngine2 Runtime (version 126):
 - **Skeletal meshes.** All 141, with four LOD models each, every index in range,
   standing upright in their reference pose, and all 1031 placed in levels.
   Characters stand on the ground; props with no mesh origin float by about
-  their collision height, an open question that animations should settle.
+  their collision height. That offset is not in the script, the animations or
+  the mesh data, which leaves native code.
+- **Animations.** All 134 animation sets, 1574 sequences and 1.7 million
+  rotation keys, read to the exact end of every record. Not yet played back.
 - **Levels assembled.** BSP, placed static meshes and terrain together, viewable
   in a browser, with orientation, rotation and terrain holes checked against the
   game itself.
 
-Not done yet: animations, the rest of the BSP record, textures, and structuring the
+Not done yet: playing animations back, the rest of the BSP record, textures, and structuring the
 decompiler's control flow into `if` and `for` rather than labels and gotos.
 
 ## Getting a corpus

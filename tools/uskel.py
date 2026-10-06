@@ -96,6 +96,54 @@ class SkeletalMesh:
                 i += 1
         return lods
 
+    def skeleton(self):
+        """The reference skeleton and the default animation reference.
+
+        Found by its signature rather than by decoding everything before it: a
+        compact count, then per bone a name index, u32 flags, a unit quaternion,
+        a position, a length, three sizes, a child count and a parent index. The
+        default animation reference follows the last bone; it is checked, where
+        it resolves, by the animation's bone names matching these."""
+        if hasattr(self, '_skeleton'):
+            return self._skeleton
+        p, e = self.p, self.e
+        b, end = p.b, e['off'] + e['size']
+        found = None
+        for o in range(e['off'] + 42, end - 60):
+            r = R(b, o)
+            try:
+                c = r.idx()
+            except Exception:
+                continue
+            if not 1 <= c <= 400:
+                continue
+            bones, q, ok = [], r.p, True
+            for _ in range(c):
+                rr = R(b, q)
+                try:
+                    ni = rr.idx()
+                except Exception:
+                    ok = False
+                    break
+                if not 0 < ni < len(p.names) or rr.p + 56 > end:
+                    ok = False
+                    break
+                flags = struct.unpack_from('<I', b, rr.p)[0]
+                quat = struct.unpack_from('<4f', b, rr.p + 4)
+                if abs(math.sqrt(sum(x * x for x in quat)) - 1) > 1e-3:
+                    ok = False
+                    break
+                pos = struct.unpack_from('<3f', b, rr.p + 20)
+                nchild, parent = struct.unpack_from('<ii', b, rr.p + 48)
+                bones.append((p.names[ni], flags, quat, pos, nchild, parent))
+                q = rr.p + 56
+            if ok and all(0 <= bn[5] < c for bn in bones):
+                rr = R(b, q)
+                found = (bones, rr.idx())
+                break
+        self._skeleton = found if found else ([], 0)
+        return self._skeleton
+
     def geometry(self, lod=0):
         """Points, wedges (point, u, v) and faces (w0, w1, w2, material)."""
         b = self.p.b
