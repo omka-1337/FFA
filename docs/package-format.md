@@ -714,6 +714,57 @@ The bitmaps' bit order is not something the sector boxes can check. It was
 confirmed against the game instead: the holes fall where the ground is cut away
 in play.
 
+A TerrainInfo's Rotation is not part of the transform. Shrek's swamp has a
+terrain turned 2776 units, about 15 degrees, and its sector boxes still agree to
+0.0004 units with the rotation left out.
+
+### Layers
+
+A terrain is painted with up to 32 layers, drawn in order, each blended over
+what is below it by its alpha map. `Layers` is a fixed array of TerrainLayer
+structs, and each element is a tagged list of its own:
+
+```
+Texture          the layer's texture
+AlphaMap         an RGBA8 texture; the weight is its alpha channel, 0 to 255
+UScale, VScale   texture repeat, in quads
+UPan, VPan, TextureRotation, LayerRotation    zero on every layer in the game
+TextureMapAxis   which plane the texture is projected on
+TerrainMatrix    the editor's world to texture transform
+KFriction, KRestitution, LayerWeightMap
+```
+
+TerrainMatrix is a Matrix struct of four Planes, XPlane to WPlane, and here,
+unlike Planes held directly, each Plane is itself a tagged list of X, Y, Z and
+W. It is used as a row vector:
+
+```
+u = [x y z 1] . (XPlane.X, YPlane.X, ZPlane.X, WPlane.X)
+v = [x y z 1] . (XPlane.Y, YPlane.Y, ZPlane.Y, WPlane.Y)
+```
+
+The 22 terrains have 73 layers, every one of which parses to the exact end of
+its struct, and 1 to 6 layers each. On all 70 layers with a texture the matrix is
+1 / (TerrainScale * UScale) on the axes TextureMapAxis picks, so a texture
+repeats once every UScale quads: 69 project on the ground plane, and one in the
+Carriage Hijack, TextureMapAxis 2, takes u from the height, for a cliff. The
+other three layers have an all zero matrix and a UScale of 0, and are not
+drawn. The WPlane row, the offset, is small, a fraction of one repeat, and it is
+applied as stored; whether it is meant for world or terrain coordinates is not
+settled, and at that size it does not show.
+
+Alpha maps hold a constant 127 in red, green and blue and the weight in alpha.
+66 are as large as the heightmap, a texel per vertex, and 4 are half its size.
+The first layer's map is 255 nearly everywhere, the ground the others are
+painted over.
+
+**The spikes on Shrek's swamp are in the data.** On the tutorial terrain four
+vertices in a diagonal row, between the first lily pads and a punching bag,
+stand 190 to 300 units above their neighbours, painted at full weight with the
+cliff layer. The engine's own sector box for that part of the grid reaches the
+same height, 244, so they were there when the level was saved. Whatever hides
+them in play, if anything does, is not in the terrain.
+
 ## Skeletal meshes
 
 Characters and other animated objects are SkeletalMesh records, in the `.ukx`

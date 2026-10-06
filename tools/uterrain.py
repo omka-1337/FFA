@@ -101,6 +101,7 @@ class Terrain:
         self.X, self.Y, self.heights = read_heightmap(tex_pkg, tex)
         self.visible = bits(d.get('QuadVisibilityBitmap'))
         self.edge_turn = bits(d.get('EdgeTurnBitmap'))
+        self.layers = read_layers(pkg, e)
 
     def _bit(self, words, x, y, default):
         if not words:
@@ -146,6 +147,53 @@ class Terrain:
 
     def vertices(self):
         return [self.vertex(x, y) for y in range(self.Y) for x in range(self.X)]
+
+    def weights(self, alpha, aw, ah):
+        """A layer's weight at every vertex, 0 to 255, from the alpha channel
+        of its RGBA alpha map. A map as large as the heightmap has one texel per
+        vertex; a smaller one is spread over the grid."""
+        out = []
+        for y in range(self.Y):
+            ay = y * ah // self.Y
+            for x in range(self.X):
+                out.append(alpha[(ay * aw + x * aw // self.X) * 4 + 3])
+        return out
+
+
+def read_layers(pkg, e):
+    """The terrain's texture layers, in drawing order. Layers is a fixed array
+    of TerrainLayer structs, each a tagged list of its own, and inside it
+    TerrainMatrix is a Matrix of four tagged Planes. The matrix is the editor's
+    own world to texture transform, used as a row vector: u = [x y z 1] times
+    its first column, v times its second. On all 70 layers with a texture it is
+    1 / (TerrainScale * UScale) on the axes TextureMapAxis picks, one repeat
+    every UScale quads. Three layers have an all zero matrix and no texture to
+    speak of; they are left out."""
+    tag = Tagged(pkg)
+
+    def fields(at, size):
+        v = tag.parse(at, at + size, want_values=True)
+        if not v or v[1] != at + size:
+            raise ValueError('struct does not end on its size')
+        return {x['name']: x for x in v[0]}
+
+    v = tag.parse(Map(pkg).props_start(e), e['off'] + e['size'], want_values=True)
+    out = []
+    for entry in sorted((x for x in v[0] if x['name'] == 'Layers'), key=lambda x: x['index']):
+        lay = fields(entry['at'], entry['size'])
+        tm = lay.get('TerrainMatrix')
+        if 'Texture' not in lay or not tm:
+            continue
+        rows = {k: fields(x['at'], x['size']) for k, x in fields(tm['at'], tm['size']).items()}
+        get = lambda row, c: rows.get(row, {}).get(c, {}).get('value', 0.0)
+        planes = ('XPlane', 'YPlane', 'ZPlane', 'WPlane')
+        u = tuple(get(r, 'X') for r in planes)
+        w = tuple(get(r, 'Y') for r in planes)
+        if not any(u[:3]) and not any(w[:3]):
+            continue
+        out.append(dict(index=entry['index'], texture=lay['Texture'].get('ref', 0),
+                        alpha=lay.get('AlphaMap', {}).get('ref', 0), u=u, v=w))
+    return out
 
 
 def find_texture_in(pkg, entry, files=None):

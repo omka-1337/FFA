@@ -106,7 +106,6 @@ Open work, roughly in order of how much it unblocks:
 - The rest of the BSP record after the verts: the zone table, lightmaps,
   bounds and leaves. Node zones are decoded; the zone table would tie each
   number to its ZoneInfo directly.
-- Terrain layers: which textures a terrain blends, and with what alpha maps.
 - PrePivot on skeletal meshes, and the props that float: both written up as
   open questions in the format document, with the measurements so far.
 - `TerrainSector` and `StaticMeshInstance` payloads.
