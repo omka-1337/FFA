@@ -141,6 +141,21 @@ class MeshLibrary:
                     return i
         return hits[0] if hits else None
 
+    def find_object(self, pkg, path, ref, cls):
+        """(file path, export index) of the object of class `cls` that a
+        reference held by `pkg` names, through its import chain if need be."""
+        if ref > 0:
+            return (path, ref) if pkg.classof(pkg.exports[ref - 1]) == cls else None
+        if ref < 0:
+            chain = import_path(pkg, ref)
+            fpath = self.files.get(chain[0].lower())
+            if fpath:
+                p = self.package(fpath)
+                for i, e in enumerate(p.exports):
+                    if e['name'].lower() == chain[-1].lower() and p.classof(e) == cls:
+                        return fpath, i + 1
+        return None
+
     def resolve(self, pkg, path, ref):
         """(key, Mesh) for a reference held by `pkg` (loaded from `path`)."""
         if ref > 0:
@@ -266,3 +281,51 @@ def static_mesh_instances(pkg, path, lib, defaults=None):
             continue
         cols, loc = actor_matrix(d)
         yield key, mesh, cols, loc, e['name']
+
+
+# ------------------------------------------------------------- skeletal meshes
+
+def skeletal_local_points(sk, lod=0):
+    """A skeletal mesh's reference pose in actor space: RotOrigin applied to
+    (point - MeshOrigin) * MeshScale. The sign of MeshOrigin was settled
+    against the game: with it subtracted, the feet of 54 placed characters sit
+    on the bottom of their collision cylinders, median -0.0 units; added, they
+    float 72 units above. Knight, for one, has MeshOrigin.Y = -33 and
+    CollisionHeight 33."""
+    X, Y, Z = rotation_axes(*sk.rot_origin)
+    pts, wedges, faces = sk.geometry(lod)
+    out = []
+    for v in pts:
+        u = [(v[i] - sk.origin[i]) * sk.scale[i] for i in range(3)]
+        out.append(tuple(X[i] * u[0] + Y[i] * u[1] + Z[i] * u[2] for i in range(3)))
+    return out, wedges, faces
+
+
+def skeletal_instances(pkg, path, lib, defaults):
+    """Yield (key, SkeletalMesh, columns, location, actor name) for every actor
+    drawn with a skeletal mesh."""
+    from uskel import SkeletalMesh
+    if not hasattr(lib, 'skeletal'):
+        lib.skeletal = {}
+    for e, d in Map(pkg).actors(values=True):
+        d = defaults.merged(pkg.classof(e), d)
+        if defaults.drawtype(d) != 'DT_Mesh':
+            continue
+        me = d.get('Mesh')
+        if not me or 'ref' not in me or d.get('bHidden', {}).get('value'):
+            continue
+        hp, hpath = (defaults.package(me['_pkg']) if '_pkg' in me else (pkg, path))
+        hit = lib.find_object(hp, hpath, me['ref'], 'SkeletalMesh')
+        if not hit:
+            continue
+        if hit not in lib.skeletal:
+            sp = lib.package(hit[0])
+            try:
+                lib.skeletal[hit] = SkeletalMesh(sp, sp.exports[hit[1] - 1])
+            except Exception:
+                lib.skeletal[hit] = None
+        sk = lib.skeletal[hit]
+        if sk is None or not sk.lods:
+            continue
+        cols, loc = actor_matrix(d)
+        yield hit, sk, cols, loc, e['name']

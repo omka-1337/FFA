@@ -59,7 +59,9 @@ UnrealEngine2 Runtime (version 126):
 - **Terrain.** All 22 terrains, with the heightmap to world transform proven
   against every one of the engine's 1360 stored sector bounding boxes.
 - **Skeletal meshes.** All 141, with four LOD models each, every index in range,
-  standing upright in their reference pose. Animations are not read yet.
+  standing upright in their reference pose, and all 1031 placed in levels.
+  Characters stand on the ground; props with no mesh origin float by about
+  their collision height, an open question that animations should settle.
 - **Levels assembled.** BSP, placed static meshes and terrain together, viewable
   in a browser, with orientation, rotation and terrain holes checked against the
   game itself.
@@ -99,8 +101,8 @@ python3 uview.py      ../Maps/7_Prison_Donkey.unr ../out/prison.html
 ```
 
 The viewer is a noclip camera: W A S D to move, E or Space up, Q or C down, the
-arrow keys to look, Shift to go faster, R back to the overview, and B, M and T to
-toggle BSP sides, static meshes and terrain. Keys are read by physical position,
+arrow keys to look, Shift to go faster, R back to the overview, and B, M, T and K
+to toggle BSP sides, static meshes, terrain and skeletal meshes. Keys are read by physical position,
 so they work on any keyboard layout.
 
 The viewer output contains the game's own geometry, so it goes to the gitignored

@@ -646,6 +646,36 @@ sections and index buffers that lie between them. Every one of the 141 meshes
 yields exactly four LOD models, and in every one of them all wedge and face
 indices fall inside their arrays.
 
+### Placing them in a level
+
+1031 actors across the maps draw with a skeletal mesh, effective DrawType
+DT_Mesh, and every one resolves. A mesh's reference pose goes into actor space
+as
+
+```
+RotOrigin applied to (point - MeshOrigin) * MeshScale
+```
+
+then through the actor's transform like any static mesh. The sign of MeshOrigin
+was settled against the game's own placement rather than guessed: with it
+subtracted, the lowest point of 54 placed characters sits on the bottom of their
+collision cylinders, median -0.0 units and a spread of 6.6; added, they float 72
+units above. The artists' intent is visible in the numbers, Knight's MeshOrigin
+is (0, -33, 0) and its CollisionHeight 33.
+
+**Open question: props that float.** Actors whose mesh has a zero MeshOrigin,
+mushrooms, trees, pumpkins and the like, come out floating, and the gap is close
+to their CollisionHeight: 26.7 for a CollisionHeight of 30, 24.4 for 25, 97.9 for
+100, 78.6 for 80. In play they stand on the ground, so something lowers them
+that this reconstruction does not do. It is not the script: none of their class
+chain, ShProps, shpawn, KWPawn, assigns PrePivot from the collision height. Two
+candidates remain. KnowWonder's native KWPawnNative could do it in C++, which is
+out of reach here. Or the in game pose is an animation rather than the reference
+pose, with the root lower down. The second has some support: the two such meshes
+whose root bone sits well away from the origin follow it. The pumpkin's gap is
+-6.8 with a CollisionHeight of 20 and its root at 26.8, and Shrek's switch's is
+1.0 with 41 and 40.2. Reading animations should settle it.
+
 Not decoded yet: the sections and index buffers inside a LOD model, most of the
 skeleton's surroundings, and the animations, which live in MeshAnimation
 records.

@@ -14,7 +14,7 @@ import sys, os, json, base64, struct, zlib, colorsys, collections
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from upkg import Package
 from ulevel import (level_model, polygons, MeshLibrary, static_mesh_instances,
-                    ClassDefaults)
+                    ClassDefaults, skeletal_instances, skeletal_local_points)
 from uterrain import terrains
 
 # Unreal (x, y, z) to three.js (x, z, y), in metres. One swap flips handedness
@@ -87,6 +87,35 @@ def build_terrain(pkg, files):
     return out
 
 
+def instance_matrix(cols, loc):
+    """three.js column major matrix for an actor transform: P A P, P the Y/Z swap."""
+    p = (0, 2, 1)
+    A3 = [[cols[p[c]][p[r]] for c in range(3)] for r in range(3)]
+    t = conv(loc)
+    return [A3[0][0], A3[1][0], A3[2][0], 0.0, A3[0][1], A3[1][1], A3[2][1], 0.0,
+            A3[0][2], A3[1][2], A3[2][2], 0.0, t[0], t[1], t[2], 1.0]
+
+
+def build_skeletal(pkg, path, lib, defaults):
+    """Skeletal meshes in their reference pose, one geometry per mesh and one
+    instance per actor."""
+    uniq, inst = {}, collections.defaultdict(list)
+    if defaults is None:
+        return uniq, inst
+    for key, sk, cols, loc, name in skeletal_instances(pkg, path, lib, defaults):
+        if key not in uniq:
+            pts, wedges, faces = skeletal_local_points(sk)
+            pos = []
+            for v in pts:
+                pos += conv(v)
+            idx = []
+            for f in faces:
+                idx += [wedges[f[0]][0], wedges[f[1]][0], wedges[f[2]][0]]
+            uniq[key] = (sk.name, pos, idx)
+        inst[key].append(instance_matrix(cols, loc))
+    return uniq, inst
+
+
 def build_meshes(pkg, path, lib, defaults=None):
     """Unique static meshes once each, plus one transform per placed actor."""
     uniq, inst = {}, collections.defaultdict(list)
@@ -123,7 +152,7 @@ html,body{margin:0;height:100%%;background:#18181f;overflow:hidden;font:13px sys
 <b>Fly:</b> W A S D move · E or Space up · Q or C down · arrows look<br>
 Shift fast · [ and ] change speed · R back to the overview<br>
 mouse or touchpad drag also looks, wheel changes speed<br>
-<b>Show:</b> B BSP one or both sides · M static meshes · T terrain<br><br>%(legend)s</div>
+<b>Show:</b> B BSP one or both sides · M static meshes · T terrain · K skeletal meshes<br><br>%(legend)s</div>
 <script src="%(three)s"></script>
 <script>
 function dec(s, T){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new T(u.buffer)}
@@ -138,6 +167,18 @@ const bspMat=new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.FrontSi
 scene.add(new THREE.Mesh(g,bspMat));
 const meshes=new THREE.Group(); scene.add(meshes);
 const terrain=new THREE.Group(); scene.add(terrain);
+const skeletal=new THREE.Group(); scene.add(skeletal);
+for (const m of %(skeletal)s){
+  const mg=new THREE.BufferGeometry();
+  mg.setAttribute('position',new THREE.BufferAttribute(dec(m.pos,Float32Array),3));
+  mg.setIndex(new THREE.BufferAttribute(dec(m.idx,Uint32Array),1));
+  mg.computeVertexNormals();
+  const mat=dec(m.mat,Float32Array), n=mat.length/16;
+  const im=new THREE.InstancedMesh(mg,new THREE.MeshLambertMaterial({color:0xb08ce0,side:THREE.DoubleSide}),n);
+  const M=new THREE.Matrix4();
+  for(let i=0;i<n;i++){M.fromArray(mat,i*16); im.setMatrixAt(i,M);}
+  im.instanceMatrix.needsUpdate=true; skeletal.add(im);
+}
 for (const t of %(terrain)s){
   const tg=new THREE.BufferGeometry();
   tg.setAttribute('position',new THREE.BufferAttribute(dec(t.pos,Float32Array),3));
@@ -188,6 +229,7 @@ addEventListener('keydown',e=>{
   if(e.code==='KeyB'){bspMat.side=bspMat.side===THREE.FrontSide?THREE.DoubleSide:THREE.FrontSide;bspMat.needsUpdate=true}
   if(e.code==='KeyM'){meshes.visible=!meshes.visible}
   if(e.code==='KeyT'){terrain.visible=!terrain.visible}
+  if(e.code==='KeyK'){skeletal.visible=!skeletal.visible}
   if(e.code==='KeyR'){overview()}
   if(e.code==='BracketRight'){speed*=1.5}
   if(e.code==='BracketLeft'){speed/=1.5}
@@ -237,6 +279,10 @@ def main(argv):
     defaults = ClassDefaults(sysdir) if os.path.isdir(sysdir) else None
     uniq, inst = build_meshes(pkg, src, lib, defaults)
     terr = build_terrain(pkg, lib.files)
+    suniq, sinst = build_skeletal(pkg, src, lib, defaults)
+    skel_json = json.dumps([dict(pos=b64('f', suniq[k][1]), idx=b64('I', suniq[k][2]),
+                                 mat=b64('f', [x for m in sinst[k] for x in m]))
+                            for k in suniq])
     mesh_json = json.dumps([
         dict(pos=b64('f', uniq[k][1]), idx=b64('I', uniq[k][2]),
              mat=b64('f', [x for m in inst[k] for x in m]),
@@ -253,12 +299,14 @@ def main(argv):
         % (tuple(int(v * 255) for v in tint(n)) + (n, k))
         for n, k in mats.most_common(12))
     html = PAGE % dict(title=title, three=THREE,
-                       stats='BSP %d polygons, %d triangles<br>static meshes %d placed, %d unique, %d triangles<br>terrain %d grids, %d triangles'
+                       stats='BSP %d polygons, %d triangles<br>static meshes %d placed, %d unique, %d triangles<br>terrain %d grids, %d triangles<br>skeletal meshes %d placed, %d unique, reference pose'
                              % (sum(mats.values()), len(idx) // 3, ninst, len(uniq), ntri,
-                                len(terr), sum(t['tris'] for t in terr)),
+                                len(terr), sum(t['tris'] for t in terr),
+                                sum(len(v) for v in sinst.values()), len(suniq)),
                        legend=legend, pos=b64('f', pos), col=b64('B', col), idx=b64('I', idx),
                        meshes=mesh_json,
-                       terrain=json.dumps([{k: t[k] for k in ('pos', 'col', 'idx')} for t in terr]))
+                       terrain=json.dumps([{k: t[k] for k in ('pos', 'col', 'idx')} for t in terr]),
+                       skeletal=skel_json)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     open(out, 'w').write(html)
     print('%s: BSP %d triangles, %d mesh instances (%d unique), %.1f MB -> %s'
