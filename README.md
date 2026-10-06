@@ -22,7 +22,7 @@ copying even if the code is not.
 | `tools/umap.py` | Actors of a level and their properties |
 | `tools/umesh.py` | Static mesh geometry: vertices, normals, UVs, colours, triangles |
 | `tools/ubsp.py` | BSP: level vectors, points, nodes, surfaces and verts |
-| `tools/ulevel.py` | Assembles a level's geometry, BSP polygons so far |
+| `tools/ulevel.py` | Assembles a level: BSP polygons and placed static meshes |
 | `tools/uview.py` | Writes a level as a self contained HTML viewer |
 | `tools/natives.py` | Which engine natives a game's script actually calls |
 
@@ -45,6 +45,8 @@ UnrealEngine2 Runtime (version 126):
 - **BSP.** All 2727 Model records, with 32690 nodes, 18539 surfaces and 602807
   verts, every reference in range. Zones, lightmaps and bounds are still
   undecoded.
+- **Levels assembled.** BSP and placed static meshes together, viewable in a
+  browser, with orientation and rotation checked against the game itself.
 
 Not done yet: the rest of the BSP record, terrain, textures, and structuring the
 decompiler's control flow into `if` and `for` rather than labels and gotos.

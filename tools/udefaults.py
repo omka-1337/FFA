@@ -89,8 +89,13 @@ class Tagged:
                 r.p = at + size
                 if r.p > end:
                     return None
-            out.append(dict(name=p.names[nm], type=t, index=index,
-                            struct=struct_name, size=size, value=value))
+            entry = dict(name=p.names[nm], type=t, index=index,
+                         struct=struct_name, size=size, value=value)
+            if want_values and t in (T_OBJECT, T_CLASS):
+                # keep the raw reference too: resolving it to another package
+                # needs the import, not just the name
+                entry['ref'] = R(p.b, at).idx()
+            out.append(entry)
             if len(out) > 4000:
                 return None
 

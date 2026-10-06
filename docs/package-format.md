@@ -431,10 +431,52 @@ than assumed: in the Donkey prison the hole the cat goes through sits to the
 left of the stairs, as it does in play. Mirroring is the one error this kind of
 conversion makes silently, so it needs a check against something known.
 
-Much of what makes a level look like itself is not BSP at all. Static mesh
-actors carry most of the detail, movers carry their own brush models, and
-animated hazards such as the prison's swinging maces (`BallSpiked`) are drawn
-with skeletal meshes from the `.ukx` packages.
+BSP faces point into the playable space, the side a polygon is meant to be seen
+from, and the node's plane normal says which side that is. Drawing BSP from the
+front only therefore makes a level transparent from outside, the way the editor
+shows it, while still solid from within. Winding each triangle to agree with its
+node's plane makes this independent of whatever winding the file uses.
+
+### Placed static meshes
+
+Most of what makes a level look like itself is not BSP. Static mesh actors carry
+most of the detail: 675 in the Donkey prison, 1025 in Shreks Swamp.
+
+An actor's StaticMesh property is usually an import. Its outer chain ends at the
+package name, which is also the `.usx` file name, so the mesh is found by
+package and object name. All 675 prison actors resolve this way.
+
+The transform comes from four properties, each optional with a default:
+
+```
+Location      vector, default (0, 0, 0)
+Rotation      Pitch, Yaw, Roll in Unreal units, 65536 to the full turn
+DrawScale     float, default 1
+DrawScale3D   vector, default (1, 1, 1), multiplied with DrawScale per axis
+```
+
+The rotation follows Unreal's FRotationMatrix: roll about X, then pitch about Y,
+then yaw about Z, giving the images of the local axes as
+
+```
+X = ( CP*CY,              CP*SY,              SP     )
+Y = ( SR*SP*CY - CR*SY,   SR*SP*SY + CR*CY,   -SR*CP )
+Z = ( -(CR*SP*CY + SR*SY), CY*SR - CR*SP*SY,  CR*CP  )
+```
+
+and a vertex lands at `Location + x*X*sx + y*Y*sy + z*Z*sz`. A sign error in a
+formula like this puts every object in the right place but turned the wrong
+way, and passes every numeric check, so it was confirmed against the game: in
+the Donkey prison the placed objects face the way they do in play.
+
+For a right handed, Y up viewer the instance matrix is `P A P` with P the Y and
+Z swap, and the translation `P Location`. Checked numerically against baking the
+transform in Unreal space first: 9560 vertices, worst disagreement 1.7e-14.
+
+Not placed yet: actors that take their mesh from class defaults rather than
+their own property (the prison's chains, for one), movers, which carry their own
+brush models, and anything drawn with a skeletal mesh, such as the prison's
+swinging maces, `BallSpiked`, from the `.ukx` packages.
 
 ## A warning about parsers
 
