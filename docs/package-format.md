@@ -488,11 +488,19 @@ each class override the last. That matters three ways for placement:
 - Scale and rotation can be inherited, though none of the prison's actors
   changed when defaults were merged in.
 
-### Movers are static meshes here
+### Movers are static meshes in UE2
 
-UE1 movers carry brush geometry. In Shrek 2 they are static meshes: across all
-maps, 235 movers draw as DT_StaticMesh and are placed like any other mesh, 18 are
-invisible logic movers drawn as sprites, and none uses a brush. The 401 actors in
+In UE2, `Mover` extends `Actor`, not `Brush`, in Epic's UnrealEngine2 Runtime as
+much as in Shrek 2, so this is the engine's design and not a licensee change.
+Movers are drawn like any other actor, which in practice means as static meshes.
+It is worth stating because the opposite is what most writing on Unreal
+internals describes: in UE1, `Mover` extends `Brush` and carries brush geometry,
+and a reader built from that knowledge will go looking for mover brushes that are
+not there.
+
+Across all Shrek 2 maps, 235 movers draw as DT_StaticMesh and are placed like any
+other mesh, 18 are invisible logic movers drawn as sprites, and none uses a
+brush. The 401 actors in
 the prison that do carry a brush are the CSG brushes already baked into the
 level's BSP, and invisible volumes.
 
