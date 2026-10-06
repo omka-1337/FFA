@@ -13,7 +13,8 @@ import sys, os, json, base64, struct, zlib, colorsys, collections
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from upkg import Package
-from ulevel import level_model, polygons, MeshLibrary, static_mesh_instances
+from ulevel import (level_model, polygons, MeshLibrary, static_mesh_instances,
+                    ClassDefaults)
 
 # Unreal (x, y, z) to three.js (x, z, y), in metres. One swap flips handedness
 # and moves Z up to Y up; Unreal units are roughly centimetres.
@@ -64,10 +65,10 @@ def build_bsp(pkg):
     return pos, col, idx, mats
 
 
-def build_meshes(pkg, path, lib):
+def build_meshes(pkg, path, lib, defaults=None):
     """Unique static meshes once each, plus one transform per placed actor."""
     uniq, inst = {}, collections.defaultdict(list)
-    for key, mesh, cols, loc, name in static_mesh_instances(pkg, path, lib):
+    for key, mesh, cols, loc, name in static_mesh_instances(pkg, path, lib, defaults):
         if key not in uniq:
             pos = []
             for v in mesh.verts:
@@ -147,8 +148,12 @@ def main(argv):
         os.path.dirname(os.path.dirname(os.path.abspath(src))), 'StaticMeshes')
     pkg = Package(src)
     pos, col, idx, mats = build_bsp(pkg)
-    lib = MeshLibrary([meshdir])
-    uniq, inst = build_meshes(pkg, src, lib)
+    root = os.path.dirname(meshdir)
+    lib = MeshLibrary([meshdir] + [os.path.join(root, d) for d in
+                                   ('Textures', 'Animations', 'System', 'Maps')])
+    sysdir = os.path.join(root, 'System')
+    defaults = ClassDefaults(sysdir) if os.path.isdir(sysdir) else None
+    uniq, inst = build_meshes(pkg, src, lib, defaults)
     mesh_json = json.dumps([
         dict(pos=b64('f', uniq[k][1]), idx=b64('I', uniq[k][2]),
              mat=b64('f', [x for m in inst[k] for x in m]),

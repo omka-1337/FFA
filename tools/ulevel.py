@@ -87,17 +87,26 @@ def import_path(pkg, ref):
 
 
 class MeshLibrary:
-    """Finds and caches StaticMesh objects across the game's .usx packages."""
+    """Finds and caches StaticMesh objects anywhere in a game's packages.
+
+    A package is named by its file's stem, whatever the extension: Unreal does
+    not tie object types to file types, and Shrek 2 keeps some static meshes in
+    texture packages (the beanstalk bonus maps import
+    Beanstalk.StaticEnviroment.fence_1 from Textures/Beanstalk.utx). So every
+    package file in the given directories is a candidate, and each is opened
+    only when an import actually names it.
+    """
+    EXTENSIONS = ('.u', '.usx', '.utx', '.ukx', '.uax', '.umx', '.unr')
 
     def __init__(self, dirs):
-        self.index, self.pkgs, self.meshes = {}, {}, {}
+        self.files, self.pkgs, self.meshes, self.byname = {}, {}, {}, {}
         for d in dirs:
-            for f in glob.glob(os.path.join(d, '*.usx')):
-                top = os.path.splitext(os.path.basename(f))[0].lower()
-                p = self.package(f)
-                for i, e in enumerate(p.exports):
-                    if p.classof(e) == 'StaticMesh':
-                        self.index.setdefault((top, e['name'].lower()), (f, i + 1))
+            if not os.path.isdir(d):
+                continue
+            for f in sorted(os.listdir(d)):
+                stem, ext = os.path.splitext(f)
+                if ext.lower() in self.EXTENSIONS:
+                    self.files.setdefault(stem.lower(), os.path.join(d, f))
 
     def package(self, path):
         if path not in self.pkgs:
@@ -114,6 +123,24 @@ class MeshLibrary:
                 self.meshes[key] = None
         return self.meshes[key]
 
+    def find(self, path, chain):
+        """Export index of the StaticMesh named by an import chain, matching
+        the group names too when the same object name occurs twice."""
+        if path not in self.byname:
+            p = self.package(path)
+            names = collections.defaultdict(list)
+            for i, e in enumerate(p.exports):
+                if p.classof(e) == 'StaticMesh':
+                    names[e['name'].lower()].append(i + 1)
+            self.byname[path] = names
+        hits = self.byname[path].get(chain[-1].lower(), [])
+        if len(hits) > 1 and len(chain) > 2:
+            p = self.package(path)
+            for i in hits:
+                if p.refname(p.exports[i - 1]['pkg']).lower() == chain[-2].lower():
+                    return i
+        return hits[0] if hits else None
+
     def resolve(self, pkg, path, ref):
         """(key, Mesh) for a reference held by `pkg` (loaded from `path`)."""
         if ref > 0:
@@ -124,9 +151,11 @@ class MeshLibrary:
             return (path, ref), self.mesh(path, ref)
         if ref < 0:
             chain = import_path(pkg, ref)
-            hit = self.index.get((chain[0].lower(), chain[-1].lower()))
-            if hit:
-                return hit, self.mesh(*hit)
+            fpath = self.files.get(chain[0].lower())
+            if fpath:
+                idx = self.find(fpath, chain)
+                if idx:
+                    return (fpath, idx), self.mesh(fpath, idx)
         return None, None
 
 
@@ -156,17 +185,83 @@ def actor_matrix(d):
     return cols, loc
 
 
-def static_mesh_instances(pkg, path, lib):
+class ClassDefaults:
+    """Effective default properties of classes, merged along the inheritance
+    chain. A class's defaults block stores only what differs from its parent,
+    so a value is only known after walking from the root down to the class."""
+
+    def __init__(self, system_dir):
+        from udefaults import World
+        self.dir = system_dir
+        self.world = World(glob.glob(os.path.join(system_dir, '*.u')))
+        self.cache = {}
+        self.drawtypes = []
+        if 'EDrawType' in self.world.enums:
+            k, i = self.world.enums['EDrawType']
+            self.drawtypes = self.world.readers[k].enum_values(i)
+
+    def effective(self, cls):
+        if cls in self.cache:
+            return self.cache[cls]
+        w, chain, name = self.world, [], cls
+        while name in w.classes and len(chain) < 50:
+            key, idx = w.classes[name]
+            chain.append((key, idx))
+            sup = w.readers[key].field(idx)['super']
+            name = w.pkgs[key].refname(sup) if sup else None
+        out = {}
+        for key, idx in reversed(chain):            # root first, class last
+            best = w.defaults(key, idx)
+            for x in (best[0] if best else []):
+                if x['index'] == 0:
+                    out[x['name']] = dict(x, _pkg=key)
+        self.cache[cls] = out
+        return out
+
+    def merged(self, cls, props):
+        """Class defaults overlaid with an actor's own properties."""
+        out = dict(self.effective(cls))
+        out.update(props)
+        return out
+
+    def drawtype(self, props):
+        e = props.get('DrawType')
+        if not e:
+            return 'DT_Sprite'                      # Actor's own default
+        if e.get('enum'):
+            return e['enum']
+        v = e['value']
+        return self.drawtypes[v] if isinstance(v, int) and v < len(self.drawtypes) else v
+
+    def package(self, key):
+        return self.world.pkgs[key], os.path.join(self.dir, key)
+
+
+def static_mesh_instances(pkg, path, lib, defaults=None):
     """Yield (mesh key, Mesh, columns, location, actor name) for every actor
-    that carries its own StaticMesh reference."""
+    drawn as a static mesh.
+
+    With `defaults`, an actor's properties are merged over its class's
+    effective defaults: that brings in actors which never set a mesh of their
+    own (coins, crates, chains), honours inherited DrawType, bHidden and scale,
+    and lets the class decide whether the actor is drawn as a static mesh at
+    all. Without it, only actors carrying their own StaticMesh are placed."""
     mp = Map(pkg)
     for e, d in mp.actors(values=True):
+        if defaults is not None:
+            d = defaults.merged(pkg.classof(e), d)
+            if defaults.drawtype(d) != 'DT_StaticMesh':
+                continue
         sm = d.get('StaticMesh')
         if not sm or 'ref' not in sm:
             continue
         if d.get('bHidden', {}).get('value'):
             continue
-        key, mesh = lib.resolve(pkg, path, sm['ref'])
+        if '_pkg' in sm:                            # the reference is the class's
+            hp, hpath = defaults.package(sm['_pkg'])
+        else:
+            hp, hpath = pkg, path
+        key, mesh = lib.resolve(hp, hpath, sm['ref'])
         if mesh is None:
             continue
         cols, loc = actor_matrix(d)

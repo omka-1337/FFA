@@ -473,10 +473,43 @@ For a right handed, Y up viewer the instance matrix is `P A P` with P the Y and
 Z swap, and the translation `P Location`. Checked numerically against baking the
 transform in Unreal space first: 9560 vertices, worst disagreement 1.7e-14.
 
-Not placed yet: actors that take their mesh from class defaults rather than
-their own property (the prison's chains, for one), movers, which carry their own
-brush models, and anything drawn with a skeletal mesh, such as the prison's
-swinging maces, `BallSpiked`, from the `.ukx` packages.
+### Properties come from the class too
+
+An actor's properties are its class's effective defaults overlaid with its own.
+The class's defaults block stores only what differs from its parent, so the
+effective values come from walking the chain from the root down and letting
+each class override the last. That matters three ways for placement:
+
+- Actors that never set a mesh of their own still have one. Coins, crates,
+  barrels and chains take theirs from the class: 217 of the prison's 892 placed
+  meshes.
+- DrawType decides whether the actor is drawn as a static mesh at all, and is
+  usually inherited.
+- Scale and rotation can be inherited, though none of the prison's actors
+  changed when defaults were merged in.
+
+### Movers are static meshes here
+
+UE1 movers carry brush geometry. In Shrek 2 they are static meshes: across all
+maps, 235 movers draw as DT_StaticMesh and are placed like any other mesh, 18 are
+invisible logic movers drawn as sprites, and none uses a brush. The 401 actors in
+the prison that do carry a brush are the CSG brushes already baked into the
+level's BSP, and invisible volumes.
+
+### A package is a file name, not a file type
+
+Unreal does not tie object types to file types. Shrek 2 keeps some static meshes
+in texture packages: the beanstalk bonus maps import
+`Beanstalk.StaticEnviroment.fence_1`, which lives in `Textures/Beanstalk.utx`.
+Looking only in `.usx` files left 45 actors unplaced. Resolving the import's top
+level name against every package file in the game, whatever its extension,
+places all of them.
+
+Across all 29 maps, 11448 actors draw as static meshes: 11429 are placed, 19 are
+hidden, none fails to resolve.
+
+Not placed yet: terrain, and anything drawn with a skeletal mesh, such as the
+prison's swinging maces, `BallSpiked`, from the `.ukx` packages.
 
 ## A warning about parsers
 
