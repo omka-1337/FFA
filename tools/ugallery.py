@@ -17,7 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from upkg import Package
 from uskel import SkeletalMesh
 from uanim import MeshAnimation
-from ulevel import rotation_axes
+from ulevel import rotation_axes, MeshLibrary
+from uview import TextureTable
 
 THREE = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'
 
@@ -80,8 +81,11 @@ def track_for(anim, seq_index, bone_name):
     return chunk.tracks[j] if j < len(chunk.tracks) else None
 
 
-def export(sk, anim):
-    """Everything a page needs, as plain lists, in mesh space."""
+def export(sk, anim, textures=None, path=None):
+    """Everything a page needs, as plain lists, in mesh space. Positions are
+    per point, since that is what skinning moves; the drawn geometry is per
+    wedge, a point with its own texture coordinates, and its triangles are
+    grouped by material."""
     import uanim
     bones, _ = sk.skeleton()
     pts, wedges, faces = sk.geometry(0)
@@ -106,8 +110,16 @@ def export(sk, anim):
                 tracks.append(dict(q=q, p=[list(k) for k in t.positions], t=list(t.times)))
             seqs.append(dict(name=seq.name, frames=seq.num_frames, rate=seq.rate or 30.0,
                              tracks=tracks))
+    tris, groups = [], []
+    for mat in sorted({f[3] for f in faces}):
+        start = len(tris)
+        tris += [f[k] for f in faces if f[3] == mat for k in range(3)]
+        ref = sk.textures[mat] if mat < len(sk.textures) else 0
+        tid = textures.for_material(sk.p, path, ref) if textures else -1
+        groups.append([start, len(tris) - start, tid])
     return dict(points=[c for v in pts for c in v],
-                tris=[wedges[f[k]][0] for f in faces for k in range(3)],
+                wedgePoint=[w[0] for w in wedges], uv=[c for w in wedges for c in w[1:3]],
+                tris=tris, groups=groups,
                 infl=infl, parents=[bn[5] for bn in bones], refLocal=ref_local,
                 refGlobal=[[list(g[0]), list(g[1])] for g in ref_global],
                 seqs=seqs, bones=[bn[0] for bn in bones])
@@ -148,11 +160,34 @@ scene.add(new THREE.HemisphereLight(0xffffff,0x404050,0.8));
 const sun=new THREE.DirectionalLight(0xffffff,0.6); sun.position.set(0.5,1,0.7); scene.add(sun);
 const grid=new THREE.GridHelper(4,16,0x555566,0x33333d); scene.add(grid);
 const n=M.points.length/3, pos=new Float32Array(M.points);
+// Drawn per wedge: each corner has its own texture coordinates. Normals are
+// summed per point, so the seams between UV islands do not show as creases.
+const nw=M.wedgePoint.length, wpos=new Float32Array(nw*3), wnor=new Float32Array(nw*3), pnor=new Float32Array(n*3);
+function toWedges(){
+  pnor.fill(0); const t=M.tris, W=M.wedgePoint;
+  for(let i=0;i<t.length;i+=3){
+    const a=W[t[i]]*3, b=W[t[i+1]]*3, c=W[t[i+2]]*3;
+    const ux=pos[b]-pos[a], uy=pos[b+1]-pos[a+1], uz=pos[b+2]-pos[a+2];
+    const vx=pos[c]-pos[a], vy=pos[c+1]-pos[a+1], vz=pos[c+2]-pos[a+2];
+    const nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+    for(const k of [a,b,c]){pnor[k]+=nx; pnor[k+1]+=ny; pnor[k+2]+=nz;}
+  }
+  for(let w=0;w<nw;w++){const p=W[w]*3;
+    for(let j=0;j<3;j++){wpos[w*3+j]=pos[p+j]; wnor[w*3+j]=pnor[p+j];}}
+}
+toWedges();
 const g=new THREE.BufferGeometry();
-g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+g.setAttribute('position',new THREE.BufferAttribute(wpos,3));
+g.setAttribute('normal',new THREE.BufferAttribute(wnor,3));
+g.setAttribute('uv',new THREE.BufferAttribute(new Float32Array(M.uv),2));
 g.setIndex(new THREE.BufferAttribute(new Uint32Array(M.tris),1));
-g.computeVertexNormals();
-const mesh=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:0x9ccf7a,side:THREE.DoubleSide}));
+// Unreal texture coordinates start at the top left, so no vertical flip.
+const TEX=%(textures)s.map(t=>{const tx=new THREE.TextureLoader().load(t.uri);
+  tx.flipY=false; tx.wrapS=tx.wrapT=THREE.RepeatWrapping; return {tx,alpha:t.alpha};});
+const mats=M.groups.map((gr,i)=>{g.addGroup(gr[0],gr[1],i); const t=gr[2];
+  return t>=0 ? new THREE.MeshLambertMaterial({map:TEX[t].tx,side:THREE.DoubleSide,alphaTest:TEX[t].alpha?0.5:0})
+              : new THREE.MeshLambertMaterial({color:0x9ccf7a,side:THREE.DoubleSide});});
+const mesh=new THREE.Mesh(g,mats);
 mesh.matrixAutoUpdate=false; mesh.matrix.fromArray(%(matrix)s); scene.add(mesh);
 g.computeBoundingBox();
 const bb=g.boundingBox.clone().applyMatrix4(mesh.matrix), C=bb.getCenter(new THREE.Vector3()), R=Math.max(0.3,bb.getSize(new THREE.Vector3()).length());
@@ -200,7 +235,7 @@ const clock=new THREE.Clock(), out=new Float64Array(n*3);
   if(s){
     if(playing) frame=(frame+dt*s.rate*speed)%%Math.max(1,s.frames);
     skin(M,s,frame,out); for(let i=0;i<out.length;i++) pos[i]=out[i];
-    g.attributes.position.needsUpdate=true; g.computeVertexNormals();
+    toWedges(); g.attributes.position.needsUpdate=true; g.attributes.normal.needsUpdate=true;
     state.textContent='frame '+frame.toFixed(1)+' of '+s.frames+' at '+s.rate+' fps'+(speed!==1?' x'+speed.toFixed(2):'')+(playing?'':' paused');
   } else state.textContent='no animation, reference pose';
   ren.render(scene,cam);
@@ -239,6 +274,9 @@ def safe(name):
 def main(argv):
     src, out = argv[0], argv[1]
     os.makedirs(out, exist_ok=True)
+    root = os.path.dirname(os.path.abspath(src))
+    lib = MeshLibrary([os.path.join(root, d) for d in
+                       ('Animations', 'Textures', 'StaticMeshes', 'System', 'Maps')])
     entries = []
     for f in sorted(glob.glob(os.path.join(src, '*.ukx'))):
         p = Package(f)
@@ -256,10 +294,12 @@ def main(argv):
         anim = None
         if aref > 0 and p.classof(p.exports[aref - 1]) == 'MeshAnimation':
             anim = MeshAnimation(p, p.exports[aref - 1])
-        data = rounded(export(sk, anim))
+        textures = TextureTable(lib)
+        data = rounded(export(sk, anim, textures, os.path.join(src, pkg)))
         page = PAGE % dict(title=html.escape(e['name']), package=html.escape(pkg),
                            bones=len(bones), npts=len(data['points']) // 3,
                            three=THREE, skin=SKIN_JS,
+                           textures=json.dumps(textures.items),
                            data=json.dumps(data, separators=(',', ':')),
                            matrix=json.dumps(view_matrix(sk)),
                            prev=json.dumps(pages[i - 1] if i > 0 else None),
