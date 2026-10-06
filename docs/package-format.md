@@ -745,6 +745,33 @@ Of 1709743 rotation keys, 418 are not unit length, and all 418 are exactly
 character animations, and a player has to treat them as such rather than
 normalise them.
 
+### Playing them back
+
+Key times count in frames: a four frame sequence has keys at 0, 1, 2 and 3.
+Between keys, rotations interpolate as normalised linear blends and positions
+linearly. A bone the sequence does not animate keeps its reference transform.
+
+Two facts about rotations had to be established, both by measurement.
+
+First, keys and the reference skeleton store quaternions the same way. Where a
+bone is not animated its first key should equal its reference rotation, and
+39008 such keys on non root bones equal it exactly while none equals its
+conjugate; roots likewise, 944 to none.
+
+Second, composing the hierarchy takes the non root rotations conjugated and the
+root's as stored. Each of the four possible readings places the joints
+differently, and only this one puts them on the skin: the median distance from
+a joint to the nearest skin point is 1.8 units on Shrek, 1.3 on Donkey and 1.1 on
+Fiona, against 7.6 to 20 for the other three.
+
+A point is skinned by the weighted sum of its bones' change from the reference
+pose, `current * inverse(reference)`, with the weights normalised per point.
+Skinning a sequence whose frame equals the reference pose must then give the
+mesh back unchanged, and on 45 of the 48 meshes with a Static sequence it does,
+to under 0.01 units; the other three are posed differently in that sequence.
+Played forward, Shrek's idle stands with his arms at his sides and his run
+leans into the stride.
+
 ## A warning about parsers
 
 A desynchronised parse will happily read garbage as opcodes and walk off the end

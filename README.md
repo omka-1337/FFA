@@ -34,7 +34,7 @@ This project uses AI to write code and documentation. All code and documentation
 | `tools/ulevel.py` | Assembles a level: BSP polygons and placed static meshes |
 | `tools/uterrain.py` | Terrain: heightmaps, holes, and the world transform |
 | `tools/uskel.py` | Skeletal meshes: reference pose and skeleton |
-| `tools/uanim.py` | Animations: bones, keyframe tracks, sequences |
+| `tools/uanim.py` | Animations: bones, keyframe tracks, sequences, playback |
 | `tools/uview.py` | Writes a level as a self contained HTML viewer |
 | `tools/natives.py` | Which engine natives a game's script actually calls |
 
@@ -65,12 +65,13 @@ UnrealEngine2 Runtime (version 126):
   their collision height. That offset is not in the script, the animations or
   the mesh data, which leaves native code.
 - **Animations.** All 134 animation sets, 1574 sequences and 1.7 million
-  rotation keys, read to the exact end of every record. Not yet played back.
+  rotation keys, read to the exact end of every record, and played back by
+  skinning, with the quaternion convention established by measurement.
 - **Levels assembled.** BSP, placed static meshes and terrain together, viewable
   in a browser, with orientation, rotation and terrain holes checked against the
   game itself.
 
-Not done yet: playing animations back, the rest of the BSP record, textures, and structuring the
+Not done yet: animation in the browser viewer, the rest of the BSP record, textures, and structuring the
 decompiler's control flow into `if` and `for` rather than labels and gotos.
 
 ## Getting a corpus
