@@ -33,6 +33,7 @@ This project uses AI to write code and documentation. All code and documentation
 | `tools/ubsp.py` | BSP: level vectors, points, nodes, surfaces and verts |
 | `tools/ulevel.py` | Assembles a level: BSP polygons and placed static meshes |
 | `tools/uterrain.py` | Terrain: heightmaps, holes, and the world transform |
+| `tools/uskel.py` | Skeletal meshes in their reference pose |
 | `tools/uview.py` | Writes a level as a self contained HTML viewer |
 | `tools/natives.py` | Which engine natives a game's script actually calls |
 
@@ -57,11 +58,13 @@ UnrealEngine2 Runtime (version 126):
   undecoded.
 - **Terrain.** All 22 terrains, with the heightmap to world transform proven
   against every one of the engine's 1360 stored sector bounding boxes.
+- **Skeletal meshes.** All 141, with four LOD models each, every index in range,
+  standing upright in their reference pose. Animations are not read yet.
 - **Levels assembled.** BSP, placed static meshes and terrain together, viewable
   in a browser, with orientation, rotation and terrain holes checked against the
   game itself.
 
-Not done yet: skeletal meshes, the rest of the BSP record, textures, and structuring the
+Not done yet: animations, the rest of the BSP record, textures, and structuring the
 decompiler's control flow into `if` and `for` rather than labels and gotos.
 
 ## Getting a corpus

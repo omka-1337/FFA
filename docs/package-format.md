@@ -595,6 +595,61 @@ The bitmaps' bit order is not something the sector boxes can check. It was
 confirmed against the game instead: the holes fall where the ground is cut away
 in play.
 
+## Skeletal meshes
+
+Characters and other animated objects are SkeletalMesh records, in the `.ukx`
+packages along with their MeshAnimation sets. Shrek 2 has 141 skeletal meshes,
+from Shrek, Donkey and Fiona down to a knight's hubcap.
+
+The record opens like every primitive, a bounding box and sphere after an empty
+property block, then the LodMesh header:
+
+```
+u32       Version            4 throughout Shrek 2
+u32       VertexCount
+index     packed vertex count, then 4 bytes each, empty here
+index     texture count, then that many references
+FVector   MeshScale
+FVector   MeshOrigin
+i32 x3    RotOrigin, Pitch Yaw Roll
+```
+
+RotOrigin is (0, -16384, 16384) on 140 of the 141 meshes. The raw points are Y
+up; turning them by RotOrigin with the same rotation formula as actors stands a
+character upright and facing along X, Unreal's forward axis. That was checked by
+eye: Shrek comes out standing in his rigging pose.
+
+Further on are the skeleton and four LOD models. A bone is a name index, a u32
+of flags, a unit quaternion, a position, a length, three sizes, a child count
+and a parent index; the root is its own parent. What matters for drawing is that
+each LOD model keeps its own copy of the geometry in four lazy arrays:
+
+```
+u32       absolute file offset just past the array
+index     element count
+bytes     elements
+```
+
+always in this order:
+
+```
+influences   8 bytes each: f32 weight, u16 point, u16 bone
+wedges      10 bytes each: u16 point, f32 U, f32 V
+faces        8 bytes each: u16 wedge x3, u16 material
+points      12 bytes each: FVector
+```
+
+A wedge is a corner: a point plus the texture coordinates it has in one face.
+The skip offset in front of each array is a check that cannot pass by accident,
+so the arrays are found by scanning the record rather than by decoding the
+sections and index buffers that lie between them. Every one of the 141 meshes
+yields exactly four LOD models, and in every one of them all wedge and face
+indices fall inside their arrays.
+
+Not decoded yet: the sections and index buffers inside a LOD model, most of the
+skeleton's surroundings, and the animations, which live in MeshAnimation
+records.
+
 ## A warning about parsers
 
 A desynchronised parse will happily read garbage as opcodes and walk off the end

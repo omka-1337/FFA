@@ -66,6 +66,14 @@ a node budget per record, and run bulk passes under a cap:
 ( ulimit -v 3000000; python3 tools/udecompile.py $SYS SHGame.u --all out )
 ```
 
+### A Python trap worth knowing
+
+`r.p += r.idx() * 4` does not do what it says. An augmented assignment loads
+`r.p` before evaluating the right hand side, so the byte that `r.idx()` consumes
+is overwritten straight away and the parse silently falls one byte behind. Read
+the count into a variable first. This one shifted every field after a mesh
+header and was caught only because the texture count came back empty.
+
 ## Other implementations
 
 Do not copy code from other readers of these formats. Use them as oracles
