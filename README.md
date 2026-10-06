@@ -65,6 +65,7 @@ UnrealEngine2 Runtime (version 126):
   Characters stand on the ground; props with no mesh origin float by about
   their collision height. That offset is not in the script, the animations or
   the mesh data, which leaves native code.
+- **Textures.** All 2121, in every format the game uses, decoded.
 - **Animations.** All 134 animation sets, 1574 sequences and 1.7 million
   rotation keys, read to the exact end of every record, and played back by
   skinning, with the quaternion convention established by measurement.
@@ -72,7 +73,7 @@ UnrealEngine2 Runtime (version 126):
   in a browser, with orientation, rotation and terrain holes checked against the
   game itself.
 
-Not done yet: animation inside the level viewer, the rest of the BSP record, textures, and structuring the
+Not done yet: textures and animation inside the viewers, the rest of the BSP record, and structuring the
 decompiler's control flow into `if` and `for` rather than labels and gotos.
 
 ## Getting a corpus

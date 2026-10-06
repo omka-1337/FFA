@@ -786,6 +786,45 @@ baked down to plain per frame rotations on export, so playback needs no IK
 solver. The same baking means the data cannot say whether a sequence was keyed by
 hand or captured: both come out as one key per frame.
 
+## Textures
+
+A Texture record is a tagged property block, Format, USize, VSize, Palette and
+the rest, followed by the mip chain described under terrain: a mip count, then
+per mip a skip offset, the data length, the pixel data, and USize, VSize, UBits,
+VBits. Proven on all 2121 textures in the game across every package type: the
+chain ends exactly at the end of each record, every skip offset points just past
+its data, and every mip's data is exactly as long as its format requires at its
+size, which for the block compressed formats means `ceil(w/4) * ceil(h/4)` blocks
+of 8 or 16 bytes.
+
+| Format | Value | Textures | Notes |
+|--|--|--|--|
+| DXT5 | 8 | 1656 | nearly everything |
+| RGBA8 | 5 | 229 | 4 bytes per pixel, B G R A |
+| P8 | 0 | 189 | one byte per pixel into a Palette |
+| G16 | 10 | 22 | terrain heightmaps |
+| DXT3 | 7 | 20 | |
+| DXT1 | 3 | 5 | |
+
+DXT1, DXT3 and DXT5 are the published S3TC formats and decode as such. A
+Palette record is an empty property block, a compact count and that many four
+byte colours; all 177 hold 256.
+
+**The two colour orders differ**, and both were settled by eye on textures whose
+colours are not in doubt. Direct RGBA8 pixels are B G R A: read that way a
+redwood's bark is red brown and a level's title card, "Stealing the Potion,
+Level 5", is cream with red and dark blue lettering, while the other order turns
+the bark blue. Palette entries are R G B A: read that way a menu hourglass has a
+golden wooden frame on the classic magenta mask colour and the palette named
+Jred is red, while the other order turns both blue. The trap is that green
+survives either order, and green is what Shrek 2 has most of.
+
+Package names are matched without regard to case, as on Windows: Shrek's mesh
+imports `ShCharacters.Shrek` from the file `SHCharacters.utx`.
+
+All 2121 textures decode, the paletted ones finding their palettes across
+packages.
+
 ## A warning about parsers
 
 A desynchronised parse will happily read garbage as opcodes and walk off the end
