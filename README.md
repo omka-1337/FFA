@@ -35,6 +35,7 @@ This project uses AI to write code and documentation. All code and documentation
 | `tools/uterrain.py` | Terrain: heightmaps, holes, and the world transform |
 | `tools/uskel.py` | Skeletal meshes: reference pose and skeleton |
 | `tools/uanim.py` | Animations: bones, keyframe tracks, sequences, playback |
+| `tools/ugallery.py` | Browser gallery of skeletal meshes with animations playing |
 | `tools/uview.py` | Writes a level as a self contained HTML viewer |
 | `tools/natives.py` | Which engine natives a game's script actually calls |
 
@@ -71,7 +72,7 @@ UnrealEngine2 Runtime (version 126):
   in a browser, with orientation, rotation and terrain holes checked against the
   game itself.
 
-Not done yet: animation in the browser viewer, the rest of the BSP record, textures, and structuring the
+Not done yet: animation inside the level viewer, the rest of the BSP record, textures, and structuring the
 decompiler's control flow into `if` and `for` rather than labels and gotos.
 
 ## Getting a corpus
@@ -103,7 +104,14 @@ python3 udefaults.py  $SYS Engine.u Pawn             # one class's defaults
 python3 umap.py       ../Maps                        # object counts per level
 python3 umesh.py      ../StaticMeshes                # geometry totals
 python3 uview.py      ../Maps/7_Prison_Donkey.unr ../out/prison.html
+python3 ugallery.py   ../Animations ../out/gallery   # one page per skeletal mesh
 ```
+
+The gallery skins every mesh on the CPU in JavaScript with a line by line port of
+the Python playback, checked against it numerically: the two agree to 1e-13
+units. Space plays or pauses, comma and period step a frame, the square brackets
+change sequence, the arrows orbit, W and S zoom, and PageUp and PageDown move
+between meshes.
 
 The viewer is a noclip camera: W A S D to move, E or Space up, Q or C down, the
 arrow keys to look, Shift to go faster, R back to the overview, and B, M, T and K
