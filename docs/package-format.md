@@ -770,7 +770,21 @@ Skinning a sequence whose frame equals the reference pose must then give the
 mesh back unchanged, and on 45 of the 48 meshes with a Static sequence it does,
 to under 0.01 units; the other three are posed differently in that sequence.
 Played forward, Shrek's idle stands with his arms at his sides and his run
-leans into the stride.
+leans into the stride, and the whole set was checked against the game itself:
+watched in the gallery, the animations move as they do in play.
+
+### What the animation data says about how it was made
+
+There are 1574 sequences, 32.9 minutes of animation in all: 3.5 minutes over 135
+sequences for Shrek alone, 3.1 for Donkey, 2.9 for the peasant, 2.7 for Puss in
+Boots.
+
+None of it is inverse kinematics. The data holds rotations per bone and nothing
+else, and 42620 of the animated tracks carry exactly one key per frame, with
+another 9449 keyed more sparsely. Whatever rigs the animators worked with were
+baked down to plain per frame rotations on export, so playback needs no IK
+solver. The same baking means the data cannot say whether a sequence was keyed by
+hand or captured: both come out as one key per frame.
 
 ## A warning about parsers
 
