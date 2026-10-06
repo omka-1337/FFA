@@ -7,3 +7,6 @@ work/
 
 __pycache__/
 *.pyc
+
+# Viewer output carries the game's level geometry.
+out/

@@ -22,6 +22,8 @@ copying even if the code is not.
 | `tools/umap.py` | Actors of a level and their properties |
 | `tools/umesh.py` | Static mesh geometry: vertices, normals, UVs, colours, triangles |
 | `tools/ubsp.py` | BSP: level vectors, points, nodes, surfaces and verts |
+| `tools/ulevel.py` | Assembles a level's geometry, BSP polygons so far |
+| `tools/uview.py` | Writes a level as a self contained HTML viewer |
 | `tools/natives.py` | Which engine natives a game's script actually calls |
 
 Pure Python, standard library only, no dependencies.
@@ -75,7 +77,11 @@ python3 udecompile.py $SYS Engine.u Pawn             # one class with bodies
 python3 udefaults.py  $SYS Engine.u Pawn             # one class's defaults
 python3 umap.py       ../Maps                        # object counts per level
 python3 umesh.py      ../StaticMeshes                # geometry totals
+python3 uview.py      ../Maps/7_Prison_Donkey.unr ../out/prison.html
 ```
+
+The viewer output contains the game's own geometry, so it goes to the gitignored
+`out/` and is for looking at your own copy only.
 
 A bulk run is worth capping, for reasons [CONTRIBUTING.md](CONTRIBUTING.md)
 explains:

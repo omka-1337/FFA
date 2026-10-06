@@ -412,6 +412,30 @@ Checked across all 29 Shrek 2 maps: 2727 Model records, 32690 nodes, 18539
 surfaces and 602807 verts, with every reference in range and every plane normal
 unit length.
 
+## Putting a level together
+
+A map holds one Model per brush plus one for the level. The brush models are the
+shapes the editor's CSG pass started from, subtractive volumes included, so
+drawing all of them overlays the building blocks on the result. The level's own
+Model is the one no actor points at through its Brush property. In every map
+checked there is exactly one, for example 81 of the 82 models in Shreks Swamp
+are owned by brushes and volumes, and Model1 is the level.
+
+A polygon is a node's run of verts, `vert_pool` to `vert_pool + num_vertices`,
+each pointing into the model's Points, with the material taken from the node's
+surface.
+
+Unreal is left handed with Z up. For a right handed, Y up viewer, swapping Y and
+Z does both conversions at once. This was confirmed against the game rather
+than assumed: in the Donkey prison the hole the cat goes through sits to the
+left of the stairs, as it does in play. Mirroring is the one error this kind of
+conversion makes silently, so it needs a check against something known.
+
+Much of what makes a level look like itself is not BSP at all. Static mesh
+actors carry most of the detail, movers carry their own brush models, and
+animated hazards such as the prison's swinging maces (`BallSpiked`) are drawn
+with skeletal meshes from the `.ukx` packages.
+
 ## A warning about parsers
 
 A desynchronised parse will happily read garbage as opcodes and walk off the end
