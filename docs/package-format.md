@@ -516,8 +516,84 @@ places all of them.
 Across all 29 maps, 11448 actors draw as static meshes: 11429 are placed, 19 are
 hidden, none fails to resolve.
 
-Not placed yet: terrain, and anything drawn with a skeletal mesh, such as the
-prison's swinging maces, `BallSpiked`, from the `.ukx` packages.
+Not placed yet: anything drawn with a skeletal mesh, such as the prison's
+swinging maces, `BallSpiked`, from the `.ukx` packages.
+
+## Terrain
+
+A level's ground is a `TerrainInfo` actor. Its record is one of those with a
+native payload after the properties, so its properties are read up to their
+terminator rather than to the end of the record. They give:
+
+```
+TerrainMap             the heightmap texture, usually a local export of the map
+TerrainScale           grid spacing in X and Y, height scale in Z
+Location
+QuadVisibilityBitmap   one bit per quad, set where the ground is drawn
+EdgeTurnBitmap         one bit per quad, set where it splits on the other diagonal
+```
+
+Both bitmaps are arrays of u32 words; quad (x, y) is bit `x + y * USize`.
+
+### The heightmap texture
+
+The heightmap is a texture in format 10, G16: one unsigned 16 bit height per
+pixel. Its native payload, to the byte on the heightmaps seen:
+
+```
+index   mip count
+per mip:
+  u32     skip offset: the absolute file offset just past the data
+  index   data length in bytes
+  bytes   pixel data
+  u32     USize, u32 VSize, u8 UBits, u8 VBits
+```
+
+The skip offset makes a free consistency check: it must equal the position the
+data ends at. Only enough of the texture format is read here to take a G16
+heightmap's first mip; textures proper are separate work.
+
+### From heightmap to world
+
+For grid point (x, y) with height h:
+
+```
+X = Location.X + (x - USize / 2) * TerrainScale.X
+Y = Location.Y + (y - VSize / 2) * TerrainScale.Y
+Z = Location.Z + (h - 32767) * TerrainScale.Z / 256
+```
+
+and the actor's Rotation is not applied.
+
+This went through two stages and the second is the one to trust. First a fit:
+counting how many ground placed static meshes come to rest on the surface under
+each candidate formula. That settled what it could. No transpose and no flip,
+since every such variant fell below 10 percent. A Z divisor of 256, which
+doubles the count against 128. And no rotation: applying a 15 degree yaw cut the
+count on that terrain from 25 percent to 8. What the fit could not settle was a
+half cell offset in the centring; the anchors are too noisy for it, and the two
+terrains of the swamp even disagreed.
+
+Then an exact check against the engine's own data. Each TerrainSector records
+its quad range and a bounding box the editor computed:
+
+```
+u8        property terminator, the block is empty
+index     the TerrainInfo it belongs to
+u32 x4    QuadsX, QuadsY, OffsetX, OffsetY
+FBox      6 floats and a valid byte
+```
+
+Recomputing every sector's box from the formula and comparing, over all 1360
+sectors of all 22 terrains in the game: 0.0005 units of disagreement
+horizontally, which fixes the centring at USize / 2, and 0.0007 vertically. The
+vertical match needs a height zero of 32767. With 32768 every one of the 1360
+sectors came out lower by exactly one height step, at every height scale, which
+is the signature of an off by one and not of noise.
+
+The bitmaps' bit order is not something the sector boxes can check. It was
+confirmed against the game instead: the holes fall where the ground is cut away
+in play.
 
 ## A warning about parsers
 

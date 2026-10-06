@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from upkg import Package
 from ulevel import (level_model, polygons, MeshLibrary, static_mesh_instances,
                     ClassDefaults)
+from uterrain import terrains
 
 # Unreal (x, y, z) to three.js (x, z, y), in metres. One swap flips handedness
 # and moves Z up to Y up; Unreal units are roughly centimetres.
@@ -31,7 +32,6 @@ def cross(a, b):
             a[0] * b[1] - a[1] * b[0])
 
 THREE = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'
-ORBIT = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js'
 
 
 def tint(name):
@@ -63,6 +63,28 @@ def build_bsp(pkg):
                 idx += [base, base + i + 1, base + i]
         mats[mat] += 1
     return pos, col, idx, mats
+
+
+def build_terrain(pkg, files):
+    """Terrain grids, coloured by height so the relief reads without textures,
+    and wound so each triangle faces up."""
+    out = []
+    for t in terrains(pkg, files):
+        V = [conv(v) for v in t.vertices()]
+        lo = min(v[1] for v in V)
+        hi = max(v[1] for v in V)
+        span = (hi - lo) or 1.0
+        pos, col, idx = [], [], []
+        for v in V:
+            pos += v
+            k = (v[1] - lo) / span                # low: dark mud, high: grass
+            col += [int(70 + 60 * k), int(80 + 110 * k), int(45 + 35 * k)]
+        for a, b, c in t.triangles():
+            g = cross(sub(V[b], V[a]), sub(V[c], V[a]))
+            idx += [a, b, c] if g[1] >= 0 else [a, c, b]
+        out.append(dict(pos=b64('f', pos), col=b64('B', col), idx=b64('I', idx),
+                        tris=len(idx) // 3))
+    return out
 
 
 def build_meshes(pkg, path, lib, defaults=None):
@@ -97,10 +119,12 @@ html,body{margin:0;height:100%%;background:#18181f;overflow:hidden;font:13px sys
 #info b{color:#fff}
 .sw{display:inline-block;width:10px;height:10px;margin-right:6px;border-radius:2px;vertical-align:middle}
 </style></head><body>
-<div id="info"><b>%(title)s</b><br>%(stats)s<br>drag rotate · right drag pan · wheel zoom<br>
-B: BSP walls one sided / both sides · M: static meshes on / off<br><br>%(legend)s</div>
+<div id="info"><b>%(title)s</b><br>%(stats)s<br><br>
+<b>Fly:</b> W A S D move · E or Space up · Q or C down · arrows look<br>
+Shift fast · [ and ] change speed · R back to the overview<br>
+mouse or touchpad drag also looks, wheel changes speed<br>
+<b>Show:</b> B BSP one or both sides · M static meshes · T terrain<br><br>%(legend)s</div>
 <script src="%(three)s"></script>
-<script src="%(orbit)s"></script>
 <script>
 function dec(s, T){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new T(u.buffer)}
 const pos=dec("%(pos)s",Float32Array), col=dec("%(col)s",Uint8Array), idx=dec("%(idx)s",Uint32Array);
@@ -113,6 +137,15 @@ const scene=new THREE.Scene();
 const bspMat=new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.FrontSide});
 scene.add(new THREE.Mesh(g,bspMat));
 const meshes=new THREE.Group(); scene.add(meshes);
+const terrain=new THREE.Group(); scene.add(terrain);
+for (const t of %(terrain)s){
+  const tg=new THREE.BufferGeometry();
+  tg.setAttribute('position',new THREE.BufferAttribute(dec(t.pos,Float32Array),3));
+  tg.setAttribute('color',new THREE.BufferAttribute(dec(t.col,Uint8Array),3,true));
+  tg.setIndex(new THREE.BufferAttribute(dec(t.idx,Uint32Array),1));
+  tg.computeVertexNormals();
+  terrain.add(new THREE.Mesh(tg,new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.FrontSide})));
+}
 for (const m of %(meshes)s){
   const mg=new THREE.BufferGeometry();
   mg.setAttribute('position',new THREE.BufferAttribute(dec(m.pos,Float32Array),3));
@@ -124,20 +157,69 @@ for (const m of %(meshes)s){
   for(let i=0;i<n;i++){M.fromArray(mat,i*16); im.setMatrixAt(i,M);}
   im.instanceMatrix.needsUpdate=true; meshes.add(im);
 }
-addEventListener('keydown',e=>{
-  if(e.key==='b'||e.key==='B'){bspMat.side=bspMat.side===THREE.FrontSide?THREE.DoubleSide:THREE.FrontSide;bspMat.needsUpdate=true}
-  if(e.key==='m'||e.key==='M'){meshes.visible=!meshes.visible}
-});
+
 scene.add(new THREE.HemisphereLight(0xffffff,0x404050,0.75));
 const sun=new THREE.DirectionalLight(0xffffff,0.6); sun.position.set(0.4,1,0.3); scene.add(sun);
-const R=g.boundingSphere.radius, C=g.boundingSphere.center;
-const cam=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,R/1000,R*20);
-cam.position.set(C.x-R*0.8,C.y+R*0.9,C.z-R*0.8);
+// Frame the level on BSP and terrain only: three.js bounds an InstancedMesh by
+// its base geometry at the origin, not by where the instances are placed.
+const box=new THREE.Box3(); g.computeBoundingBox(); box.union(g.boundingBox);
+terrain.children.forEach(m=>{m.geometry.computeBoundingBox(); box.union(m.geometry.boundingBox)});
+const sph=box.getBoundingSphere(new THREE.Sphere()); const R=sph.radius, C=sph.center;
+const cam=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,Math.max(0.05,R/4000),R*20);
 const ren=new THREE.WebGLRenderer({antialias:true}); ren.setPixelRatio(devicePixelRatio);
 ren.setSize(innerWidth,innerHeight); document.body.appendChild(ren.domElement);
-const ctl=new THREE.OrbitControls(cam,ren.domElement); ctl.target.copy(C); ctl.update();
 addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();ren.setSize(innerWidth,innerHeight)});
-(function loop(){requestAnimationFrame(loop);ren.render(scene,cam)})();
+
+// Noclip fly camera. Keys are read by physical position (event.code), so W is
+// W on any layout, Cyrillic included.
+let yaw=0, pitch=0, speed=R*0.15;
+function overview(){
+  cam.position.set(C.x-R*0.8,C.y+R*0.9,C.z-R*0.8);
+  const d=new THREE.Vector3().subVectors(C,cam.position).normalize();
+  yaw=Math.atan2(d.x,d.z); pitch=Math.asin(d.y);
+}
+overview();
+const held={};
+const PASS=['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'];
+addEventListener('keydown',e=>{
+  held[e.code]=true;
+  if(PASS.includes(e.code)) e.preventDefault();
+  if(e.repeat) return;
+  if(e.code==='KeyB'){bspMat.side=bspMat.side===THREE.FrontSide?THREE.DoubleSide:THREE.FrontSide;bspMat.needsUpdate=true}
+  if(e.code==='KeyM'){meshes.visible=!meshes.visible}
+  if(e.code==='KeyT'){terrain.visible=!terrain.visible}
+  if(e.code==='KeyR'){overview()}
+  if(e.code==='BracketRight'){speed*=1.5}
+  if(e.code==='BracketLeft'){speed/=1.5}
+});
+addEventListener('keyup',e=>{held[e.code]=false});
+addEventListener('blur',()=>{for(const k in held) held[k]=false});
+let dragging=false, lx=0, ly=0;
+ren.domElement.addEventListener('pointerdown',e=>{dragging=true;lx=e.clientX;ly=e.clientY});
+addEventListener('pointerup',()=>{dragging=false});
+addEventListener('pointermove',e=>{
+  if(!dragging) return;
+  yaw-=(e.clientX-lx)*0.005; pitch-=(e.clientY-ly)*0.005; lx=e.clientX; ly=e.clientY;
+});
+ren.domElement.addEventListener('wheel',e=>{e.preventDefault(); speed*=e.deltaY<0?1.15:1/1.15},{passive:false});
+const clock=new THREE.Clock(), up=new THREE.Vector3(0,1,0);
+(function loop(){
+  requestAnimationFrame(loop);
+  const dt=Math.min(clock.getDelta(),0.1), h=k=>held[k]?1:0;
+  yaw  +=(h('ArrowLeft')-h('ArrowRight'))*1.8*dt;
+  pitch+=(h('ArrowUp')-h('ArrowDown'))*1.4*dt;
+  pitch=Math.max(-1.55,Math.min(1.55,pitch));
+  const fwd=new THREE.Vector3(Math.cos(pitch)*Math.sin(yaw),Math.sin(pitch),Math.cos(pitch)*Math.cos(yaw));
+  const right=new THREE.Vector3().crossVectors(fwd,up).normalize();
+  const v=new THREE.Vector3()
+    .addScaledVector(fwd,h('KeyW')-h('KeyS'))
+    .addScaledVector(right,h('KeyD')-h('KeyA'))
+    .addScaledVector(up,Math.max(h('KeyE'),h('Space'))-Math.max(h('KeyQ'),h('KeyC')));
+  const fast=(held['ShiftLeft']||held['ShiftRight'])?4:1;
+  if(v.lengthSq()>0) cam.position.addScaledVector(v.normalize(),speed*fast*dt);
+  cam.lookAt(cam.position.clone().add(fwd));
+  ren.render(scene,cam);
+})();
 </script></body></html>
 """
 
@@ -154,6 +236,7 @@ def main(argv):
     sysdir = os.path.join(root, 'System')
     defaults = ClassDefaults(sysdir) if os.path.isdir(sysdir) else None
     uniq, inst = build_meshes(pkg, src, lib, defaults)
+    terr = build_terrain(pkg, lib.files)
     mesh_json = json.dumps([
         dict(pos=b64('f', uniq[k][1]), idx=b64('I', uniq[k][2]),
              mat=b64('f', [x for m in inst[k] for x in m]),
@@ -169,11 +252,13 @@ def main(argv):
         '<span class="sw" style="background:rgb(%d,%d,%d)"></span>%s (%d)'
         % (tuple(int(v * 255) for v in tint(n)) + (n, k))
         for n, k in mats.most_common(12))
-    html = PAGE % dict(title=title, three=THREE, orbit=ORBIT,
-                       stats='BSP %d polygons, %d triangles<br>static meshes %d placed, %d unique, %d triangles'
-                             % (sum(mats.values()), len(idx) // 3, ninst, len(uniq), ntri),
+    html = PAGE % dict(title=title, three=THREE,
+                       stats='BSP %d polygons, %d triangles<br>static meshes %d placed, %d unique, %d triangles<br>terrain %d grids, %d triangles'
+                             % (sum(mats.values()), len(idx) // 3, ninst, len(uniq), ntri,
+                                len(terr), sum(t['tris'] for t in terr)),
                        legend=legend, pos=b64('f', pos), col=b64('B', col), idx=b64('I', idx),
-                       meshes=mesh_json)
+                       meshes=mesh_json,
+                       terrain=json.dumps([{k: t[k] for k in ('pos', 'col', 'idx')} for t in terr]))
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     open(out, 'w').write(html)
     print('%s: BSP %d triangles, %d mesh instances (%d unique), %.1f MB -> %s'

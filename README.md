@@ -23,6 +23,7 @@ copying even if the code is not.
 | `tools/umesh.py` | Static mesh geometry: vertices, normals, UVs, colours, triangles |
 | `tools/ubsp.py` | BSP: level vectors, points, nodes, surfaces and verts |
 | `tools/ulevel.py` | Assembles a level: BSP polygons and placed static meshes |
+| `tools/uterrain.py` | Terrain: heightmaps, holes, and the world transform |
 | `tools/uview.py` | Writes a level as a self contained HTML viewer |
 | `tools/natives.py` | Which engine natives a game's script actually calls |
 
@@ -45,10 +46,13 @@ UnrealEngine2 Runtime (version 126):
 - **BSP.** All 2727 Model records, with 32690 nodes, 18539 surfaces and 602807
   verts, every reference in range. Zones, lightmaps and bounds are still
   undecoded.
-- **Levels assembled.** BSP and placed static meshes together, viewable in a
-  browser, with orientation and rotation checked against the game itself.
+- **Terrain.** All 22 terrains, with the heightmap to world transform proven
+  against every one of the engine's 1360 stored sector bounding boxes.
+- **Levels assembled.** BSP, placed static meshes and terrain together, viewable
+  in a browser, with orientation, rotation and terrain holes checked against the
+  game itself.
 
-Not done yet: the rest of the BSP record, terrain, textures, and structuring the
+Not done yet: skeletal meshes, the rest of the BSP record, textures, and structuring the
 decompiler's control flow into `if` and `for` rather than labels and gotos.
 
 ## Getting a corpus
@@ -81,6 +85,11 @@ python3 umap.py       ../Maps                        # object counts per level
 python3 umesh.py      ../StaticMeshes                # geometry totals
 python3 uview.py      ../Maps/7_Prison_Donkey.unr ../out/prison.html
 ```
+
+The viewer is a noclip camera: W A S D to move, E or Space up, Q or C down, the
+arrow keys to look, Shift to go faster, R back to the overview, and B, M and T to
+toggle BSP sides, static meshes and terrain. Keys are read by physical position,
+so they work on any keyboard layout.
 
 The viewer output contains the game's own geometry, so it goes to the gitignored
 `out/` and is for looking at your own copy only.
