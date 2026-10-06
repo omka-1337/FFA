@@ -101,17 +101,24 @@ licence comes with it.
 
 ## Picking something up
 
-Open work, roughly in order of how much it unblocks:
+Open work, roughly in order of how much it unblocks. The aim is a format
+understood well enough for FFA-Engine to run the original data, so what a
+running game needs comes first:
 
-- The rest of the BSP record after the verts: the zone table, lightmaps,
-  bounds and leaves. Node zones are decoded; the zone table would tie each
-  number to its ZoneInfo directly.
+- Collision. The static mesh tail, raw triangles and the collision tree, and
+  the BSP's leaves and bounds after the verts. Without them nothing can stand
+  on anything.
+- Control flow structuring in the decompiler, turning labels and gotos into
+  `if`, `while` and `for`. No binary work at all, pure analysis of data
+  already parsed, and the way into reading the game's logic.
+- Sound and music, the `.uax` and `.umx` packages. Not started.
+- The rest of the BSP record: the zone table, which ties each zone number to its
+  ZoneInfo directly, and lightmaps.
+- Which side of a mesh faces out, so that only textures marked bTwoSided are
+  drawn from both sides, as the game does.
 - PrePivot on skeletal meshes, and the props that float: both written up as
   open questions in the format document, with the measurements so far.
 - `TerrainSector` and `StaticMeshInstance` payloads.
-- The static mesh tail: raw triangles and the collision tree.
-- Control flow structuring in the decompiler, turning labels and gotos into `if`
-  and `for`. No binary work at all, pure analysis of data already parsed.
 - Breadth: run the tools against other UE2 games and report where they break.
   Harry Potter: Prisoner of Azkaban is the same engine build as Shrek 2;
   UT2003 and UT2004 are different package versions.

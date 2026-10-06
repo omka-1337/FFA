@@ -270,7 +270,7 @@ html,body{margin:0;height:100%%;background:#18181f;overflow:hidden;font:13px sys
 <b>Fly:</b> W A S D move · E or Space up · Q or C down · arrows look<br>
 Shift fast · [ and ] change speed · R back to the overview<br>
 mouse or touchpad drag also looks, wheel changes speed<br>
-<b>Show:</b> B BSP one or both sides · M static meshes · T terrain · K skeletal meshes<br>
+<b>Show:</b> B BSP one or both sides · M static meshes · T terrain · K skeletal meshes (off at first)<br>
 Y sky as a background, or where it stands<br><br>%(legend)s</div>
 <script src="%(three)s"></script>
 <script>
@@ -331,7 +331,8 @@ function bspMesh(list){
 const levelBsp=bspMesh(parts[0]), backdrop=bspMesh(parts[1]); scene.add(levelBsp, backdrop);
 const meshes=new THREE.Group(); scene.add(meshes);
 const terrain=new THREE.Group(); scene.add(terrain);
-const skeletal=new THREE.Group(); scene.add(skeletal);
+// Off until K: they are for looking at, not needed to read the level.
+const skeletal=new THREE.Group(); skeletal.visible=false; scene.add(skeletal);
 // The sky zone, drawn first from SKY with the player camera's rotation, so it
 // stays at infinity. Y shows it where it really stands instead.
 const SKY=%(sky)s, skyGroup=new THREE.Group(), skyScene=new THREE.Scene();
