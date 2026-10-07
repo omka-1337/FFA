@@ -1,0 +1,6 @@
+# Build trees.
+build/
+build-*/
+
+__pycache__/
+*.pyc
