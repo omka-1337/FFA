@@ -165,6 +165,10 @@ void physWalking(World& w, Object* a, float dt) {
     Vec3 acc = vget(w, a, "Acceleration");
     acc.z = 0;
     v.z = 0;
+    // script sets Acceleration to the input as it is; the pawn's AccelRate
+    // bounds it
+    float rate = fopt(w, a, "AccelRate", 0);
+    if (rate > 0 && length(acc) > rate) acc = acc * (rate / length(acc));
     Object* vol = volumeOf(w, a);
     float friction = vol ? w.var(vol, "GroundFriction").f() : 8.0f;
     float speed = fopt(w, a, "GroundSpeed", 0);
@@ -182,6 +186,7 @@ void physWalking(World& w, Object* a, float dt) {
     if (length(v) > speed && speed > 0) v = v * (speed / length(v));
     vset(w, a, "Velocity", v);
     Vec3 delta = v * dt;
+    Vec3 start = vget(w, a, "Location");
     if (length(delta) > 0.01f) {
         TraceHit h = move(w, a, delta);
         if (a->deleted) return;
@@ -205,6 +210,12 @@ void physWalking(World& w, Object* a, float dt) {
                 move(w, a, slide);
             }
         }
+    }
+    // What the pawn did, not what it meant to: a wall leaves it slower.
+    if (dt > 0 && !a->deleted) {
+        Vec3 moved = vget(w, a, "Location") - start;
+        Vec3 vv = vget(w, a, "Velocity");
+        vset(w, a, "Velocity", Vec3{moved.x / dt, moved.y / dt, vv.z});
     }
     // The floor: keep to it, or fall when it is gone.
     Collision& c = *w.collision;

@@ -20,6 +20,7 @@
 #include <fstream>
 #include <map>
 #include <set>
+#include <sstream>
 #include <tuple>
 
 #include "script/VM.h"
@@ -40,7 +41,7 @@ int usage() {
                  "       ffa-script smoke <System dir>\n"
                  "       ffa-script level <System dir> <map.unr> [dump.tsv]\n"
                  "       ffa-script start <System dir> <map.unr>\n"
-                 "       ffa-script run <System dir> <map.unr> <seconds>\n"
+                 "       ffa-script run <System dir> <map.unr> <seconds> [--hold <alias>]...\n"
                  "       ffa-script collide <System dir> <map.unr or .usx>...\n");
     return 2;
 }
@@ -438,7 +439,7 @@ std::string iniValue(const std::string& file, const std::string& section, const 
 // then PostBeginPlay and PostNetBeginPlay, then SetInitialState. The order is
 // the engine's, from its published behaviour, not from the data. Reports what
 // ran, what failed, and the natives the sequence needed that do not exist.
-int start(const std::string& dir, const std::string& map, float seconds) {
+int start(const std::string& dir, const std::string& map, float seconds, const std::vector<std::string>& hold = {}) {
     std::vector<std::string> paths = Linker::packageFiles(dir);
     paths.push_back(map);
     Linker lk(paths);
@@ -469,6 +470,30 @@ int start(const std::string& dir, const std::string& map, float seconds) {
                 gameClass ? "" : " (not found)", dgt.empty() ? "empty" : dgt.c_str());
     w.beginPlay(gameClass, options);
     Object* pc = w.login(widen(lv.portal), options);
+    // Keys held for the whole run, by their alias in DefUser.ini, such as
+    // Aliases[2]=(Command="Axis aBaseY  Speed=+1200.0",Alias=MoveForward).
+    for (const std::string& want : hold) {
+        std::ifstream ini(dir + "/DefUser.ini");
+        std::string line;
+        bool found = false;
+        while (std::getline(ini, line)) {
+            size_t c = line.find("Command=\"Axis "), al = line.find("Alias=");
+            if (c == std::string::npos || al == std::string::npos) continue;
+            std::string alias = line.substr(al + 6);
+            alias = alias.substr(0, alias.find_first_of(")\r"));
+            if (alias != want) continue;
+            std::istringstream cmd(line.substr(c + 14, line.find('"', c + 14) - c - 14));
+            std::string axis, word;
+            cmd >> axis;
+            float speed = 1;
+            while (cmd >> word)
+                if (word.rfind("Speed=", 0) == 0) speed = std::stof(word.substr(6));
+            w.held.emplace_back(axis, speed);
+            std::printf("holding             %s: %s at %g\n", alias.c_str(), axis.c_str(), speed);
+            found = true;
+        }
+        if (!found) throw std::runtime_error("no axis alias " + want + " in DefUser.ini");
+    }
     // Where every pawn starts, to see where physics takes it.
     std::map<Object*, float> startZ;
     for (Object* a : w.actors)
@@ -483,6 +508,10 @@ int start(const std::string& dir, const std::string& map, float seconds) {
     auto stateOf = [](Object* o) { return o && o->state ? o->state->name.str() : std::string("none"); };
     Object* pawn0 = pc ? w.obj(pc, "Pawn") : nullptr;
     std::string pcState = stateOf(pc), pawnState = stateOf(pawn0);
+    std::set<Object*> touched;
+    std::set<Object*> gone, wasGone;
+    for (Object* a : w.actors)
+        if (a->deleted) wasGone.insert(a);
     int pawnPhysics = pawn0 ? w.var(pawn0, "Physics").i() : -1;
     for (int f = 0; f < int(seconds * 30.0f + 0.5f); ++f) {
         w.tick(1.0f / 30.0f);
@@ -491,6 +520,33 @@ int start(const std::string& dir, const std::string& map, float seconds) {
         char at[32];
         std::snprintf(at, sizeof at, "%7.2fs  ", w.time);
         if (stateOf(pc) != pcState) timeline.push_back(at + std::string("controller ") + (pcState = stateOf(pc)));
+        if (pawn && !w.held.empty() && (f + 1) % 30 == 0) {
+            float x, y, z, vx, vy, vz;
+            vm.unvector(w.var(pawn, "Location"), x, y, z);
+            vm.unvector(w.var(pawn, "Velocity"), vx, vy, vz);
+            char buf[160];
+            float ax, ay, az;
+            vm.unvector(w.var(pawn, "Acceleration"), ax, ay, az);
+            Object* input = w.obj(pc, "PlayerInput");
+            std::snprintf(buf, sizeof buf, "pawn at (%.0f, %.0f, %.0f), speed %.0f, acceleration %.0f, physics %d, "
+                          "aForward %.0f, input %s", x, y, z, std::sqrt(vx * vx + vy * vy + vz * vz),
+                          std::sqrt(ax * ax + ay * ay + az * az), w.var(pawn, "Physics").i(), w.var(pc, "aForward").f(),
+                          input ? input->cls->name.str().c_str() : "none");
+            timeline.push_back(at + std::string(buf));
+        }
+        for (size_t i = 0; i < w.actors.size(); ++i) {
+            Object* a = w.actors[i];
+            if (a->deleted && !w.held.empty() && gone.insert(a).second && !wasGone.count(a))
+                timeline.push_back(at + std::string("gone: ") + a->name.str() + " (" + a->cls->name.str() + ")");
+        }
+        if (pawn) {
+            const Value& t = w.var(pawn, "Touching");
+            if (t.isArr())
+                for (const Value& e : t.arr())
+                    if (e.o() && touched.insert(e.o()).second)
+                        timeline.push_back(at + std::string("pawn touches ") + e.o()->name.str() + " (" +
+                                           e.o()->cls->name.str() + ")");
+        }
         if (pawn != pawn0) {
             timeline.push_back(at + std::string("pawn is now ") + (pawn ? pawn->path() : std::string("none")));
             pawn0 = pawn;
@@ -511,7 +567,7 @@ int start(const std::string& dir, const std::string& map, float seconds) {
         }
     }
     for (const char* ev : {"InitGame", "PreBeginPlay", "BeginPlay", "PostBeginPlay", "PostNetBeginPlay",
-                           "SetInitialState", "Login", "PostLogin", "PlayerTick", "Tick", "Timer", "tick"})
+                           "SetInitialState", "Login", "InitInputSystem", "PostLogin", "PlayerTick", "Tick", "Timer", "tick"})
         std::printf("%-19s %zu ran, %zu failed\n", ev, w.sent[ev], w.failed[ev]);
     if (w.frames) {
         std::printf("ran                 %zu frames, %.2f s of level time\n", w.frames, w.time);
@@ -816,7 +872,12 @@ int main(int argc, char** argv) {
         if (cmd == "smoke") return smoke(dir);
         if (cmd == "collide" && argc >= 4) return collide(dir, std::vector<std::string>(argv + 3, argv + argc));
         if (cmd == "start" && argc >= 4) return start(dir, argv[3], 0.0f);
-        if (cmd == "run" && argc >= 5) return start(dir, argv[3], std::stof(argv[4]));
+        if (cmd == "run" && argc >= 5) {
+            std::vector<std::string> hold;
+            for (int i = 5; i + 1 < argc; i += 2)
+                if (std::string(argv[i]) == "--hold") hold.push_back(argv[i + 1]);
+            return start(dir, argv[3], std::stof(argv[4]), hold);
+        }
         if (cmd == "level" && argc >= 4) return level(dir, argv[3], argc >= 5 ? argv[4] : nullptr);
         if (cmd == "call" && argc >= 4)
             return call(dir, argv[3], std::vector<std::string>(argv + 4, argv + argc));

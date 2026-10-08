@@ -184,6 +184,15 @@ Object* World::login(const String& portal, const String& options) {
     player = vm.spawn(vm.findClass("Player"), Name("Player"), outer_);
     var(player, "Actor") = Value::Obj(pc);
     var(pc, "Player") = Value::Obj(player);
+    // A local player's controller makes its input object now: the engine
+    // calls InitInputSystem when it gives the controller its Player.
+    try {
+        vm.event(pc, "InitInputSystem");
+        sent["InitInputSystem"]++;
+    } catch (const std::exception& ex) {
+        failed["InitInputSystem"]++;
+        failures[std::string("InitInputSystem: ") + ex.what()]++;
+    }
     try {
         vm.event(game, "PostLogin", {Value::Obj(pc)});
         sent["PostLogin"]++;
@@ -206,6 +215,15 @@ void World::tick(float dt) {
         if (a->deleted || flag(a, "bStatic")) continue;
         try {
             if (player && a == obj(player, "Actor")) {
+                // CPF_Input, 0x4: the axes and buttons, reset each frame
+                for (Prop* p : a->cls->layout())
+                    if (p->flags & 0x4) a->props[size_t(p->slot)] = p->kind == Kind::Float ? Value::Float(0)
+                                                                    : p->kind == Kind::Bool  ? Value::Bool(false)
+                                                                                             : Value::Int(0);
+                for (auto& [axis, speed] : held) {
+                    Prop* p = a->cls->findProp(Name(axis));
+                    if (p) a->props[size_t(p->slot)] = Value::Float(a->props[size_t(p->slot)].f() + speed);
+                }
                 vm.event(a, "PlayerTick", {delta});
                 sent["PlayerTick"]++;
             }

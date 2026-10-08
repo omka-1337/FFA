@@ -73,6 +73,12 @@ public:
     // run on to its next wait, its timer, its physics, and its LifeSpan. Actors spawned
     // during the frame first tick in the next.
     void tick(float dt);
+
+    // The local player's input, as the engine's input system gives it each
+    // frame: every variable of the controller declared `input` set to zero,
+    // then each held axis given its speed. The axes are the controller's
+    // variables, aBaseY and the rest, and the speeds the bindings' (DefUser.ini).
+    std::vector<std::pair<std::string, float>> held;
     float time = 0;                 // Level.TimeSeconds, as kept here
     size_t frames = 0;
 

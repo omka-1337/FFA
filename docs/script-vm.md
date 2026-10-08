@@ -310,6 +310,26 @@ parts 2 and 3 waits on a cutscene mark right over a BouncePad, whose Touch
 throws him to its target. Before the colliding brushes were in, Shrek on
 6_Hamlet_Mine and Puss on The Hunt part 4 fell, standing on BlockingVolumes.
 
+**Input.** `run ... --hold MoveForward` holds a key for the whole run, by its
+alias in DefUser.ini: `Axis aBaseY Speed=+1200`. Each frame, before the
+controller's PlayerTick, every controller variable declared `input` is set to
+zero, the variables with property flag 0x4, which are exactly the axes and
+buttons (aBaseY, aForward, aStrafe, bLook and the rest, and KnowWonder's
+aArrowUp and aArrowRight), and each held axis then gets its speed. A held
+key's axis is its speed, not scaled by the frame: that much is assumed. The
+controller's InitInputSystem is called when it gets its Player, as the engine
+does for a local player, or it has no PlayerInput object. From there the
+game's own script does the rest: ShPlayerInput turns aBaseY into aForward,
+PlayerWalking.PlayerMove makes the acceleration along the pawn's facing, and
+ProcessMove gives it to the pawn, which the walking physics bounds by its
+AccelRate. After a walking move the velocity is what the pawn actually moved.
+
+Holding forward on Shrek's swamp, Shrek walks south at 550, touches two
+cutscene triggers, picks up a coin, which goes with its twirl effect, steps
+off a ledge, falls 43 units and lands, and stops against the collision
+cylinder of a lily pad, AmbientLily8, at the pond. Ten seconds of it on every
+level run 4051526 events with no script error.
+
 **Corpus check.** Twenty seconds of every level run 8014835 events with no
 script error. Thirty seconds of Shrek's swamp take 2.4 s. Gnats and dragonflies
 spawn and wander, 32 KWCutScene objects come up, the camera ShCam runs in

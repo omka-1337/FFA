@@ -161,6 +161,8 @@ Engine:
   and LifeSpan. Twenty seconds of every level run with no script error.
 - [x] Physics: walking, falling, flying, rotating, projectiles, trailers,
   Touch and UnTouch. No pawn falls through any level.
+- [x] Player input: held keys by their bindings, through the game's own
+  input and movement script. Shrek walks, picks up coins, falls and lands.
 - [ ] Swimming, ladders, movers (MovingBrush, Interpolating), Karma; and the
   latent natives that wait on physics or animation.
 - [x] Loading a level: all 22606 live actors of the 29 levels as objects,
