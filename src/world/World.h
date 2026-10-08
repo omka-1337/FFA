@@ -56,6 +56,15 @@ public:
     Object* login(const String& portal, const String& options);
     Object* player = nullptr;       // the local Player
 
+    // One frame of dt seconds of real time. The level's TimeDilation scales
+    // it; then every actor that is not bStatic, in list order, has the
+    // player's PlayerTick if it is the local controller, Tick, its state code
+    // run on to its next wait, its timer, and its LifeSpan. Actors spawned
+    // during the frame first tick in the next.
+    void tick(float dt);
+    float time = 0;                 // Level.TimeSeconds, as kept here
+    size_t frames = 0;
+
     // An actor variable by name, as the engine's own code reaches it.
     Value& var(Object* a, const char* name);
     bool flag(Object* a, const char* name) { return var(a, name).b(); }

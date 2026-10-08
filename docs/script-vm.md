@@ -241,3 +241,35 @@ The natives still missing on the way are animation (AnimBlendParams, HasAnim,
 LinkSkelAnim), attachment (AttachToBone, SetRelativeLocation and Rotation),
 projectors, ParticleEmitter.Trigger, and those that need collision, SetLocation
 and Move.
+
+## Running a level
+
+`ffa-script run <System> <map.unr> <seconds>` begins play as above, then runs
+frames of a thirtieth of a second (`World::tick`). A frame scales its time by
+LevelInfo.TimeDilation and advances TimeSeconds, then visits every actor that
+is not bStatic, in list order:
+
+1. the local controller's PlayerTick;
+2. Tick;
+3. its state code, run on to its next wait (`VM::processState`);
+4. its timer: TimerCounter counts while TimerRate is set, and on reaching the
+   rate Timer fires once, however many periods the frame covered, keeping the
+   remainder when bTimerLoop is set and clearing the rate when not;
+5. its LifeSpan, which destroys it on running out.
+
+An actor spawned during a frame first ticks in the next. Physics is not run:
+it needs collision.
+
+Of the eight latent natives, Sleep waits its seconds. The other seven,
+FinishAnim, FinishInterpolation, MoveTo, MoveToward, FinishRotation,
+WaitForLanding and WaitToSeeEnemy, need animation or physics. Until they exist
+each waits one frame and is counted as missing: state code that loops on one
+then gives way each frame, as it would in the game, where without it the loop
+would spin within a single frame.
+
+**Corpus check.** Twenty seconds of every level run 8014835 events with no
+script error. Thirty seconds of Shrek's swamp take 2.4 s. Gnats and dragonflies
+spawn and wander, 32 KWCutScene objects come up, the camera ShCam runs in
+StateStandardCam, and Shrek, Donkey and Fiona idle. What the frames call most
+without having it is collision, Trace, TraceActors and SetLocation, the camera
+and the shadow projectors above all, and then animation blending.

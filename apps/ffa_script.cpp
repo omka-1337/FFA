@@ -5,6 +5,7 @@
 //   ffa-script smoke <System dir>                 call every static function once
 //   ffa-script level <System dir> <map> [dump]    load a level's live actors
 //   ffa-script start <System dir> <map>           and run its start up sequence
+//   ffa-script run <System dir> <map> <seconds>   then that long of level time
 //
 // `check` is the corpus-wide proof the VM rests on, in the manner of the
 // Python readers in tools/: every class loads, every function and state compiles with
@@ -32,7 +33,8 @@ int usage() {
                  "       ffa-script call <System dir> Class.Function [args...]\n"
                  "       ffa-script smoke <System dir>\n"
                  "       ffa-script level <System dir> <map.unr> [dump.tsv]\n"
-                 "       ffa-script start <System dir> <map.unr>\n");
+                 "       ffa-script start <System dir> <map.unr>\n"
+                 "       ffa-script run <System dir> <map.unr> <seconds>\n");
     return 2;
 }
 
@@ -429,7 +431,7 @@ std::string iniValue(const std::string& file, const std::string& section, const 
 // then PostBeginPlay and PostNetBeginPlay, then SetInitialState. The order is
 // the engine's, from its published behaviour, not from the data. Reports what
 // ran, what failed, and the natives the sequence needed that do not exist.
-int start(const std::string& dir, const std::string& map) {
+int start(const std::string& dir, const std::string& map, float seconds) {
     std::vector<std::string> paths = Linker::packageFiles(dir);
     paths.push_back(map);
     Linker lk(paths);
@@ -456,9 +458,32 @@ int start(const std::string& dir, const std::string& map) {
                 gameClass ? "" : " (not found)", dgt.empty() ? "empty" : dgt.c_str());
     w.beginPlay(gameClass, options);
     Object* pc = w.login(widen(lv.portal), options);
+    // Then time: frames of a thirtieth of a second, with the player's and its
+    // pawn's state changes as they happen.
+    std::vector<std::string> timeline;
+    auto stateOf = [](Object* o) { return o && o->state ? o->state->name.str() : std::string("none"); };
+    Object* pawn0 = pc ? w.obj(pc, "Pawn") : nullptr;
+    std::string pcState = stateOf(pc), pawnState = stateOf(pawn0);
+    for (int f = 0; f < int(seconds * 30.0f + 0.5f); ++f) {
+        w.tick(1.0f / 30.0f);
+        if (!pc) continue;
+        Object* pawn = w.obj(pc, "Pawn");
+        char at[32];
+        std::snprintf(at, sizeof at, "%7.2fs  ", w.time);
+        if (stateOf(pc) != pcState) timeline.push_back(at + std::string("controller ") + (pcState = stateOf(pc)));
+        if (pawn != pawn0) {
+            timeline.push_back(at + std::string("pawn is now ") + (pawn ? pawn->path() : std::string("none")));
+            pawn0 = pawn;
+        }
+        if (stateOf(pawn) != pawnState) timeline.push_back(at + std::string("pawn ") + (pawnState = stateOf(pawn)));
+    }
     for (const char* ev : {"InitGame", "PreBeginPlay", "BeginPlay", "PostBeginPlay", "PostNetBeginPlay",
-                           "SetInitialState", "Login", "PostLogin"})
+                           "SetInitialState", "Login", "PostLogin", "PlayerTick", "Tick", "Timer", "tick"})
         std::printf("%-19s %zu ran, %zu failed\n", ev, w.sent[ev], w.failed[ev]);
+    if (w.frames) {
+        std::printf("ran                 %zu frames, %.2f s of level time\n", w.frames, w.time);
+        for (const std::string& t : timeline) std::printf("  %s\n", t.c_str());
+    }
     auto name = [](Object* o) { return o ? o->path() + " (" + o->cls->name.str() + ")" : std::string("none"); };
     std::printf("player controller   %s", name(pc).c_str());
     if (pc) {
@@ -525,7 +550,8 @@ int main(int argc, char** argv) {
     try {
         if (cmd == "check") return check(dir);
         if (cmd == "smoke") return smoke(dir);
-        if (cmd == "start" && argc >= 4) return start(dir, argv[3]);
+        if (cmd == "start" && argc >= 4) return start(dir, argv[3], 0.0f);
+        if (cmd == "run" && argc >= 5) return start(dir, argv[3], std::stof(argv[4]));
         if (cmd == "level" && argc >= 4) return level(dir, argv[3], argc >= 5 ? argv[4] : nullptr);
         if (cmd == "call" && argc >= 4)
             return call(dir, argv[3], std::vector<std::string>(argv + 4, argv + argc));

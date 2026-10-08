@@ -1,5 +1,6 @@
 #include "world/World.h"
 
+#include <cmath>
 #include <stdexcept>
 
 namespace ffa {
@@ -175,6 +176,57 @@ Object* World::login(const String& portal, const String& options) {
     return pc;
 }
 
+void World::tick(float dt) {
+    dt *= var(info, "TimeDilation").f();
+    time += dt;
+    var(info, "TimeSeconds") = Value::Float(time);
+    ++frames;
+    Value delta = Value::Float(dt);
+    size_t n = actors.size();
+    for (size_t i = 0; i < n; ++i) {
+        Object* a = actors[i];
+        if (a->deleted || flag(a, "bStatic")) continue;
+        try {
+            if (player && a == obj(player, "Actor")) {
+                vm.event(a, "PlayerTick", {delta});
+                sent["PlayerTick"]++;
+            }
+            vm.event(a, "Tick", {delta});
+            sent["Tick"]++;
+            if (a->deleted) continue;
+            vm.processState(a, dt);
+            if (a->deleted) continue;
+            // The timer counts while it is set. On reaching its rate it fires
+            // once however many periods the frame covered, keeping the
+            // remainder when it loops and stopping when it does not.
+            float rate = var(a, "TimerRate").f();
+            if (rate > 0) {
+                float counter = var(a, "TimerCounter").f() + dt;
+                if (counter >= rate) {
+                    float passed = std::floor(counter / rate);
+                    counter -= rate * passed;
+                    if (!flag(a, "bTimerLoop")) var(a, "TimerRate") = Value::Float(0);
+                    var(a, "TimerCounter") = Value::Float(counter);
+                    vm.event(a, "Timer");
+                    sent["Timer"]++;
+                } else {
+                    var(a, "TimerCounter") = Value::Float(counter);
+                }
+            }
+            if (a->deleted) continue;
+            float life = var(a, "LifeSpan").f();
+            if (life != 0) {
+                life -= dt;
+                var(a, "LifeSpan") = Value::Float(life);
+                if (life <= 0.0001f) destroy(a);
+            }
+        } catch (const std::exception& ex) {
+            failed["tick"]++;
+            failures[std::string("tick: ") + ex.what()]++;
+        }
+    }
+}
+
 // ================================================================ natives
 namespace {
 
@@ -229,6 +281,11 @@ void registerWorldNatives(VM& vm) {
         Object* a = w.spawn(classArg(c, 0), c.self, c.o(1), c.n(2), c.has(3) ? &loc : nullptr,
                             c.has(4) ? &rot : nullptr);
         return Value::Obj(a);
+    };
+    n["actor.sleep"] = [](NativeCall& c) {
+        float left = c.f(0);
+        c.self->latent = [left](float dt) mutable { return (left -= dt) <= 0.0f; };
+        return Value();
     };
     n["actor.destroy"] = [](NativeCall& c) { return Value::Bool(world(c).destroy(c.self)); };
     n["actor.setowner"] = [](NativeCall& c) {

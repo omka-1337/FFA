@@ -156,7 +156,9 @@ Engine:
   array tokens read right, and Insert and Remove tested in the fixtures.
 - [x] LabelTableOffset in a state's tail: the label table's entries, one byte
   past its token, in all 752 states with one, and 0xFFFF in the other 216.
-- [ ] Engine natives: Actor, Level, spawning, timers, the tick.
+- [x] The tick: level time, PlayerTick, Tick, state code with Sleep, timers
+  and LifeSpan. Twenty seconds of every level run with no script error.
+- [ ] Physics, and the latent natives that wait on it or on animation.
 - [x] Loading a level: all 22606 live actors of the 29 levels as objects,
   agreeing with tools/umap.py on every one.
 - [x] Starting a level: the game spawned and InitGame'd, the start up events

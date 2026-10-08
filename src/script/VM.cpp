@@ -468,7 +468,12 @@ NativeFn VM::nativeOf(Function* fn) {
 
 Value VM::runNative(NativeCall& c) {
     NativeFn impl = nativeOf(c.fn);
-    if (!impl) return noNative(c.fn);
+    if (!impl) {
+        // A latent function the VM lacks waits one tick, so that state code
+        // looping on it gives way each tick, as it would, and does not spin.
+        if ((c.fn->flags & FUNC_Latent) && c.self) c.self->latent = [](float) { return true; };
+        return noNative(c.fn);
+    }
     Value r = impl(c);
     if (c.fn->ret && !(c.fn->flags & FUNC_Iterator)) return c.fn->ret->coerce(std::move(r));
     return r;
