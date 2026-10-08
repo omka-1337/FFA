@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+"""ffa: one command line for the tools in tools/.
+
+    ffa info      PKG...                     what a package holds
+    ffa list      PKG [-c CLASS]             its exports
+    ffa extract   PKG [-o DIR] [--max N]     its textures, as PNG
+    ffa decompile SYSTEM PKG CLASS           one class back to UnrealScript
+    ffa decompile SYSTEM PKG --all -o DIR    every class of a package
+    ffa defaults  SYSTEM PKG CLASS           a class's defaultproperties
+    ffa actors    MAP [CLASS]                a level's objects, or one class's
+    ffa view      MAP [-o FILE]              a level as an HTML viewer
+    ffa gallery   ANIMATIONS [-o DIR]        skeletal meshes as HTML pages
+    ffa check     GAME                       every corpus check, in turn
+
+SYSTEM is a game's System directory, GAME the directory above it. Packages
+that refer to others are resolved by name among the game's files, found by
+walking up from the package to the directory that holds System.
+"""
+import sys, os, argparse, glob, resource
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools'))
+from upkg import Package
+from utexture import Texture, write_png
+
+GAME_DIRS = ('System', 'Textures', 'StaticMeshes', 'Animations', 'Maps', 'Sounds')
+
+
+def game_root(path):
+    """The directory above System that a package lives under, or None."""
+    d = os.path.dirname(os.path.abspath(path))
+    while True:
+        if os.path.isdir(os.path.join(d, 'System')):
+            return d
+        up = os.path.dirname(d)
+        if up == d:
+            return None
+        d = up
+
+
+def library(path):
+    """Every package of the game a path belongs to, by name; None outside one."""
+    root = game_root(path)
+    if root is None:
+        return None
+    from ulevel import MeshLibrary
+    return MeshLibrary([os.path.join(root, d) for d in GAME_DIRS])
+
+
+def cap_memory(gb):
+    """A desynchronised parse can allocate without bound; keep bulk runs boxed."""
+    limit = int(gb * 1024 ** 3)
+    resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+
+
+# ------------------------------------------------------------------ commands
+
+def info(args):
+    import upkg
+    upkg.main(args.packages)
+
+
+def listing(args):
+    pkg = Package(args.package)
+    for i, e in enumerate(pkg.exports):
+        cls = pkg.classof(e)
+        if args.cls and cls.lower() != args.cls.lower():
+            continue
+        print('%6d  %-24s %-32s %9d bytes' % (i + 1, cls, e['name'], e['size']))
+
+
+def extract(args):
+    pkg = Package(args.package)
+    folder = os.path.join(args.out, os.path.splitext(pkg.name)[0])
+    os.makedirs(folder, exist_ok=True)
+    lib = library(args.package)
+
+    def palette(p, ref):
+        # a paletted texture's Palette, when it lives in another package
+        from ulevel import import_path
+        chain = import_path(p, ref)
+        other = lib.package(lib.files[chain[0].lower()])
+        return other, next(x for x in other.exports
+                           if x['name'].lower() == chain[-1].lower()
+                           and other.classof(x) == 'Palette')
+
+    ok = bad = 0
+    for e in pkg.exports:
+        if pkg.classof(e) != 'Texture' or not e['size']:
+            continue
+        try:
+            t = Texture(pkg, e)
+            w, h, px = t.rgba(t.pick_mip(args.max), palette if lib else None)
+            write_png(os.path.join(folder, e['name'] + '.png'), w, h, px)
+            ok += 1
+        except Exception as ex:
+            print('  failed:', e['name'], ex)
+            bad += 1
+    print(f'{pkg.name}: saved {ok} textures, failed {bad}')
+
+
+def decompile(args):
+    import udecompile
+    if args.all:
+        if not args.out:
+            sys.exit('decompile --all needs -o DIR')
+        udecompile.main([args.system, args.package, '--all', args.out])
+    elif args.target:
+        udecompile.main([args.system, args.package, args.target])
+    else:
+        sys.exit('decompile needs a class name, or --all -o DIR')
+
+
+def defaults(args):
+    import udefaults
+    udefaults.main([args.system, args.package, args.cls])
+
+
+def actors(args):
+    import umap
+    umap.main([args.map] + ([args.cls] if args.cls else []))
+
+
+def view(args):
+    import uview
+    out = args.out or os.path.join('out', os.path.splitext(os.path.basename(args.map))[0] + '.html')
+    uview.main([args.map, out])
+
+
+def gallery(args):
+    import ugallery
+    ugallery.main([args.animations, args.out])
+
+
+def check(args):
+    """The proof each reader rests on, against a whole game."""
+    cap_memory(args.mem)
+    g = args.game
+    sysdir, maps = os.path.join(g, 'System'), os.path.join(g, 'Maps')
+    u = sorted(glob.glob(os.path.join(sysdir, '*.u')))
+
+    def section(title, run):
+        print('\n== %s' % title, flush=True)
+        try:
+            run()
+        except Exception as ex:
+            print('  failed: %s' % ex)
+        sys.stdout.flush()
+
+    import uscript, udefaults, umap, umesh, ubsp, uskel, uanim, umaterial
+    section('script: functions to the exact end of their records', lambda: uscript.main(u))
+    section('class defaults', lambda: udefaults.main([sysdir]))
+    section('levels: objects whose properties parse', lambda: umap.main([maps]))
+    section('static meshes', lambda: umesh.main([os.path.join(g, 'StaticMeshes')]))
+    section('materials', lambda: umaterial.survey(g))
+    section('BSP', lambda: ubsp.main([maps]))
+    section('BSP zones against actor regions', lambda: ubsp.main(['--zones', maps]))
+    section('BSP solid and empty under actors', lambda: ubsp.main(['--solid', maps]))
+    section('skeletal meshes', lambda: uskel.main([os.path.join(g, 'Animations')]))
+    section('animations', lambda: uanim.main([os.path.join(g, 'Animations')]))
+
+
+def main():
+    ap = argparse.ArgumentParser(prog='ffa', description='Tools for UE2 game packages.')
+    sub = ap.add_subparsers(dest='cmd', required=True)
+
+    p = sub.add_parser('info', help='what a package holds')
+    p.add_argument('packages', nargs='+')
+    p.set_defaults(run=info)
+
+    p = sub.add_parser('list', help="a package's exports")
+    p.add_argument('package')
+    p.add_argument('-c', '--class', dest='cls', help='only exports of this class')
+    p.set_defaults(run=listing)
+
+    p = sub.add_parser('extract', help='extract textures from the package')
+    p.add_argument('package')
+    p.add_argument('-o', '--out', default='out')
+    p.add_argument('--max', type=int, default=None,
+                   help='largest mip side to save; the full size by default')
+    p.set_defaults(run=extract)
+
+    p = sub.add_parser('decompile', help='classes back to UnrealScript')
+    p.add_argument('system', help="the game's System directory")
+    p.add_argument('package', help='package file name, such as Engine.u')
+    p.add_argument('target', nargs='?', help='a class name')
+    p.add_argument('--all', action='store_true', help='every class of the package')
+    p.add_argument('-o', '--out', help='directory for --all')
+    p.set_defaults(run=decompile)
+
+    p = sub.add_parser('defaults', help="a class's defaultproperties")
+    p.add_argument('system')
+    p.add_argument('package')
+    p.add_argument('cls', metavar='class')
+    p.set_defaults(run=defaults)
+
+    p = sub.add_parser('actors', help="a level's objects")
+    p.add_argument('map')
+    p.add_argument('cls', metavar='class', nargs='?')
+    p.set_defaults(run=actors)
+
+    p = sub.add_parser('view', help='a level as a browser viewer')
+    p.add_argument('map')
+    p.add_argument('-o', '--out', help='HTML file; out/<map>.html by default')
+    p.set_defaults(run=view)
+
+    p = sub.add_parser('gallery', help='skeletal meshes as browser pages')
+    p.add_argument('animations', help="the game's Animations directory")
+    p.add_argument('-o', '--out', default=os.path.join('out', 'gallery'))
+    p.set_defaults(run=gallery)
+
+    p = sub.add_parser('check', help='every corpus check against a game')
+    p.add_argument('game', help='the directory that holds System, Maps and the rest')
+    p.add_argument('--mem', type=float, default=6.0, help='memory cap in GB')
+    p.set_defaults(run=check)
+
+    args = ap.parse_args(sys.argv[1:] if len(sys.argv) > 1 else ['-h'])
+    args.run(args)
+
+
+if __name__ == '__main__':
+    main()

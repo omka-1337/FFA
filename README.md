@@ -190,6 +190,25 @@ textured. Not done yet: animation inside the level viewer, the rest of the BSP
 record, and structuring the decompiler's control flow into `if` and `for`
 rather than labels and gotos.
 
+### The command line
+
+`ffa` at the root of the repository puts the tools behind one command:
+
+```sh
+./ffa info      $SYS/Engine.u                         # what a package holds
+./ffa list      ../Textures/SHCharacters.utx -c Palette
+./ffa extract   ../Textures/SHCharacters.utx -o out    # textures as PNG
+./ffa decompile $SYS Engine.u Pawn                    # one class, or --all -o DIR
+./ffa defaults  $SYS Engine.u Pawn
+./ffa actors    ../Maps/1_Shreks_Swamp.unr SkyZoneInfo
+./ffa view      ../Maps/7_Prison_Donkey.unr           # out/7_Prison_Donkey.html
+./ffa gallery   ../Animations                         # out/gallery
+./ffa check     <game dir>                            # every corpus check, capped at 6 GB
+```
+
+Packages that refer to others, a texture's palette or a level's meshes, are
+found by walking up from the package to the directory that holds `System`.
+
 ### Running
 
 ```sh

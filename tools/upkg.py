@@ -165,7 +165,7 @@ def main(paths):
         print(f"{p.name:20} {p.ver:>5}/{p.lic} {len(p.exports):8} {hist.get('Class',0):8} "
               f"{len(funcs):7} {len(good):7} {len(nat):7} "
               f"{100*len(nat)/max(len(good),1):5.1f}% {sb/1024:9.1f}KB")
-    print(f"{'ВСЬОГО':20} {'':7} {'':8} {tot['classes']:8} {tot['funcs']:7} "
+    print(f"{'TOTAL':20} {'':7} {'':8} {tot['classes']:8} {tot['funcs']:7} "
           f"{tot['good']:7} {tot['nat']:7} "
           f"{100*tot['nat']/max(tot['good'],1):5.1f}% {tot['bytes']/1024:9.1f}KB")
 
