@@ -120,9 +120,9 @@ whose records carry native data after their properties.
 - [x] **Font** (120). Both layouts, by package version, drawn as text.
 - [x] `StaticMeshInstance` (9260), each placed mesh's baked vertex light.
 - [x] BSP render sections, and the last three fields of a BSP node.
-- [ ] **BSP lightmaps**: the lightmap array (4007 in the Donkey prison, each a
-  matrix, three vectors and a shadow bitmap per light) and the lightmap
-  textures after it.
+- [x] **BSP lightmaps** and their DXT1 textures. Every BSP Model reads to its
+  end. Left over: one u32 per lightmap, and three levels whose lightmap
+  texture was never baked.
 - [ ] **Terrain**: the native part of `TerrainInfo` after its properties, and
   the rest of `TerrainSector` beyond its box.
 - [ ] `KMeshProps` (320), Karma physics; `ConvexVolume` (156), KnowWonder's

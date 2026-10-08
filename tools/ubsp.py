@@ -30,9 +30,25 @@ then the UPrimitive prefix shared with static meshes, then the BSP arrays:
               40 bytes a vertex (position, texture u v, lightmap u v,
               normal), u32 revision, index Material, u32 node count,
               u32 poly flags, i32 lightmap texture or -1
-    index     lightmap count, then the lightmaps, not decoded yet
-    ...       and after them the lightmap textures; a static mesh's collision
-              model has none of the three, three empty arrays
+    index     lightmap count, then each lightmap:
+                index x7  lightmap texture, surface, zone, OffsetX, OffsetY,
+                          SizeX, SizeY: its rectangle in the texture
+                FMatrix   world to texel, as a row vector
+                FVector   base, then the world step of one texel in X and in Y
+                index     light count, then each: index the light, index
+                          length and a shadow bitmap, a bit per texel, then
+                          i32 width, height, row pitch, MinX, MinY, MaxX, MaxY
+                index     the Level
+                u32       not understood yet
+    index     lightmap texture count, then each:
+                index     the Level
+                index     lightmap count, then i32 each: the lightmaps in it
+                u64       cache id
+                u32       revision
+                lazy x2   two mips: u32 offset of the end, compact count, data
+                u8        format, 3 (DXT1)
+                i32 x3    width, height, revision again
+    A static mesh's collision model has none of the three arrays.
 
 A node is variable length, because seven of its fields are compact indices:
 
@@ -98,6 +114,8 @@ class Model:
         self.root_outside = self.linked = None
         self.sections = []          # (vertex offset, vertex count, revision,
         self.light_map_count = None  #  material, node count, flags, lightmap texture)
+        self.light_maps = []
+        self.light_map_textures = []
         self.rest = 0
         self.parse()
 
@@ -181,6 +199,61 @@ class Model:
             sections.append((at, nv, rev, mat, count, flags, lmt))
         self.sections, self.light_map_count = sections, r.idx()
         self.rest = end - r.p
+        maps = []
+        for _ in range(self.light_map_count):
+            head = [r.idx() for _ in range(7)]
+            matrix = struct.unpack_from('<16f', b, r.p)
+            axes = struct.unpack_from('<9f', b, r.p + 64)
+            r.p += 100
+            lights = []
+            for _ in range(r.idx()):
+                actor, n = r.idx(), r.idx()
+                bits = (r.p, n)
+                r.p += n
+                lights.append((actor, bits) + struct.unpack_from('<7i', b, r.p))
+                r.p += 28
+                if r.p > end:
+                    raise ValueError('shadow bitmap runs past the record')
+            level, extra = r.idx(), r.u32()
+            maps.append(dict(texture=head[0], surf=head[1], zone=head[2],
+                             offset=(head[3], head[4]), size=(head[5], head[6]),
+                             matrix=matrix, base=axes[0:3], x=axes[3:6], y=axes[6:9],
+                             lights=lights, level=level, extra=extra))
+        textures = []
+        for _ in range(r.idx()):
+            level, n = r.idx(), r.idx()
+            ids = struct.unpack_from('<%di' % n, b, r.p)
+            r.p += 4 * n
+            cache, rev = struct.unpack_from('<QI', b, r.p)
+            r.p += 12
+            mips = []
+            for _ in range(2):
+                lazy_end, count = r.u32(), r.idx()
+                mips.append((r.p, count))
+                r.p += count
+                if r.p != lazy_end:
+                    raise ValueError('lightmap mip does not end at its lazy array end')
+            fmt = b[r.p]
+            w, h, rev2 = struct.unpack_from('<3i', b, r.p + 1)
+            r.p += 13
+            textures.append(dict(level=level, light_maps=ids, cache=cache, revision=rev,
+                                 mips=mips, format=fmt, size=(w, h)))
+        if r.p != end:
+            raise ValueError('Model does not end on its record')
+        self.light_maps, self.light_map_textures = maps, textures
+        self.rest = 0
+
+    def light_map_texture_rgba(self, i):
+        """(width, height, RGBA) of a lightmap texture's first mip, or None for
+        the three levels whose lightmap texture was never built: two empty
+        mips, and format and size fields that hold garbage."""
+        from utexture import decode_dxt, DXT1
+        t = self.light_map_textures[i]
+        at, n = t['mips'][0]
+        if not n:
+            return None
+        w, h = t['size']
+        return w, h, decode_dxt(self.p.b[at:at + n], w, h, DXT1)
 
     def section_vertices(self, i):
         """A render section's vertices: (position, texture uv, lightmap uv,
@@ -283,9 +356,9 @@ class Model:
 
     def sane(self):
         """Every node must reference the arrays it is supposed to reference,
-        and the record must have been read up to its lightmaps."""
+        and the record must have been read to its exact end."""
         nn = len(self.nodes)
-        if self.root_outside is None:
+        if self.root_outside is None or self.rest != 0:
             return False
         nl, nz = len(self.leaves), max(1, len(self.zones))
         if any(l[0] >= nz for l in self.leaves):
@@ -405,10 +478,71 @@ def solid_check(paths):
         print('  %5d in solid: %s' % (n, cls))
 
 
+def lightmap_check(paths):
+    """What the lightmaps mean, checked on every polygon that has one: the
+    matrix takes each corner into the lightmap's texels, base plus the two
+    texel steps takes it back, the section vertex's lightmap coordinate is the
+    texel's place in the texture, and the rectangles tile their textures."""
+    from ulevel import level_model
+    corners = inside = rects = outside = overlaps = 0
+    back, uv = [], []
+    for f in paths:
+        pkg = Package(f)
+        try:
+            m = level_model(pkg)
+        except ValueError:
+            continue
+        b = pkg.b
+        for t in m.light_map_textures:
+            w, h = t['size']
+            if not t['mips'][0][1]:
+                continue                    # never built
+            boxes = []
+            for i in t['light_maps']:
+                (ox, oy), (sx, sy) = m.light_maps[i]['offset'], m.light_maps[i]['size']
+                rects += 1
+                outside += not (ox >= 0 and oy >= 0 and ox + sx <= w and oy + sy <= h)
+                boxes.append((ox, oy, ox + sx, oy + sy))
+            boxes.sort()
+            for i, a in enumerate(boxes):
+                for c in boxes[i + 1:]:
+                    if c[0] >= a[2]:
+                        break
+                    overlaps += c[1] < a[3] and a[1] < c[3]
+        for n in m.nodes:
+            if n.light_map < 0 or n.num_vertices < 3:
+                continue
+            lm = m.light_maps[n.light_map]
+            M, (ox, oy), (sx, sy) = lm['matrix'], lm['offset'], lm['size']
+            tex = m.light_map_textures[lm['texture']]
+            built = tex['mips'][0][1] > 0
+            at = m.sections[n.section][0]
+            for k, (pv, _) in enumerate(m.verts[n.vert_pool:n.vert_pool + n.num_vertices]):
+                p = m.points[pv]
+                u = p[0] * M[0] + p[1] * M[4] + p[2] * M[8] + M[12]
+                v = p[0] * M[1] + p[1] * M[5] + p[2] * M[9] + M[13]
+                corners += 1
+                inside += -0.01 <= u <= sx + 0.01 and -0.01 <= v <= sy + 0.01
+                q = [lm['base'][i] + u * lm['x'][i] + v * lm['y'][i] for i in range(3)]
+                back.append(max(abs(q[i] - p[i]) for i in range(3)))
+                if built:
+                    lu, lv = struct.unpack_from('<2f', b, at + 40 * (n.first_vertex + k) + 20)
+                    uv.append(max(abs((ox + u) / tex['size'][0] - lu), abs((oy + v) / tex['size'][1] - lv)))
+    back.sort()
+    uv.sort()
+    print('%d of %d polygon corners fall inside their lightmap' % (inside, corners))
+    print('base + u X + v Y gives the corner back within %.3f units at the 99.9th percentile'
+          % back[int(len(back) * 0.999)])
+    print('section lightmap coordinates match (offset + texel) / size within %.1e' % uv[-1])
+    print('%d lightmap rectangles, %d outside their texture, %d overlapping pairs'
+          % (rects, outside, overlaps))
+
+
 def main(argv):
     zones = '--zones' in argv
     solid = '--solid' in argv
-    argv = [a for a in argv if a not in ('--zones', '--solid')]
+    lightmaps = '--lightmaps' in argv
+    argv = [a for a in argv if a not in ('--zones', '--solid', '--lightmaps')]
     paths = []
     for a in argv:
         if os.path.isdir(a):
@@ -420,6 +554,8 @@ def main(argv):
         return zone_check(paths)
     if solid:
         return solid_check(paths)
+    if lightmaps:
+        return lightmap_check(paths)
     total = good = nodes = surfs = verts = 0
     for f in paths:
         for m in models(f):
@@ -434,8 +570,8 @@ def main(argv):
                       '%6d verts  rest %d bytes'
                       % (m.e['name'], len(m.vectors), len(m.points),
                          len(m.nodes), len(m.surfs), len(m.verts), m.rest))
-    print('%d models, %d pass the reference checks, %d nodes, %d surfaces, '
-          '%d verts' % (total, good, nodes, surfs, verts))
+    print('%d models, %d read to their exact end with every reference in range, '
+          '%d nodes, %d surfaces, %d verts' % (total, good, nodes, surfs, verts))
 
 
 if __name__ == '__main__':

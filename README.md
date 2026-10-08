@@ -169,8 +169,10 @@ UnrealEngine2 Runtime (version 126):
   come from walking the tree, checked against the zone table and against where
   19580 live actors stand.
 - **Lighting.** Every placed mesh's baked vertex light, 9260 records, to their
-  end, with its channel order taken from the lights themselves; the BSP's
-  render sections, matched to every node's polygon. BSP lightmaps are next.
+  end, with its channel order taken from the lights themselves. The BSP's
+  render sections, matched to every node's polygon, and its lightmaps with
+  their shadow bitmaps and DXT1 atlases, the matrices checked on all 134302
+  lit corners. Every BSP Model now reads to the end of its record.
 - **Level.** All 29 Level records, to their exact end: the live actor list, the
   URL and the level's Model. Actors the list leaves out, 8572 of them, are
   deleted ones the editor saved anyway, all marked bDeleteMe.
@@ -241,6 +243,7 @@ python3 umesh.py      ../StaticMeshes                # geometry totals
 python3 umaterial.py  ..                             # every static mesh's materials
 python3 ubsp.py --zones ../Maps                      # BSP zones against every actor's Region
 python3 ubsp.py --solid ../Maps                      # solid or empty under every actor
+python3 ubsp.py --lightmaps ../Maps                  # lightmap matrices against every lit polygon
 python3 uview.py      ../Maps/7_Prison_Donkey.unr ../out/prison.html
 python3 ugallery.py   ../Animations ../out/gallery   # one page per skeletal mesh
 ```

@@ -472,14 +472,14 @@ index     render section count, then each section:
             u32    node count
             u32    poly flags
             i32    lightmap texture, or -1
-index     lightmap count, then the lightmaps, not decoded yet
-...       the lightmap textures, not decoded yet
+index     lightmap count, then the lightmaps (see lightmaps below)
+index     lightmap texture count, then the lightmap textures
 ```
 
 Every Model in the game, 2727 in levels and 312 behind static meshes, reads to
-Linked with every reference in range. After it the 312 collision models and the
-2698 brush models hold exactly three bytes, three empty arrays; only the 29
-level models hold more, their lightmaps.
+the exact end of its record with every reference in range. The collision and
+brush models end in three empty arrays where a level model has its render
+sections, lightmaps and lightmap textures.
 
 A surface is also variable length:
 
@@ -624,9 +624,65 @@ none, its nodes all -1 and its sections all flagged 0x400000. A surface's own
 iLightMap field is something else: the swamp's surfaces name 32 values while it
 has no lightmap at all.
 
-A lightmap holds a world to lightmap matrix, three vectors, and a shadow bitmap
-for each light; the array after the lightmaps holds the lightmap textures, 9 in
-the prison. Both are variable length and not decoded yet.
+### Lightmaps
+
+A level's static light on its BSP is in lightmaps, one for each lit surface,
+packed into 512 by 512 DXT1 textures:
+
+```
+lightmap
+  index x7  lightmap texture, surface, zone, OffsetX, OffsetY, SizeX, SizeY
+  FMatrix   world to texel, used as a row vector
+  FVector   base, then the world step of one texel in X, then in Y
+  index     light count, then each light:
+              index  the light actor
+              index  shadow bitmap length, then the bitmap, a bit per texel
+              i32    width, height, row pitch in bytes, MinX, MinY, MaxX, MaxY
+  index     the Level
+  u32       not understood yet
+
+lightmap texture
+  index     the Level
+  index     count, then i32 each: the lightmaps packed into it
+  u64       cache id
+  u32       revision
+  lazy x2   two mips, 512 and 256 square: u32 offset of the end, compact
+            count, data
+  u8        format, 3, DXT1
+  i32 x3    width, height, and the revision again
+```
+
+All 29 level Models read to their end this way, the Donkey prison's 4007
+lightmaps and 9 textures among them. A node's last field names its lightmap,
+and that lightmap's surface is the node's own in all 4007 of the prison's. Every
+lightmap is listed by exactly one texture, every light of a lightmap is a
+Light, Sunlight or Spotlight, and each shadow bitmap's length is its pitch
+times its height, the pitch a byte per eight texels. The first field after the
+lights is a compact reference to the Level, which is why it reads as 2 in the
+prison, whose Level is export 2, and as 44 in Hamlet; read as a fixed byte, it
+derails every level whose Level is past export 63.
+
+`ubsp.py --lightmaps <maps>` checks what the fields mean, on every polygon with
+a lightmap in the game:
+
+- The matrix takes each corner into its lightmap's texels: all 134302 corners
+  land inside 0 to SizeX by 0 to SizeY, with a texel of border, so a 40 by 40
+  lightmap is used from 1 to 39.
+- The base plus u times the X step plus v times the Y step gives the corner
+  back, within 0.23 units for 99.9 percent of them; the rest is the distance
+  off the plane, which the two steps do not describe.
+- The lightmap coordinates in the render section's vertices are the texel's
+  place in the texture, (Offset + texel) / 512, to within 4.5e-8.
+- The 13419 rectangles all lie inside their texture, and no two overlap.
+
+Decoded as DXT1, a texture is plainly a lightmap atlas: the prison's shows cold
+blue walls, the orange glow of torches, and the hard shadows of bars.
+
+Three levels, the Fairy Godmother battle, Hamlet and the Hamlet mine, have
+their lightmaps with all their shadow bitmaps but a single texture with both
+mips empty, its format and size fields holding garbage. Their light was never
+baked into texels; an engine has to compute it from the lights and the shadow
+bitmaps.
 
 ### How the node was found
 
@@ -1339,7 +1395,7 @@ budget per record. Run bulk passes under an external memory cap.
 - Whether and how PrePivot applies to skeletal meshes; see placing them.
 - The sky dome is drawn lit like the rest of the scene; the game probably
   draws it unlit.
-- BSP lightmaps and lightmap textures, after the render sections.
+- The u32 at the end of each BSP lightmap.
 - Which of a static mesh's two collision forms, its triangle tree or its
   collision model, the engine uses for which kind of check.
 - Version 2 lip sync after a sound, the curves that move the characters'

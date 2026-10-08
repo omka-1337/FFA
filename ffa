@@ -187,6 +187,7 @@ def check(args):
     section('BSP', lambda: ubsp.main([maps]))
     section('BSP zones against actor regions', lambda: ubsp.main(['--zones', maps]))
     section('BSP solid and empty under actors', lambda: ubsp.main(['--solid', maps]))
+    section('BSP lightmaps', lambda: ubsp.main(['--lightmaps', maps]))
     section('skeletal meshes', lambda: uskel.main([os.path.join(g, 'Animations')]))
     section('animations', lambda: uanim.main([os.path.join(g, 'Animations')]))
     section('fonts', lambda: font_total(g))
