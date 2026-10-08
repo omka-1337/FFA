@@ -195,6 +195,8 @@ far:
 
 Tools:
 
+- [x] States in the decompiler: each state's functions and its code, labels
+  named from the label table. Before, no state was written at all.
 - [ ] Control flow in the decompiler: `if`, `while` and `for` in place of
   labels and gotos. Only for reading the script; the VM runs the jumps.
 - [ ] Breadth: other UE2 games. Harry Potter and the Prisoner of Azkaban is the

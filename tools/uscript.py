@@ -271,9 +271,10 @@ class Script:
             elif k == 'labels':
                 while True:
                     nm = r.idx()
-                    r.u32()
+                    off = r.u32()
                     size += MEM['name'] + 4
                     n.vals.append(('name', nm))
+                    n.vals.append(('offset', off))
                     if nm == self.p.none_idx:
                         break
         n.mem_size = size

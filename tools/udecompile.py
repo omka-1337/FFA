@@ -7,11 +7,11 @@ and loops is a separate analysis pass and is not attempted here. Everything else
 
 See docs/package-format.md for the formats this builds on.
 """
-import sys, os, collections
+import sys, os, struct, collections
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from upkg import Package
-from uscript import Script, build_native_table, read_tail, FUNC_NATIVE
+from uscript import struct_code, Script, build_native_table, read_tail, FUNC_NATIVE
 from uclass import Reader, CPF_PARM, CPF_RETURN, CPF_OUT, CPF_OPTIONAL, CPF_COERCE
 from udefaults import World, Tagged
 
@@ -202,7 +202,17 @@ class Printer:
 
     def body(self, stmts, indent='\t'):
         lines, targets = [], self.targets(stmts)
+        # A state's labels are named by its label table: name, offset pairs.
+        named = {}
         for n in stmts:
+            if n.op == 'LabelTable':
+                pairs = [v for k, v in n.vals if k in ('name', 'offset')]
+                for nm, off in zip(pairs[0::2], pairs[1::2]):
+                    if nm != self.p.none_idx:
+                        named[off] = self.p.names[nm]
+        for n in stmts:
+            if n.mem_off in named:
+                lines.append('%s:' % named[n.mem_off])
             if n.mem_off in targets:
                 lines.append('L%04X:' % n.mem_off)
             text = self.statement(n)
@@ -229,29 +239,58 @@ def decompile_class(pkg, natives, name, out=sys.stdout, world=None):
     for m in members:
         if m['cls'].endswith('Property'):
             print('var %s %s;' % (rd.typename(m), m['name']), file=out)
-    for m in members:
-        if m['cls'] != 'Function':
-            continue
+    def function(m, indent=''):
         flags, _ = read_tail(pkg.b, m['export'])
         sig = rd.signature(m)
         if flags & FUNC_NATIVE:
-            print('\nnative %s;' % sig, file=out)
-            continue
+            print('\n%snative %s;' % (indent, sig), file=out)
+            return
         locals_ = [x for x in rd.members(m['idx'])
                    if x['cls'].endswith('Property') and not (x['flags'] & CPF_PARM)]
-        print('\n%s\n{' % sig, file=out)
+        print('\n%s%s\n%s{' % (indent, sig, indent), file=out)
         for l in locals_:
-            print('\tlocal %s %s;' % (rd.typename(l), l['name']), file=out)
+            print('%s\tlocal %s %s;' % (indent, rd.typename(l), l['name']), file=out)
         if locals_:
             print(file=out)
         try:
             stmts, info = sc.function(m['export'])
-            for line in pr.body(stmts):
-                print(line, file=out)
+            for line in pr.body(stmts, indent + '\t'):
+                print(indent + line if line.endswith(':') else line, file=out)
             if not info['aligned'] or not info['sized']:
-                print('\t// WARNING: incomplete parse of this function', file=out)
+                print('%s\t// WARNING: incomplete parse of this function' % indent, file=out)
         except Exception as exc:
-            print('\t// could not decompile: %s' % exc, file=out)
+            print('%s\t// could not decompile: %s' % (indent, exc), file=out)
+        print('%s}' % indent, file=out)
+
+    for m in members:
+        if m['cls'] == 'Function':
+            function(m)
+    # States: their functions, then their code, whose labels the label table
+    # names. A state's tail ends in its StateFlags; 0x2 marks the auto state,
+    # the engine family's value, which one state per class at most carries.
+    for m in members:
+        if m['cls'] != 'State':
+            continue
+        sd = rd.field(m['idx'])
+        # A state named as its parent's overrides it, and says no more.
+        sup = pkg.refname(sd['super']) if sd['super'] else ''
+        sup = ' extends %s' % sup if sup and sup != m['name'] else ''
+        e = m['export']
+        sflags = struct.unpack_from('<I', pkg.b, e['off'] + e['size'] - 4)[0]
+        print('\n%sstate %s%s\n{' % ('auto ' if sflags & 2 else '', m['name'], sup), file=out)
+        for f in rd.members(m['idx']):
+            if f['cls'] == 'Function':
+                function(f, '\t')
+        try:
+            stmts, info = struct_code(sc, e)
+            if stmts:
+                print(file=out)
+                for line in pr.body(stmts, '\t'):
+                    print(line, file=out)
+            if not info['sized']:
+                print('\t// WARNING: incomplete parse of this state code', file=out)
+        except Exception as exc:
+            print('\t// could not decompile the state code: %s' % exc, file=out)
         print('}', file=out)
     if world is not None:
         key = next((k for k, v in world.pkgs.items() if v is pkg), None)
