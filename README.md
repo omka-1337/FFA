@@ -1,3 +1,8 @@
+<p align="center">
+  <img src="docs/media/banner.png" alt="Баннер проекта" width="100%">
+</p>
+
+
 # FFA
 
 FFA stands for Far Far Away. It is an engine that runs an Unreal Engine 2
