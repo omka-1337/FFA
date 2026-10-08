@@ -101,7 +101,43 @@ PF_FAKE_BACKDROP = 0x80
 LEVEL, BACKDROP, SKY = 0, 1, 2
 
 
-def build_bsp(pkg, path=None, textures=None, model=None, sky_zone=None):
+PF_UNLIT = 0x400000
+
+
+def zone_ambient(pkg, model, defaults):
+    """Ambient light of each zone as 0 to 255 RGB, from its ZoneInfo, or the
+    LevelInfo for zones without one: AmbientHue, AmbientSaturation and
+    AmbientBrightness read as plain HSV, saturation 255 being white."""
+    mp = Map(pkg)
+    props = {pkg.exports.index(e) + 1: (pkg.classof(e), d) for e, d in mp.actors(values=True)}
+    level = next(((c, d) for c, d in props.values() if c == 'LevelInfo'), ('LevelInfo', {}))
+
+    def rgb(cls, d):
+        if defaults is not None:
+            d = defaults.merged(cls, d)
+        h = (d.get('AmbientHue', {}).get('value') or 0) / 255.0
+        sat = d.get('AmbientSaturation', {}).get('value')
+        sat = 255 if sat is None else sat
+        v = (d.get('AmbientBrightness', {}).get('value') or 0) / 255.0
+        r, g, b = colorsys.hsv_to_rgb(h, 1.0 - sat / 255.0, v)
+        return [int(r * 255), int(g * 255), int(b * 255)]
+    out = []
+    for z in model.zones or [(0,)]:
+        out.append(rgb(*props.get(z[0], level)))
+    return out
+
+
+def light_map_images(model):
+    """The level's lightmap textures as PNG data URIs, None where never baked."""
+    out = []
+    for i in range(len(model.light_map_textures)):
+        img = model.light_map_texture_rgba(i)
+        out.append(None if img is None else
+                   'data:image/png;base64,' + base64.b64encode(png_bytes(*img)).decode())
+    return out
+
+
+def build_bsp(pkg, path=None, textures=None, model=None, sky_zone=None, ambient=None):
     """BSP polygons, each triangle wound so it faces the way its node's plane
     does. Drawn front side only, a level can then be looked into from outside,
     since its faces point into the playable space.
@@ -109,10 +145,14 @@ def build_bsp(pkg, path=None, textures=None, model=None, sky_zone=None):
     Texture coordinates come from the surface: a texel position is the offset
     from the surface's base point projected on its two texture vectors, and
     dividing by the texture's size makes it the 0 to 1 range of the image.
-    Triangles are grouped by part and texture, as (first index, count, texture
-    id, part), the part being the level, its sky windows, or the sky zone."""
+    Triangles are grouped by part, texture and lightmap texture, as (first
+    index, count, texture id, part, lightmap texture, unlit), the part being the
+    level, its sky windows, or the sky zone. The lightmap coordinates come from
+    the render section, which holds each node's polygon corner for corner, and
+    each vertex also carries its zone's ambient light."""
     m = model or level_model(pkg)
-    pos, col, uv, by_tex = [], [], [], collections.defaultdict(list)
+    pos, col, uv, uv2, amb, by_tex = [], [], [], [], [], collections.defaultdict(list)
+    b = pkg.b
     mats = collections.Counter()
     V, Pts = m.vectors, m.points
     for pts, s, flags, node in polygons(m, with_surf=True):
@@ -128,6 +168,20 @@ def build_bsp(pkg, path=None, textures=None, model=None, sky_zone=None):
         if tid >= 0:
             us, vs = textures.sizes[tid]
             o, tu, tv = Pts[s.base], V[s.texture_u], V[s.texture_v]
+        lmt = -1
+        if node.light_map >= 0 and m.light_maps:
+            lmt = m.light_maps[node.light_map]['texture']
+            if not m.light_map_textures[lmt]['mips'][0][1]:
+                lmt = -1                        # never baked
+        unlit = 1 if flags & PF_UNLIT else 0
+        za = ambient[node.zone] if ambient and node.zone < len(ambient) else [0, 0, 0]
+        for k in range(len(P)):
+            if m.sections and node.section >= 0:
+                at = m.sections[node.section][0] + 40 * (node.first_vertex + k)
+                uv2 += list(struct.unpack_from('<2f', b, at + 20))
+            else:
+                uv2 += [0.0, 0.0]
+            amb += za
         for p, q in zip(P, pts):
             pos += p
             col += [int(c[0] * 255), int(c[1] * 255), int(c[2] * 255)]
@@ -139,16 +193,18 @@ def build_bsp(pkg, path=None, textures=None, model=None, sky_zone=None):
                 uv += [0.0, 0.0]
         for i in range(1, len(P) - 1):
             g = cross(sub(P[i], P[0]), sub(P[i + 1], P[0]))
+            key = (part, tid, lmt, unlit)
             if g[0] * N[0] + g[1] * N[1] + g[2] * N[2] >= 0:
-                by_tex[part, tid] += [base, base + i, base + i + 1]
+                by_tex[key] += [base, base + i, base + i + 1]
             else:
-                by_tex[part, tid] += [base, base + i + 1, base + i]
+                by_tex[key] += [base, base + i + 1, base + i]
         mats[mat] += 1
     idx, groups = [], []
-    for part, tid in sorted(by_tex):
-        groups.append([len(idx), len(by_tex[part, tid]), tid, part])
-        idx += by_tex[part, tid]
-    return pos, col, idx, mats, uv, groups
+    for key in sorted(by_tex):
+        part, tid, lmt, unlit = key
+        groups.append([len(idx), len(by_tex[key]), tid, part, lmt, unlit])
+        idx += by_tex[key]
+    return pos, col, idx, mats, uv, groups, uv2, amb
 
 
 def build_terrain(pkg, files, textures=None, path=None):
@@ -223,13 +279,20 @@ def build_skeletal(pkg, path, lib, defaults, textures=None, in_sky=lambda loc: F
     return uniq, inst
 
 
-def build_meshes(pkg, path, lib, defaults=None, textures=None, in_sky=lambda loc: False):
+def build_meshes(pkg, path, lib, defaults=None, textures=None, in_sky=lambda loc: False,
+                 zone_of=None, ambient=None):
     """Unique (mesh, skins) pairs once each, plus one transform per actor,
-    kept apart by whether the actor stands in the sky zone."""
-    uniq, inst = {}, collections.defaultdict(list)
-    skins_of = {}
+    kept apart by whether the actor stands in the sky zone. An actor whose
+    StaticMeshInstance holds a colour for each vertex of its mesh goes into
+    `lit` instead, with those colours and its zone's ambient light."""
+    from ulight import StaticMeshInstance
+    uniq, inst, lit = {}, collections.defaultdict(list), collections.defaultdict(list)
+    skins_of, smi_of = {}, {}
     for e, d in Map(pkg).actors(values=True, live=True):
         skins_of[e['name']] = object_array(pkg, d.get('Skins'))
+        ref = d.get('StaticMeshInstance', {}).get('ref', 0)
+        if ref > 0:
+            smi_of[e['name']] = ref
     for key, mesh, cols, loc, name in static_mesh_instances(pkg, path, lib, defaults):
         skins = tuple(skins_of.get(name, ()))
         ukey = (key, skins)
@@ -250,8 +313,20 @@ def build_meshes(pkg, path, lib, defaults=None, textures=None, in_sky=lambda loc
                 tid = textures.for_material(hp, hpath, ref) if textures else -1
                 groups.append([first, nfaces * 3, tid])
             uniq[ukey] = (mesh.name, pos, list(mesh.indices), uv, groups)
-        inst[ukey, in_sky(loc)].append(instance_matrix(cols, loc))
-    return uniq, inst
+        colours = None
+        if name in smi_of:
+            try:
+                si = StaticMeshInstance(pkg, pkg.exports[smi_of[name] - 1])
+                if len(si.colors) == len(mesh.verts):
+                    colours = [c for col in si.colors for c in col[:3]]
+            except ValueError:
+                pass
+        if colours is None:
+            inst[ukey, in_sky(loc)].append(instance_matrix(cols, loc))
+        else:
+            za = ambient[zone_of(loc)] if ambient and zone_of else [0, 0, 0]
+            lit[ukey, in_sky(loc)].append((instance_matrix(cols, loc), colours, za))
+    return uniq, inst, lit
 
 
 def b64(fmt, data):
@@ -271,7 +346,8 @@ html,body{margin:0;height:100%%;background:#18181f;overflow:hidden;font:13px sys
 Shift fast · [ and ] change speed · R back to the overview<br>
 mouse or touchpad drag also looks, wheel changes speed<br>
 <b>Show:</b> B BSP one or both sides · M static meshes · T terrain · K skeletal meshes (off at first)<br>
-Y sky as a background, or where it stands<br><br>%(legend)s</div>
+Y sky as a background, or where it stands<br>
+L light: <span id="lightmode">baked light x2</span><br><br>%(legend)s</div>
 <script src="%(three)s"></script>
 <script>
 function dec(s, T){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new T(u.buffer)}
@@ -280,6 +356,8 @@ const g=new THREE.BufferGeometry();
 g.setAttribute('position',new THREE.BufferAttribute(pos,3));
 g.setAttribute('color',new THREE.BufferAttribute(col,3,true));
 g.setAttribute('uv',new THREE.BufferAttribute(dec("%(uv)s",Float32Array),2));
+g.setAttribute('uv2',new THREE.BufferAttribute(dec("%(uv2)s",Float32Array),2));
+g.setAttribute('amb',new THREE.BufferAttribute(dec("%(amb)s",Uint8Array),3,true));
 g.setIndex(new THREE.BufferAttribute(idx,1));
 g.computeVertexNormals(); g.computeBoundingSphere();
 const scene=new THREE.Scene();
@@ -312,6 +390,34 @@ function instanced(list, group, fallback){
     for(let i=0;i<n;i++){M.fromArray(mat,i*16); im.setMatrixAt(i,M);}
     im.instanceMatrix.needsUpdate=true; group.add(im);
   }}
+// Baked light, as the game is thought to combine it: texture times (light * K
+// plus the zone's ambient), the light being the BSP lightmap or the static
+// mesh's vertex colours. L cycles K between 2 and 1, and off, which is the
+// plain lighting the viewer used before.
+const LM=%(lightmaps)s.map(u=>{ if(!u) return null; const t=new THREE.TextureLoader().load(u);
+  t.flipY=false; return t; });
+const LIGHT={K:{value:2.0}, on:{value:1.0}}, LIGHT_MODES=[[2,1],[1,1],[1,0]];
+let lightMode=0;
+const WHITE=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1);
+function bakedMaterial(tid, lmt, source, fallback){
+  // source: 0 full bright, 1 lightmap, 2 vertex colours
+  const alpha=tid>=0&&TEX[tid].alpha;
+  return new THREE.ShaderMaterial({
+    uniforms:{map:{value:tid>=0?TEX[tid].tx:WHITE}, lmap:{value:(lmt>=0&&LM[lmt])?LM[lmt]:WHITE},
+      K:LIGHT.K, on:LIGHT.on, tint:{value:new THREE.Color(tid>=0?0xffffff:fallback)}},
+    vertexShader:'attribute vec2 uv2; attribute vec3 amb; attribute vec3 lit; varying vec2 vUv; varying vec2 vUv2;'+
+      ' varying vec3 vAmb; varying vec3 vLit; varying vec3 vN;'+
+      ' void main(){ vUv=uv; vUv2=uv2; vAmb=amb; vLit=lit; vN=normalize(mat3(modelMatrix)*normal);'+
+      ' gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader:'uniform sampler2D map; uniform sampler2D lmap; uniform float K; uniform float on; uniform vec3 tint;'+
+      ' varying vec2 vUv; varying vec2 vUv2; varying vec3 vAmb; varying vec3 vLit; varying vec3 vN;'+
+      ' void main(){ vec4 c=texture2D(map,vUv); '+(alpha?'if(c.a<0.5) discard; ':'')+
+      ' vec3 light='+(source==0?'vec3(1.0)':source==1?'texture2D(lmap,vUv2).rgb*K+vAmb':'vLit*K+vAmb')+';'+
+      ' if(on<0.5){ vec3 n=normalize(vN); light=mix(vec3(0.25,0.25,0.31),vec3(1.0),0.5*n.y+0.5)*0.75'+
+      ' +max(dot(n,normalize(vec3(0.4,1.0,0.3))),0.0)*0.6; }'+
+      ' gl_FragColor=vec4(c.rgb*tint*light,1.0); }',
+    side:THREE.FrontSide});
+}
 // BSP in three parts sharing one vertex buffer: the level, its windows onto
 // the sky (PF_FakeBackdrop), and the sky zone. One material per texture, front
 // side only; untextured surfaces keep their tint by material name.
@@ -319,12 +425,12 @@ const bspMats=[], parts=[[],[],[]];
 %(groups)s.forEach(gr=>parts[gr[3]].push(gr));
 function bspMesh(list){
   const bg=new THREE.BufferGeometry();
-  for(const k of ['position','color','uv','normal']) bg.setAttribute(k,g.attributes[k]);
+  for(const k of ['position','color','uv','uv2','amb','normal']) bg.setAttribute(k,g.attributes[k]);
   const s=list.length?list[0][0]:0, e=list.length?list[list.length-1][0]+list[list.length-1][1]:0;
   bg.setIndex(new THREE.BufferAttribute(idx.subarray(s,e),1));
-  const ms=list.map((gr,i)=>{ bg.addGroup(gr[0]-s,gr[1],i); const t=gr[2];
-    const m = t>=0 ? new THREE.MeshLambertMaterial({map:TEX[t].tx, side:THREE.FrontSide, alphaTest:TEX[t].alpha?0.5:0})
-                   : new THREE.MeshLambertMaterial({vertexColors:true, side:THREE.FrontSide});
+  const ms=list.map((gr,i)=>{ bg.addGroup(gr[0]-s,gr[1],i);
+    const t=gr[2], lmt=gr[4], unlit=gr[5];
+    const m=bakedMaterial(t, lmt, unlit?0:(lmt>=0&&LM[lmt]?1:0), 0x8c8c8c);
     bspMats.push(m); return m; });
   return new THREE.Mesh(bg, ms.length?ms:new THREE.MeshBasicMaterial());
 }
@@ -392,6 +498,30 @@ for (const t of %(terrain)s){
   terrain.add(new THREE.Mesh(tg,mat));
 }
 instanced(MESH.filter(m=>!m.sky), meshes, 0xc89070);
+// Static meshes with their own baked colours, one mesh per actor sharing the
+// unique mesh's vertex buffers.
+for (const m of %(lit)s){
+  const base=new THREE.BufferGeometry();
+  base.setAttribute('position',new THREE.BufferAttribute(dec(m.pos,Float32Array),3));
+  base.setAttribute('uv',new THREE.BufferAttribute(dec(m.uv,Float32Array),2));
+  base.setIndex(new THREE.BufferAttribute(dec(m.idx,Uint32Array),1));
+  base.computeVertexNormals();
+  const mats=m.groups.length?m.groups.map(gr=>bakedMaterial(gr[2],-1,2,0xc89070)):[bakedMaterial(-1,-1,2,0xc89070)];
+  const nv=base.attributes.position.count;
+  for (const it of m.inst){
+    const mg=new THREE.BufferGeometry();
+    for(const k of ['position','uv','normal']) mg.setAttribute(k,base.attributes[k]);
+    mg.setIndex(base.index);
+    mg.setAttribute('lit',new THREE.BufferAttribute(dec(it.col,Uint8Array),3,true));
+    const a=new Uint8Array(nv*3); for(let v=0;v<nv;v++){a[v*3]=it.amb[0];a[v*3+1]=it.amb[1];a[v*3+2]=it.amb[2];}
+    mg.setAttribute('amb',new THREE.BufferAttribute(a,3,true));
+    mg.setAttribute('uv2',new THREE.BufferAttribute(new Float32Array(nv*2),2));
+    m.groups.forEach((gr,i)=>mg.addGroup(gr[0],gr[1],i));
+    const mesh=new THREE.Mesh(mg, m.groups.length?mats:mats[0]);
+    mesh.matrixAutoUpdate=false; mesh.matrix.fromArray(dec(it.mat,Float32Array));
+    (m.sky?skyMeshes:meshes).add(mesh);
+  }
+}
 
 // Frame the level on its BSP and terrain only: three.js bounds an InstancedMesh
 // by its base geometry at the origin, not by where the instances are placed,
@@ -435,6 +565,8 @@ addEventListener('keydown',e=>{
   if(e.code==='KeyK'){skeletal.visible=!skeletal.visible}
   if(e.code==='KeyR'){overview()}
   if(e.code==='KeyY'&&SKY){skyAsBackground=!skyAsBackground; placeSky()}
+  if(e.code==='KeyL'){lightMode=(lightMode+1)%%3; LIGHT.K.value=LIGHT_MODES[lightMode][0];
+    LIGHT.on.value=LIGHT_MODES[lightMode][1]; document.getElementById('lightmode').textContent=['baked light x2','baked light x1','plain lighting'][lightMode]}
   redraw();
   if(e.code==='BracketRight'){speed*=1.5}
   if(e.code==='BracketLeft'){speed/=1.5}
@@ -494,8 +626,11 @@ def main(argv):
                 if pkg.classof(e) == 'SkyZoneInfo' and 'Location' in d), None)
     sky_zone = model.zone_at(sky) if sky else None
     in_sky = lambda loc: sky_zone is not None and model.zone_at(loc) == sky_zone
-    pos, col, idx, mats, bsp_uv, bsp_groups = build_bsp(pkg, src, textures, model, sky_zone)
-    uniq, inst = build_meshes(pkg, src, lib, defaults, textures, in_sky)
+    ambient = zone_ambient(pkg, model, defaults)
+    zone_of = lambda loc: min(model.zone_at(loc), len(ambient) - 1)
+    pos, col, idx, mats, bsp_uv, bsp_groups, bsp_uv2, bsp_amb = build_bsp(
+        pkg, src, textures, model, sky_zone, ambient)
+    uniq, inst, lit = build_meshes(pkg, src, lib, defaults, textures, in_sky, zone_of, ambient)
     terr = build_terrain(pkg, lib.files, textures, src)
     suniq, sinst = build_skeletal(pkg, src, lib, defaults, textures, in_sky)
 
@@ -506,8 +641,13 @@ def main(argv):
                            for k, s in inst])
     skel_json = instances_json(suniq, sinst)
     mesh_json = instances_json(uniq, inst)
-    ninst = sum(len(v) for v in inst.values())
-    ntri = sum(len(uniq[k][2]) // 3 * len(v) for (k, s), v in inst.items())
+    lit_json = json.dumps([dict(pos=b64('f', uniq[k][1]), idx=b64('I', uniq[k][2]),
+                                uv=b64('f', uniq[k][3]), groups=uniq[k][4], sky=s,
+                                inst=[dict(mat=b64('f', mt), col=b64('B', c), amb=a)
+                                      for mt, c, a in lit[k, s]])
+                           for k, s in lit])
+    ninst = sum(len(v) for v in inst.values()) + sum(len(v) for v in lit.values())
+    ntri = sum(len(uniq[k][2]) // 3 * len(v) for (k, s), v in list(inst.items()) + list(lit.items()))
     title = os.path.splitext(os.path.basename(src))[0]
     legend = '<br>'.join(
         '<span class="sw" style="background:rgb(%d,%d,%d)"></span>%s (%d)'
@@ -520,6 +660,8 @@ def main(argv):
                                 sum(len(v) for v in sinst.values()), len(suniq)),
                        legend=legend, pos=b64('f', pos), col=b64('B', col), idx=b64('I', idx),
                        uv=b64('f', bsp_uv), groups=json.dumps(bsp_groups),
+                       uv2=b64('f', bsp_uv2), amb=b64('B', bsp_amb),
+                       lightmaps=json.dumps(light_map_images(model)), lit=lit_json,
                        meshes=mesh_json,
                        terrain=json.dumps([{k: t[k] for k in ('pos', 'col', 'idx', 'layers', 'weights')} for t in terr]),
                        skeletal=skel_json,

@@ -258,7 +258,9 @@ The viewer is a noclip camera: W A S D to move, E or Space up, Q or C down, the
 arrow keys to look, Shift to go faster, R back to the overview, and B, M, T and K
 to toggle BSP sides, static meshes, terrain and skeletal meshes, the last off
 when a page opens. Y shows the sky
-where it really stands instead of as the background. Keys are read by physical
+where it really stands instead of as the background. L cycles the light: baked
+light doubled, which compared by eye with the game is the closer, baked light
+as stored, and plain viewer lighting. Keys are read by physical
 position, so they work on any keyboard layout. Pages draw only when something
 changes, so an open tab that is not being used costs nothing.
 

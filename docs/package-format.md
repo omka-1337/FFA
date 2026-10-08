@@ -678,6 +678,14 @@ a lightmap in the game:
 Decoded as DXT1, a texture is plainly a lightmap atlas: the prison's shows cold
 blue walls, the orange glow of torches, and the hard shadows of bars.
 
+How the engine combines it is not in the data. The viewer draws a lit surface
+as its texture times the light, the lightmap texel or the vertex colour, plus
+its zone's ambient, and compared by eye with the game the light looks right
+doubled rather than as stored. The shadows in the lightmaps are baked ones, cast
+when the level's lighting was built, among them hard shadows of the bars in the
+Donkey prison; whether the game shows them as plainly as the viewer does has
+not been compared at the same spot yet.
+
 Three levels, the Fairy Godmother battle, Hamlet and the Hamlet mine, have
 their lightmaps with all their shadow bitmaps but a single texture with both
 mips empty, its format and size fields holding garbage. Their light was never
