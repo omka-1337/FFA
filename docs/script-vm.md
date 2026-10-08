@@ -310,8 +310,8 @@ parts 2 and 3 waits on a cutscene mark right over a BouncePad, whose Touch
 throws him to its target. Before the colliding brushes were in, Shrek on
 6_Hamlet_Mine and Puss on The Hunt part 4 fell, standing on BlockingVolumes.
 
-**Movers.** Nearly every mover in the game is a static mesh: 293 of the
-levels' movers are drawn as one, and they collide as one, their transform
+**Movers.** Nearly every mover in the game is a static mesh: 241 of the 262
+movers the levels load are drawn as one, and they collide as one, their transform
 taken again at each query. The script does the planning, InterpolateTo
 setting OldPos, OldRot, KeyNum, PhysRate and bInterpolating; MovingBrush
 physics moves the mover from OldPos to BasePos + KeyPos[KeyNum] as PhysAlpha
