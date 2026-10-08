@@ -56,10 +56,14 @@ UnrealEngine2 Runtime (version 126):
 - **Levels.** Across all 29 Shrek 2 maps, 36111 objects parse. The 16406 that do
   not are exactly the engine classes with native payloads: Model and Polys (the
   BSP), StaticMeshInstance, TerrainSector.
-- **Meshes.** All 835 static meshes, 122011 vertices and 102414 triangles.
+- **Meshes.** All 835 static meshes, 122011 vertices and 102414 triangles,
+  read to the exact end of every record, collision included: a BSP tree over
+  the collision triangles, and for 312 a collision model of their own.
 - **BSP.** All 2727 Model records, with 32690 nodes, 18539 surfaces and 602807
-  verts, every reference in range. Zones, lightmaps and bounds are still
-  undecoded.
+  verts, every reference in range, read up to the lightmaps: zones, bounds,
+  leaves, convex hulls and light lists. A point's zone and whether it is solid
+  come from walking the tree, checked against the zone table and against where
+  28093 actors stand.
 - **Terrain.** All 22 terrains, with the heightmap to world transform proven
   against every one of the engine's 1360 stored sector bounding boxes.
 - **Skeletal meshes.** All 141, with four LOD models each, every index in range,
@@ -115,6 +119,7 @@ python3 umap.py       ../Maps                        # object counts per level
 python3 umesh.py      ../StaticMeshes                # geometry totals
 python3 umaterial.py  ..                             # every static mesh's materials
 python3 ubsp.py --zones ../Maps                      # BSP zones against every actor's Region
+python3 ubsp.py --solid ../Maps                      # solid or empty under every actor
 python3 uview.py      ../Maps/7_Prison_Donkey.unr ../out/prison.html
 python3 ugallery.py   ../Animations ../out/gallery   # one page per skeletal mesh
 ```

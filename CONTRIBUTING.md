@@ -105,15 +105,15 @@ Open work, roughly in order of how much it unblocks. The aim is a format
 understood well enough for FFA-Engine to run the original data, so what a
 running game needs comes first:
 
-- Collision. The static mesh tail, raw triangles and the collision tree, and
-  the BSP's leaves and bounds after the verts. Without them nothing can stand
-  on anything.
+- Collision queries. The data is decoded: the static mesh triangle tree and
+  collision models, and the BSP with its leaves and hulls. What is left is the
+  queries an engine runs on it, a line trace and a swept box, written as
+  reference code and checked against where the game's own actors stand.
 - Control flow structuring in the decompiler, turning labels and gotos into
   `if`, `while` and `for`. No binary work at all, pure analysis of data
   already parsed, and the way into reading the game's logic.
 - Sound and music, the `.uax` and `.umx` packages. Not started.
-- The rest of the BSP record: the zone table, which ties each zone number to its
-  ZoneInfo directly, and lightmaps.
+- BSP lightmaps, the rest of the level Model after Linked.
 - Which side of a mesh faces out, so that only textures marked bTwoSided are
   drawn from both sides, as the game does.
 - PrePivot on skeletal meshes, and the props that float: both written up as

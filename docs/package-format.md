@@ -308,7 +308,19 @@ stream    each UV:    8 bytes each, two floats, then u32 revision
 u32       one further word after the UV streams
 stream    index buffer:      u16 each, then u32 revision
 stream    wireframe buffer:  u16 each, then u32 revision
-...       raw triangles and collision data, not decoded
+index     CollisionModel: a Model export, or 0
+index     collision triangle count, then each: u16 x3 vertex indices and an
+          index, the section its material comes from
+index     collision node count, then 20 bytes each:
+            u16 x4  triangle, coplanar node, front node, back node; 65535 none
+            i16 x6  bounding box, min xyz then max xyz, quantised
+FVector   quantisation scale
+lazy      raw triangles: u32 offset of the array's end, a count, then each:
+            FVector x3 corners, u32 NumUVs, NumUVs x 3 FVector2D,
+            FColor x3, i32 section, u32 smoothing mask
+u32       InternalVersion, 9 in every mesh
+index     KarmaProps: a KMeshProps export, or 0
+u32       0 in every mesh
 ```
 
 The trap is the byte after the bounding sphere. By analogy with the box it looks
@@ -316,14 +328,52 @@ like the sphere's valid flag, but it is the section count, and reading it as a
 flag puts every later field one byte out. The section count predicting exactly
 where the next bounding box begins is what confirmed it: 413 of 413 meshes.
 
-Confidence here is lower than for the script formats, and worth stating. The
-tail is undecoded, so a parse cannot be checked by landing exactly on the end of
-the record. What is checked instead is consistency: the index buffer length is a
-multiple of three, every index is inside the vertex array, and the walk stays
-within the record. All 835 static meshes of Shrek 2 pass, for 122011 vertices
-and 102414 triangles. Raising confidence further means comparing against an
-independent implementation such as UE Viewer, which is MIT licensed and can
-export the same meshes.
+With the tail decoded the walk can be checked the strong way, by landing on the
+end of the record, and it does: all 835 meshes in the StaticMeshes packages and
+869 of the game's 870 counting those in texture packages and maps, with every
+index in range, for 122011 vertices and 102414 triangles. The exception is the
+editor's material preview sphere in Editor.u.
+
+### Collision
+
+A static mesh carries its collision in two forms.
+
+**The triangle tree.** The collision triangles are a copy of the render
+triangles, the same three vertex indices into the same vertex array, in 837
+meshes; 29 have a set of their own, and 4 have none at all, posters and the like
+with collision switched off. The material index is the section: in 108292 of
+the 108294 cases where a collision triangle matches a render triangle, it names
+the section that triangle is drawn in.
+
+The nodes form a BSP over those triangles. Each holds one triangle. The coplanar
+node continues a chain of triangles in the same plane: all 64765 coplanar links
+in the game lie in their node's plane. The front node holds the triangles that
+reach the front of the node's plane, as its winding makes the normal, and the
+back node those that reach behind it, so a triangle that crosses the plane is
+listed under both. Over every subtree of every node, 99.8 percent of the
+triangles under a front node reach the front and 99.7 percent of those under a
+back node reach the back; the few hundredths of a percent left over sit within a
+hair of the plane. Two crossed quads, a cattail, show it plainly: the root holds
+one quad, its coplanar node the other half of it, and both halves of the second
+quad appear under both children, since that quad passes through the first.
+
+A node's box bounds its whole subtree. The six i16s are multiplied by the
+scale, and the scale on each axis is the largest absolute collision coordinate
+divided by 32767, to 0.0015 percent in every mesh. No box falls short of its
+subtree by more than 0.07 units, within one quantisation step.
+
+**The collision model.** 312 meshes also point at a Model export of their own,
+a small BSP of the kind levels are made of, usually a box: 6 nodes and 6
+polygons. All 312 read with the level BSP reader and pass its checks. Every one
+of those meshes also has its triangle tree. Which of the two the engine uses
+for what is up to its native code; StaticMesh has no script class, and none of
+the game's meshes stores any property but Materials.
+
+**The raw triangles** are the editor's source: per triangle its three corners,
+which are mesh vertices in 108697 of 108739 cases, the UVs of each corner for
+every UV stream, NumUVs matching the mesh's stream count in all of them, three
+colours, a section and a smoothing mask. KarmaProps, set on 320 meshes, are the
+physics properties for Karma.
 
 ### Sections and their materials
 
@@ -371,8 +421,25 @@ index     node count,   then that many FBspNode
 index     surf count,   then that many FBspSurf
 index     vert count,   then that many FVert, two compact indices each:
           pBase into Points, and iSide
-...       zones, lightmaps, bounds and leaves, not decoded yet
+i32       NumSharedSides
+i32       NumZones, then that many zones:
+            index ZoneActor (its ZoneInfo, or 0), u64 Connectivity,
+            u64 Visibility, f32 LastRenderTime
+index     Polys, the editor's polygons
+index     bounds count, then FBox each; a node's iRenderBound points here
+index     leaf hull count, then i32 each; see collision below
+index     leaf count, then each: index iZone, index iPermeating,
+          index iVolumetric, u64 VisibleZones
+index     light count, then index each: Light actors, in lists ending in 0
+u32       RootOutside
+u32       Linked
+...       lightmaps, not decoded yet
 ```
+
+Every Model in the game, 2727 in levels and 312 behind static meshes, reads to
+Linked with every reference in range. After it the 312 collision models and the
+2698 brush models hold exactly three bytes, three empty arrays; only the 29
+level models hold more, their lightmaps.
 
 A surface is also variable length:
 
@@ -420,8 +487,13 @@ FSphere   16 bytes, the node's bounding sphere
 u8        zone behind the plane
 u8        zone in front of the plane
 u8        vertex count of the node's polygon
-i32 x5    typically -1, -1, 0, leaf, -1
+i32 x2    iLeaf behind and in front of the plane, -1 for none
+i32 x3    not leaves, meaning unknown
 ```
+
+The two leaf indices were settled by the zones: wherever a node names a leaf on
+a side, that leaf's zone is the node's zone byte for the same side, 292 of 292
+behind and 5732 of 5732 in front.
 
 ### Zones
 
@@ -439,6 +511,37 @@ actors, and their stored Region is a copy rather than a lookup: in the Fairy
 Godmother factory 740 of them, standing all over the level, name the same leaf.
 Without them, 22662 of 23093 agree, 98 percent; the remaining few hundred are
 coins, lights and path markers, most likely on or inside a zone boundary.
+
+The zone table settles the walk independently. Each zone names its ZoneInfo, and
+for all 40 ZoneInfos in the game the zone the table gives it is the zone the
+walk finds at its location. A zone's Connectivity always has its own bit set,
+and the zones it shares a portal with: on the swamp, zone 2 is 0x204, joined to
+zone 9.
+
+### Collision
+
+The BSP is the level's collision too, and the same walk decides it: a point is
+solid when the walk leaves the tree into leaf -1, and empty otherwise. Which
+side the walk leaves by is not enough. Behind a plane that bounds no solid, a
+sheet or a non solid brush, the walk leaves by the back into a leaf like any
+other, and the outdoor levels are full of them: The Hunt part 1 sends 810 of
+its 852 actors out by the back, into proper leaves and zones. Leaving by the
+front without a leaf never happens.
+
+`ubsp.py --solid <maps>` puts 26097 of 28093 actors in empty space. Of the 1996
+in solid, 1248 are StaticMeshActors whose origin sits inside the wall or floor
+they decorate, 514 AutoLadders, whose Region was already seen to be a copy, 62
+anti portals, 46 lights set into walls, 39 cutscene cameras and 25 movers,
+gates and doors standing closed. What has to be in the open is: not one coin,
+and 5 of 1207 path nodes.
+
+A node's iCollisionBound points into the leaf hulls: a list of node indices,
+the planes of a convex hull, ending in -1 and followed by the hull's box as six
+floats. Bit 0x40000000 on an index means the plane is used flipped. All 3039
+Models' hulls read this way, every index a node and every box ordered.
+
+Light lists are the other run-length array: a leaf's iPermeating and
+iVolumetric each start a list of Light actors ending in 0, or are -1 for none.
 
 ### The sky
 
@@ -1053,6 +1156,10 @@ budget per record. Run bulk passes under an external memory cap.
 - Whether and how PrePivot applies to skeletal meshes; see placing them.
 - The sky dome is drawn lit like the rest of the scene; the game probably
   draws it unlit.
+- BSP lightmaps, after Linked in a level's Model, and three of the five i32s at
+  the end of a BSP node.
+- Which of a static mesh's two collision forms, its triangle tree or its
+  collision model, the engine uses for which kind of check.
 
 - 39 of 8638 functions still fail end alignment, 33 of them in GUI.u.
 - 212 functions align but disagree on size, so one token's memory size is still
