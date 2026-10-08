@@ -58,6 +58,9 @@ build/ffa-script check $SYS                       # load and compile everything,
 build/ffa-script call  $SYS GameInfo.ParseOption '?Name=Bob?Class=X' Name
 build/ffa-script smoke $SYS                       # call every static function once
 build/ffa-script level $SYS ../Maps/1_Shreks_Swamp.unr   # load a level's live actors
+build/ffa-script start $SYS ../Maps/1_Shreks_Swamp.unr   # begin play: game, events, player
+build/ffa-script run   $SYS ../Maps/1_Shreks_Swamp.unr 20  # then twenty seconds of it
+build/ffa-script collide $SYS ../Maps/*.unr               # check the collision against the data
 ```
 
 `$SYS` is a game's `System` directory, or that of Epic's freely available
@@ -139,6 +142,7 @@ Not done yet, roughly in order:
 | `tools/uini.py` | Text files: configuration, localisation, subtitles and cutscene scripts |
 | `tools/umesh.py` | Static mesh geometry: vertices, normals, UVs, colours, triangles |
 | `tools/ubsp.py` | BSP: level vectors, points, nodes, surfaces and verts |
+| `tools/upolys.py` | Polys: the editor's polygons of a brush, what volumes are made of |
 | `tools/ulevel.py` | Assembles a level: BSP polygons and placed static meshes |
 | `tools/ulight.py` | Baked lighting of placed static meshes |
 | `tools/umaterial.py` | Materials: from shaders and modifiers down to the base texture |
@@ -257,6 +261,7 @@ python3 umaterial.py  ..                             # every static mesh's mater
 python3 ubsp.py --zones ../Maps                      # BSP zones against every actor's Region
 python3 ubsp.py --solid ../Maps                      # solid or empty under every actor
 python3 ubsp.py --lightmaps ../Maps                  # lightmap matrices against every lit polygon
+python3 upolys.py --check ../Maps/*.unr              # brush polygons to the end of every record
 python3 uview.py      ../Maps/7_Prison_Donkey.unr ../out/prison.html
 python3 ugallery.py   ../Animations ../out/gallery   # one page per skeletal mesh
 ```
