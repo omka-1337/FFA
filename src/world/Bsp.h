@@ -21,11 +21,28 @@ struct BspNode {
     int32_t collisionBound = 0, renderBound = 0;
     uint8_t zoneBack = 0, zone = 0, numVerts = 0;
     int32_t leafBack = -1, leafFront = -1;
+    int32_t section = -1, firstVertex = 0, lightMap = -1;   // for drawing
 };
 
 struct BspSurf {
     int32_t material = 0;
     uint32_t flags = 0;
+    int32_t base = 0, normal = 0, textureU = 0, textureV = 0;   // points and vectors
+};
+
+// What drawing needs: the render sections, a buffer of vertices each, and the
+// lightmaps, rectangles in DXT1 textures.
+struct BspSection {
+    size_t at = 0;                  // the first vertex: position, texture u v,
+    int32_t count = 0;              // lightmap u v, normal, 40 bytes
+    int32_t material = 0;
+    uint32_t flags = 0;
+    int32_t lightMapTexture = -1;
+};
+struct BspLightMapTexture {
+    size_t at = 0, size = 0;        // the first mip's DXT1 data
+    int width = 0, height = 0;
+    int format = 0;
 };
 
 struct BspLeaf {
@@ -56,6 +73,9 @@ public:
     std::vector<int32_t> leafHulls;
     std::vector<BspLeaf> leaves;
     int32_t polys = 0;                  // the Polys export, the editor's polygons
+    std::vector<BspSection> sections;
+    std::vector<int32_t> lightMaps;     // each lightmap's texture
+    std::vector<BspLightMapTexture> lightMapTextures;
 
     // The leaf and zone a point is in, by the walk from the root: to the
     // front or back child by the side of each plane, until there is none on

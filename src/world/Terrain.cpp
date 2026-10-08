@@ -47,9 +47,10 @@ Terrain::Terrain(const Package& p, int idx, size_t propertiesEnd, std::vector<ui
     r.p += 96;                              // two FCoords
     X = r.i32();
     Y = r.i32();
-    int32_t light = count(r, 4);
-    r.need(size_t(light) * 4);
-    r.p += size_t(light) * 4;
+    int32_t lights = count(r, 4);
+    r.need(size_t(lights) * 4);
+    light.assign(p.data.begin() + long(r.p), p.data.begin() + long(r.p + size_t(lights) * 4));
+    r.p += size_t(lights) * 4;
     if (r.p != end) throw FormatError("the TerrainInfo does not end on its record");
     if (X < 2 || Y < 2 || vertices.size() != size_t(X) * size_t(Y))
         throw FormatError("the terrain's vertices are not its heightmap grid");

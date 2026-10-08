@@ -15,8 +15,11 @@ else()
 endif()
 
 add_library(ffa_script
+  src/core/Library.cpp
   src/core/Name.cpp
   src/core/Package.cpp
+  src/render/Material.cpp
+  src/render/Texture.cpp
   src/script/Bytecode.cpp
   src/script/Tagged.cpp
   src/script/Types.cpp
@@ -27,6 +30,7 @@ add_library(ffa_script
   src/world/Collision.cpp
   src/world/Level.cpp
   src/world/Physics.cpp
+  src/world/Session.cpp
   src/world/StaticMesh.cpp
   src/world/Sweep.cpp
   src/world/Terrain.cpp
@@ -36,6 +40,22 @@ target_include_directories(ffa_script PUBLIC src)
 
 add_executable(ffa-script apps/ffa_script.cpp)
 target_link_libraries(ffa-script PRIVATE ffa_script)
+
+# The game's window: SDL2 for the window and input, OpenGL ES 2 to draw, what
+# every PortMaster handheld has. Built only when both are found.
+find_package(PkgConfig)
+if(PkgConfig_FOUND)
+  pkg_check_modules(SDL2 IMPORTED_TARGET sdl2)
+  pkg_check_modules(GLESV2 IMPORTED_TARGET glesv2)
+endif()
+if(SDL2_FOUND AND GLESV2_FOUND)
+  add_library(ffa_render src/render/LevelRender.cpp)
+  target_link_libraries(ffa_render PUBLIC ffa_script PkgConfig::GLESV2)
+  add_executable(ffa-play apps/ffa_play.cpp)
+  target_link_libraries(ffa-play PRIVATE ffa_render PkgConfig::SDL2)
+else()
+  message(STATUS "SDL2 or OpenGL ES 2 not found: ffa-play is not built")
+endif()
 
 # The tests run against packages written by tests/fixtures.py, which checks them
 # with the Python readers in tools/ first, so testing needs Python 3.

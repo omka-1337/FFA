@@ -56,7 +56,16 @@ StaticMeshCollision::StaticMeshCollision(const Package& p, int idx) {
     if (!parseTagged(p, start, end, props, pos)) throw FormatError("the StaticMesh has no property block");
     Reader r(p.data, pos, end);
     skip(r, 25 + 16);                       // FBox with its valid byte, FSphere
-    skip(r, size_t(count(r, 14)) * 14);     // sections
+    for (int32_t i = 0, n = count(r, 14); i < n; ++i) {
+        r.i32();
+        Section sec;
+        sec.firstIndex = r.u16();
+        r.u16();
+        r.u16();                            // FirstVertex, LastVertex
+        r.u16();                            // a copy of the face count
+        sec.faces = r.u16();
+        sections.push_back(sec);
+    }
     skip(r, 25);                            // render bounding box
     for (int32_t i = 0, n = count(r, 24); i < n; ++i) {
         Vec3 v;
@@ -69,9 +78,20 @@ StaticMeshCollision::StaticMeshCollision(const Package& p, int idx) {
     r.u32();
     stream(r, 4);                           // colours
     stream(r, 4);                           // alpha
-    for (int32_t i = 0, n = count(r, 1); i < n; ++i) stream(r, 8);   // UV streams
+    for (int32_t i = 0, n = count(r, 1); i < n; ++i) {
+        int32_t k = count(r, 8);
+        for (int32_t j = 0; j < k; ++j) {
+            float u = r.f32(), v = r.f32();
+            if (i == 0) {
+                uv.push_back(u);
+                uv.push_back(v);
+            }
+        }
+        r.u32();
+    }
     r.u32();
-    stream(r, 2);                           // index buffer
+    for (int32_t i = 0, n = count(r, 2); i < n; ++i) indices.push_back(r.u16());
+    r.u32();                                // index buffer revision
     stream(r, 2);                           // wireframe buffer
     collisionModel = r.idx();
     for (int32_t i = 0, n = count(r, 7); i < n; ++i) {
@@ -113,6 +133,11 @@ StaticMeshCollision::StaticMeshCollision(const Package& p, int idx) {
     r.idx();                                // KarmaProps
     r.u32();
     if (r.p != end) throw FormatError("the StaticMesh does not end on its record");
+    for (uint16_t i : indices)
+        if (i >= positions.size()) throw FormatError("an index names a vertex out of range");
+    for (const Section& sec : sections)
+        if (sec.faces && size_t(sec.firstIndex) + size_t(sec.faces) * 3 > indices.size())
+            throw FormatError("a section runs past the index buffer");
     for (const MeshTriangle& t : triangles)
         for (uint16_t v : t.v)
             if (v >= positions.size()) throw FormatError("a collision triangle names a vertex out of range");

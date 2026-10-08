@@ -142,6 +142,9 @@ public:
     Value callStatic(std::string_view cls, std::string_view name, std::vector<Value> args = {});
     Value callFunction(Function* fn, Object* self, std::vector<Value> args);
     Value event(Object* self, std::string_view name, std::vector<Value> args = {});
+    // An event whose out parameters the engine reads back: args holds the
+    // values going in, and after the call what the function left in them.
+    Value eventOut(Object* self, std::string_view name, std::vector<Value>& args);
     Function* findVirtual(Object* self, Name name);
 
     // states

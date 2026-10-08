@@ -61,6 +61,7 @@ build/ffa-script level $SYS ../Maps/1_Shreks_Swamp.unr   # load a level's live a
 build/ffa-script start $SYS ../Maps/1_Shreks_Swamp.unr   # begin play: game, events, player
 build/ffa-script run   $SYS ../Maps/1_Shreks_Swamp.unr 20  # then twenty seconds of it
 build/ffa-script collide $SYS ../Maps/*.unr               # check the collision against the data
+build/ffa-play $SYS ../Maps/1_Shreks_Swamp.unr            # play it in a window (SDL2, GL ES 2)
 ```
 
 `$SYS` is a game's `System` directory, or that of Epic's freely available

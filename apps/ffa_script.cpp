@@ -7,6 +7,7 @@
 //   ffa-script start <System dir> <map>           and run its start up sequence
 //   ffa-script run <System dir> <map> <seconds>   then that long of level time
 //   ffa-script collide <System dir> <packages...> check the BSP as collision
+//   ffa-script textures <game dir> <out.tsv>      decode every texture, for comparing
 //
 // `check` is the corpus-wide proof the VM rests on, in the manner of the
 // Python readers in tools/: every class loads, every function and state compiles with
@@ -17,6 +18,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <set>
@@ -24,10 +26,12 @@
 #include <tuple>
 
 #include "script/VM.h"
+#include "render/Texture.h"
 #include "world/Bsp.h"
 #include "world/Collision.h"
 #include "world/Level.h"
 #include "world/Physics.h"
+#include "world/Session.h"
 #include "world/World.h"
 
 using namespace ffa;
@@ -441,59 +445,25 @@ std::string iniValue(const std::string& file, const std::string& section, const 
 // ran, what failed, and the natives the sequence needed that do not exist.
 int start(const std::string& dir, const std::string& map, float seconds, const std::vector<std::string>& hold = {},
           const std::vector<std::string>& events = {}) {
-    std::vector<std::string> paths = Linker::packageFiles(dir);
-    paths.push_back(map);
-    Linker lk(paths);
-    std::string stem = map.substr(map.find_last_of("/\\") + 1);
-    stem = stem.substr(0, stem.find_last_of('.'));
-    int pkg = lk.packageIndex(stem);
-    if (pkg < 0) throw std::runtime_error("the level " + stem + " did not load");
-    LevelRecord lv = readLevel(*lk.packages[size_t(pkg)]);
-    VM vm(lk);
-    vm.sink = [](const std::string&, const std::string&) {};
-    registerWorldNatives(vm);
-    registerCollisionNatives(vm);
-    registerPhysicsNatives(vm);
-    World w(vm, pkg, lv);
-    Collision col(w, pkg, lv.model, dir + "/..");
-    w.collision = &col;
+    Session session(dir, map);
+    VM& vm = *session.vm;
+    World& w = *session.world;
+    Collision& col = *session.collision;
+    (void)col;
     size_t loaded = w.actors.size();
-    // The game: a Game= option of the URL, else the engine's default.
-    std::string gameName = iniValue(dir + "/Default.ini", "Engine.Engine", "DefaultGame");
-    String options;
-    for (const std::string& o : lv.options) {
-        options += u"?" + widen(o);
-        if (o.size() > 5 && (o.compare(0, 5, "Game=") == 0 || o.compare(0, 5, "game=") == 0)) gameName = o.substr(5);
-    }
-    Class* gameClass = vm.findClass(gameName.substr(gameName.find('.') + 1));
     std::string dgt = utf8(w.var(w.info, "DefaultGameType").s());
-    std::printf("game                %s%s, the level's DefaultGameType %s\n", gameName.c_str(),
-                gameClass ? "" : " (not found)", dgt.empty() ? "empty" : dgt.c_str());
-    w.beginPlay(gameClass, options);
-    Object* pc = w.login(widen(lv.portal), options);
-    // Keys held for the whole run, by their alias in DefUser.ini, such as
-    // Aliases[2]=(Command="Axis aBaseY  Speed=+1200.0",Alias=MoveForward).
+    std::printf("game                %s%s, the level's DefaultGameType %s\n", session.gameName.c_str(),
+                session.gameClass ? "" : " (not found)", dgt.empty() ? "empty" : dgt.c_str());
+    session.begin();
+    Object* pc = session.controller;
+    // Keys held for the whole run, by a key or an alias of DefUser.ini.
     for (const std::string& want : hold) {
-        std::ifstream ini(dir + "/DefUser.ini");
-        std::string line;
-        bool found = false;
-        while (std::getline(ini, line)) {
-            size_t c = line.find("Command=\"Axis "), al = line.find("Alias=");
-            if (c == std::string::npos || al == std::string::npos) continue;
-            std::string alias = line.substr(al + 6);
-            alias = alias.substr(0, alias.find_first_of(")\r"));
-            if (alias != want) continue;
-            std::istringstream cmd(line.substr(c + 14, line.find('"', c + 14) - c - 14));
-            std::string axis, word;
-            cmd >> axis;
-            float speed = 1;
-            while (cmd >> word)
-                if (word.rfind("Speed=", 0) == 0) speed = std::stof(word.substr(6));
+        auto axes = session.axesOf(want);
+        if (axes.empty()) throw std::runtime_error("no axis bound to " + want + " in DefUser.ini");
+        for (auto& [axis, speed] : axes) {
             w.held.emplace_back(axis, speed);
-            std::printf("holding             %s: %s at %g\n", alias.c_str(), axis.c_str(), speed);
-            found = true;
+            std::printf("holding             %s: %s at %g\n", want.c_str(), axis.c_str(), speed);
         }
-        if (!found) throw std::runtime_error("no axis alias " + want + " in DefUser.ini");
     }
     // Events sent at the start, as a trigger would: the game's own
     // TriggerEvent, which triggers every actor with that Tag.
@@ -903,12 +873,47 @@ int collide(const std::string& dir, const std::vector<std::string>& files) {
     return 0;
 }
 
+// Every texture of the game decoded, at the largest mip no side of which is
+// over 64: per texture its package, name, size and an FNV-1a hash of its RGBA,
+// to compare with tools/utexture.py's decoding of the same.
+int textures(const std::string& gameDir, const char* out) {
+    Library lib(gameDir);
+    FILE* f = std::fopen(out, "w");
+    if (!f) throw std::runtime_error(std::string("cannot write ") + out);
+    size_t n = 0, bad = 0;
+    std::map<std::string, size_t> problems;
+    for (const std::string& path : lib.files()) {
+        std::string stem = std::filesystem::path(path).stem().string();
+        const Package* p = lib.package(stem);
+        if (!p) continue;
+        for (int i = 1; i <= int(p->exports.size()); ++i) {
+            if (p->classOf(i) != "Texture" || p->exp(i).size <= 0) continue;
+            ++n;
+            try {
+                Image img = decodeTexture(lib, ObjectRef{p, i}, 64);
+                uint64_t h = 1469598103934665603ull;
+                for (uint8_t b : img.rgba) h = (h ^ b) * 1099511628211ull;
+                std::fprintf(f, "%s\t%s\t%d\t%d\t%016llx\n", p->stem.c_str(), p->exp(i).name.c_str(), img.width,
+                             img.height, (unsigned long long)h);
+            } catch (const FormatError& ex) {
+                ++bad;
+                problems[ex.what()]++;
+            }
+        }
+    }
+    std::fclose(f);
+    std::printf("textures            %zu decoded, %zu not\n", n - bad, bad);
+    for (auto& [m, k] : problems) std::printf("  %6zu  %s\n", k, m.c_str());
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) return usage();
     std::string cmd = argv[1], dir = argv[2];
     try {
         if (cmd == "check") return check(dir);
         if (cmd == "smoke") return smoke(dir);
+        if (cmd == "textures" && argc >= 4) return textures(dir, argv[3]);
         if (cmd == "collide" && argc >= 4) return collide(dir, std::vector<std::string>(argv + 3, argv + argc));
         if (cmd == "start" && argc >= 4) return start(dir, argv[3], 0.0f);
         if (cmd == "run" && argc >= 5) {

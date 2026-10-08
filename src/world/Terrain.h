@@ -34,6 +34,7 @@ public:
     int X = 0, Y = 0;
     std::vector<Vec3> vertices;
     std::vector<Vec3> normals;          // two per quad, as stored
+    std::vector<uint8_t> light;         // R G B A per vertex, the baked light
 
     bool visible(int x, int y) const { return bit(visible_, x, y, true); }
     bool turned(int x, int y) const { return bit(edgeTurn_, x, y, false); }

@@ -210,9 +210,14 @@ void World::tick(float dt) {
     ++frames;
     Value delta = Value::Float(dt);
     size_t n = actors.size();
+    // bTicked: the engine flips it on every actor it ticks, and script
+    // compares it to see whether a frame has passed (KWHeroController's
+    // PlayerCalcView does).
+    bool parity = frames & 1;
     for (size_t i = 0; i < n; ++i) {
         Object* a = actors[i];
         if (a->deleted || flag(a, "bStatic")) continue;
+        var(a, "bTicked") = Value::Bool(parity);
         try {
             if (player && a == obj(player, "Actor")) {
                 // CPF_Input, 0x4: the axes and buttons, reset each frame

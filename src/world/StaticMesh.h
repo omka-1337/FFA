@@ -34,6 +34,15 @@ public:
     std::vector<MeshNode> nodes;
     int32_t collisionModel = 0;         // a Model export, or 0
 
+    // What drawing needs: the first UV stream, the index buffer, and the
+    // sections, a material's run of it each, FirstIndex and NumFaces.
+    std::vector<float> uv;              // two per vertex
+    std::vector<uint16_t> indices;
+    struct Section {
+        int firstIndex, faces;
+    };
+    std::vector<Section> sections;
+
     // The first triangle the segment a..b crosses, in the mesh's own space,
     // from either side.
     Hit lineCheck(Vec3 a, Vec3 b) const;

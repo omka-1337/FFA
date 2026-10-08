@@ -188,6 +188,12 @@ Engine:
 - [ ] Which of a mesh's collision forms boxes use: the triangles now; the
   collision model is read and unused.
 - [ ] Config and localisation, probe masks, replication, garbage collection.
+- [x] A window: `ffa-play`, SDL2 and OpenGL ES 2, the BSP, terrains and
+  static meshes textured and lit as baked, from the game's own camera.
+- [ ] The sky zone behind the PF_FakeBackdrop surfaces.
+- [ ] Static mesh light computed from the lights and their masks, for the
+  instances whose colours are black.
+- [ ] Skeletal meshes and their animation in the window; sprites and emitters.
 
 Open questions, written up in the format document with the measurements so
 far:

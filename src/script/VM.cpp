@@ -543,6 +543,26 @@ Value VM::event(Object* self, std::string_view name, std::vector<Value> args) {
     return callFunction(fn, self, std::move(args));
 }
 
+Value VM::eventOut(Object* self, std::string_view name, std::vector<Value>& args) {
+    Name n(name);
+    if (self->deleted || self->disabled.count(n)) return Value();
+    Function* fn = findVirtual(self, n);
+    if (!fn) return Value();
+    if (fn->isNative()) return callFunction(fn, self, args);
+    compile(fn);
+    Frame callee;
+    callee.fn = fn;
+    callee.self = self;
+    callee.code = &fn->code;
+    zeroLocals(fn, callee.locals);
+    for (size_t i = 0; i < fn->params.size() && i < args.size(); ++i)
+        callee.locals[size_t(fn->params[i]->slot)] = fn->params[i]->coerce(args[i]);
+    Value r = execute(callee);
+    for (size_t i = 0; i < fn->params.size() && i < args.size(); ++i)
+        if (fn->params[i]->isOut()) args[i] = callee.locals[size_t(fn->params[i]->slot)];
+    return r;
+}
+
 // ============================================================== statements
 void VM::run(Frame& f) {
     const std::vector<Ins>& code = *f.code;

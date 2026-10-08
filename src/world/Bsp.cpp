@@ -58,14 +58,21 @@ BspModel::BspModel(const Package& p, int idx) {
         d.numVerts = r.u8();
         d.leafBack = r.i32();
         d.leafFront = r.i32();
-        skip(r, 12);                        // render section, first vertex, lightmap
+        d.section = r.i32();
+        d.firstVertex = r.i32();
+        d.lightMap = r.i32();
         nodes.push_back(d);
     }
     for (int32_t i = 0, n = count(r, 1); i < n; ++i) {
         BspSurf s;
         s.material = r.idx();
         s.flags = r.u32();
-        for (int k = 0; k < 6; ++k) r.idx();    // base, normal, U, V, lightmap, brush poly
+        s.base = r.idx();
+        s.normal = r.idx();
+        s.textureU = r.idx();
+        s.textureV = r.idx();
+        r.idx();
+        r.idx();                            // lightmap, brush poly
         skip(r, 16 + 4);                    // plane, lightmap scale
         surfs.push_back(s);
     }
@@ -96,13 +103,20 @@ BspModel::BspModel(const Package& p, int idx) {
     r.u32();                                // Linked
     // Drawing only from here: render sections, lightmaps, lightmap textures.
     for (int32_t i = 0, n = count(r, 1); i < n; ++i) {
-        skip(r, size_t(count(r, 40)) * 40);
-        r.u32();
-        r.idx();
-        skip(r, 12);
+        BspSection sec;
+        sec.count = count(r, 40);
+        sec.at = r.p;
+        skip(r, size_t(sec.count) * 40);
+        r.u32();                            // revision
+        sec.material = r.idx();
+        r.u32();                            // node count
+        sec.flags = r.u32();
+        sec.lightMapTexture = r.i32();
+        sections.push_back(sec);
     }
     for (int32_t i = 0, n = count(r, 1); i < n; ++i) {
-        for (int k = 0; k < 7; ++k) r.idx();
+        lightMaps.push_back(r.idx());
+        for (int k = 0; k < 6; ++k) r.idx();
         skip(r, 64 + 36);                   // world to texel matrix, base and steps
         for (int32_t k = 0, m = count(r, 1); k < m; ++k) {
             r.idx();
@@ -113,15 +127,25 @@ BspModel::BspModel(const Package& p, int idx) {
         r.u32();
     }
     for (int32_t i = 0, n = count(r, 1); i < n; ++i) {
+        BspLightMapTexture t;
         r.idx();
         skip(r, size_t(count(r, 4)) * 4);
         skip(r, 12);
         for (int k = 0; k < 2; ++k) {
             uint32_t lazyEnd = r.u32();
-            skip(r, size_t(count(r, 1)));
+            int32_t len = count(r, 1);
+            if (k == 0) {
+                t.at = r.p;
+                t.size = size_t(len);
+            }
+            skip(r, size_t(len));
             if (r.p != lazyEnd) throw FormatError("a lightmap mip does not end at its lazy array end");
         }
-        skip(r, 13);
+        t.format = r.u8();
+        t.width = r.i32();
+        t.height = r.i32();
+        r.i32();
+        lightMapTextures.push_back(t);
     }
     if (r.p != end) throw FormatError("the Model does not end on its record");
     for (const BspNode& d : nodes) {
