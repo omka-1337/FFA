@@ -449,10 +449,14 @@ class Writer:
         return order
 
     def header(self, o, children, script=b'', size=0):
+        # A class starts with Super, Next, ScriptText, Children; every other
+        # field puts the None of an empty property block in front, as the
+        # game's packages do.
         nxt = self.next.get(id(o), 0)
         sup = self.ref(getattr(o, 'sup', None))
         friendly = self.nm(getattr(o, 'friendly', o.name))
-        return (cidx(sup) + cidx(nxt) + cidx(0) + cidx(0) + cidx(children) +
+        none = b'' if isinstance(o, Class) else cidx(self.nm('None'))
+        return (none + cidx(sup) + cidx(nxt) + cidx(0) + cidx(children) +
                 cidx(friendly) + cidx(0) + struct.pack('<III', 0, 0, size) + script)
 
     def body(self, o):

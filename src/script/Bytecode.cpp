@@ -230,8 +230,9 @@ uint32_t BytecodeParser::parms(Reader& r, uint32_t mem, std::vector<Ins>& out) {
 
 Reader BytecodeParser::header(const Export& e, uint32_t& declared) {
     Reader r(p_.data, size_t(e.off), size_t(e.off) + size_t(e.size));
-    for (int i = 0; i < 7; ++i) r.idx();   // Super, Next, ScriptText, CppText,
-    r.u32();                                // Children, FriendlyName, unused;
+    for (int i = 0; i < 7; ++i) r.idx();   // None, Super, Next, ScriptText,
+                                            // Children, FriendlyName, unused
+    r.u32();
     r.u32();                                // Line, TextPos
     declared = r.u32();                     // ScriptSize, in memory bytes
     return r;

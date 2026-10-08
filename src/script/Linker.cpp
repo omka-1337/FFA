@@ -108,11 +108,14 @@ FieldInfo Linker::field(int pkg, int idx) {
     d.name = e.name;
     try {
         Reader r = p.record(idx);
+        // A class starts with its links. Every other field starts with the
+        // None of an empty property block, then the same links; read without
+        // it, a function's Super passes for its Next and the member chain
+        // wanders into the parent class.
+        if (d.cls != "Class") r.idx();
         d.super = r.idx();
         d.next = r.idx();
         if (endsWith(d.cls, "Property")) {
-            // for properties the chain link is the third index, not the second
-            d.next = r.idx();
             d.dim = r.u16();
             r.u16();                                // ElementSize
             d.flags = r.u32();
@@ -122,7 +125,6 @@ FieldInfo Linker::field(int pkg, int idx) {
         } else if (d.cls == "Class" || d.cls == "State" || d.cls == "Function" ||
                    d.cls == "Struct") {
             r.idx();                                // ScriptText
-            r.idx();                                // CppText
             d.children = r.idx();
         }
     } catch (const FormatError&) {

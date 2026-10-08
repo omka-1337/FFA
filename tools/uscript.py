@@ -264,8 +264,8 @@ class Script:
         flags, taillen = read_tail(self.b, e)
         target = end - taillen
         r = R(self.b, e['off'])
-        for _ in range(7):      # Super, Next, ScriptText, CppText, Children,
-            r.idx()             # FriendlyName, one unused index
+        for _ in range(7):      # None of the empty property block, Super, Next,
+            r.idx()             # ScriptText, Children, FriendlyName, one unused
         r.u32(); r.u32()        # Line, TextPos
         declared = r.u32()      # ScriptSize, counted in memory bytes
         self.limit = target
@@ -290,7 +290,7 @@ def struct_code(script, e):
     """
     b = script.b
     r = R(b, e['off'])
-    for _ in range(7):
+    for _ in range(7):          # as for a function
         r.idx()
     r.u32(); r.u32()            # Line, TextPos
     declared = r.u32()

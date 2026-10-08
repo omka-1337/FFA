@@ -80,14 +80,16 @@ not be used to build signatures.
 
 ### Class, State, Struct, Function
 
-These start directly with the field links. There is no leading tagged property
-list, which is the first thing that trips up a parser written from UE1 notes.
+Every object record starts with its tagged properties, and for a field they are
+always empty, so a State, Struct or Function record opens with a single None.
+A Class is the exception: its properties are its defaults, at the far end of
+the record, so it starts straight with its links.
 
 ```
+index  None                not in a Class record: the empty property block
 index  SuperField          parent class, or the overridden parent function
 index  Next                next member in the owner's declaration chain
 index  ScriptText          TextBuffer export, always named "ScriptText"
-index  CppText             second TextBuffer slot, zero in this build
 index  Children            first member, head of the Next chain
 index  FriendlyName        name index; for operators this is the symbol, "+"
 index  unused              zero in every record inspected
@@ -96,6 +98,20 @@ u32    TextPos
 u32    ScriptSize          size of the bytecode IN MEMORY, see below
 bytes  bytecode
 ```
+
+**This layout was wrong here for a long time, in a way that hid itself.** The
+first reading had no None and a CppText instead, which gives the same seven
+indices before Line, so every function's bytecode still parsed to its exact
+end. What it got wrong were the links: a function's SuperField was taken for
+its Next, and a class's Children was read one index late, where it lands on
+another class's member chain. The decompiler printed most classes with some
+other class's variables, BitmapMaterial with Actor's; the class defaults still
+validated, because the polluted lists still held the real names. It was found
+when the engine's linker, a port of the same reading, laid out BitmapMaterial
+with 207 variables, one of them Inventory. Read as above, the chain from every
+class, function, state and struct stays inside its owner, 11720 of 11720, and
+reaches every field it owns; what a class owns off the chain is the subobjects
+of its defaults, emitters and GUI controls.
 
 A function then ends with a tail:
 
@@ -127,7 +143,9 @@ Note `FUNC_Defined` is *not* set on native declarations, which have no body.
 All property classes share a base and differ only in trailing references.
 
 ```
-index  (three indices; the chain link Next is the THIRD one, not the second)
+index  None                 the empty property block, as for every field
+index  SuperField
+index  Next
 u16    ArrayDim
 u16    ElementSize
 u32    PropertyFlags
@@ -152,8 +170,9 @@ CPF_Transient 0x00002000  CPF_Config    0x00004000   CPF_Localized 0x00008000
 ```
 
 Member order for signatures must come from `Children` then the `Next` chain.
-Remember that `Next` sits at a different index position for properties than for
-struct-like records.
+Next is the third index in every field record, property or otherwise, because
+the empty property block's None comes first; only a Class, which has no such
+block, has it second.
 
 ## Bytecode
 

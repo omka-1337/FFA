@@ -54,18 +54,31 @@ class Reader:
                  super=0, next=0, children=0, flags=0, refs=[])
         r = R(p.b, e['off'])
         try:
-            d['super'], d['next'] = r.idx(), r.idx()
+            if cls == 'Class':
+                # A class's own properties are its defaults, at the end of the
+                # record, so it starts straight with its links: Super, Next.
+                d['super'], d['next'] = r.idx(), r.idx()
+            else:
+                # Every other field begins with an empty property block, its
+                # None, and then Super and Next. Read without it, a function's
+                # Super passes for its Next and the member chain wanders off
+                # into the parent class.
+                r.idx()
+                d['super'], d['next'] = r.idx(), r.idx()
             if cls.endswith('Property'):
-                # for properties the chain link is the third index, not the second
-                d['next'] = r.idx()
                 r.p += 4                              # ArrayDim, ElementSize
                 d['flags'] = r.u32()
                 r.idx()                               # Category
                 if d['flags'] & CPF_NET:
                     r.u16()
                 d['refs'] = [r.idx() for _ in range(PROP_REFS.get(cls, 0))]
-            elif cls in ('Class', 'State', 'Function', 'Struct'):
-                r.idx(); r.idx()                      # ScriptText, CppText
+            elif cls == 'Class':
+                # Children follows ScriptText. Read one index later, it lands
+                # on another class's member chain in nearly every class.
+                r.idx()                               # ScriptText
+                d['children'] = r.idx()
+            elif cls in ('State', 'Function', 'Struct'):
+                r.idx()                               # ScriptText
                 d['children'] = r.idx()
         except Exception:
             pass
