@@ -264,11 +264,3 @@ use whatever licence the code carries.
 UE Viewer by Konstantin Nosov covers UE1 to UE4 assets and is MIT licensed. No
 code from it is used here, but it is a far more complete asset exporter and an
 excellent independent check on anything this project claims about meshes.
-
-## Licence
-
-MIT. See [LICENSE](LICENSE).
-
-Permissive on purpose: the point of a format reader is that other projects can
-use it, and the ones most likely to want it, such as SurrealEngine and UE
-Viewer, are not copyleft.
