@@ -130,6 +130,7 @@ Not done yet, roughly in order:
 | `tools/udefaults.py` | Default property blocks, and the tagged value format |
 | `tools/udecompile.py` | Renders a class back to readable UnrealScript |
 | `tools/umap.py` | Actors of a level and their properties |
+| `tools/uini.py` | Text files: configuration, localisation, subtitles and cutscene scripts |
 | `tools/umesh.py` | Static mesh geometry: vertices, normals, UVs, colours, triangles |
 | `tools/ubsp.py` | BSP: level vectors, points, nodes, surfaces and verts |
 | `tools/ulevel.py` | Assembles a level: BSP polygons and placed static meshes |
@@ -188,6 +189,9 @@ UnrealEngine2 Runtime (version 126):
 - **Textures.** All 2121, in every format the game uses, decoded.
 - **Fonts.** All 120, in the two layouts package versions 99 to 129 use,
   every glyph inside its page, and drawn as readable text.
+- **Text.** All 199 text files: configuration, subtitles tied to the dialogue
+  sounds they caption, bump line sets, menus, and 180 cutscene scripts whose
+  Say and PlayMusic commands were checked against the game's sounds and music.
 - **Sounds.** All 3769, Bink Audio and WAV stored whole, every one decoding
   in FFmpeg, with the lip sync block after each read as far as its third
   version, which is not decoded yet.
@@ -217,6 +221,7 @@ rather than labels and gotos.
 ./ffa list      ../Textures/SHCharacters.utx -c Palette
 ./ffa extract   ../Textures/SHCharacters.utx -o out    # textures as PNG
 ./ffa sounds    ../Sounds/Shrek.uax -o out             # sounds as .wav and .bik
+./ffa text      ../System/HpDialog.int All pc_nar_StoryBook1_16   # one subtitle
 ./ffa font      ../Textures/SH_Fonts.utx SHBigInkFont "Far Far Away"   # out/SHBigInkFont.png
 ./ffa decompile $SYS Engine.u Pawn                    # one class, or --all -o DIR
 ./ffa defaults  $SYS Engine.u Pawn

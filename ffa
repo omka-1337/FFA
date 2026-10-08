@@ -6,6 +6,7 @@
     ffa extract   PKG [-o DIR] [--max N]     its textures, as PNG
     ffa sounds    PKG [-o DIR]               its sounds, as .wav and .bik files
     ffa fonts     PKG                        its fonts
+    ffa text      FILE [SECTION [KEY]]       an .ini or .int file, a section, a value
     ffa font      PKG FONT TEXT [-o FILE]    a line of text in one of them, as PNG
     ffa decompile SYSTEM PKG CLASS           one class back to UnrealScript
     ffa decompile SYSTEM PKG --all -o DIR    every class of a package
@@ -105,6 +106,14 @@ def sounds(args):
     import usound
     pkg = os.path.splitext(os.path.basename(args.package))[0]
     usound.main([args.package, '-o', os.path.join(args.out, pkg)])
+
+
+def text(args):
+    import uini
+    if args.section:
+        uini.main([args.file, args.section] + ([args.key] if args.key else []))
+    else:
+        uini.main([args.file])
 
 
 def fonts(args):
@@ -213,6 +222,7 @@ def check(args):
     section('terrain', lambda: terrain_total(g))
     section('static mesh lighting', lambda: __import__('ulight').survey(
         sorted(glob.glob(os.path.join(maps, '*.unr')))))
+    section('text files', lambda: __import__('uini').main([sysdir]))
     section('sounds', lambda: usound.main([os.path.join(g, d) for d in ('Sounds', 'System', 'Animations')]))
 
 
@@ -240,6 +250,12 @@ def main():
     p.add_argument('package')
     p.add_argument('-o', '--out', default='out')
     p.set_defaults(run=sounds)
+
+    p = sub.add_parser('text', help='an .ini or .int file, or one of its values')
+    p.add_argument('file')
+    p.add_argument('section', nargs='?')
+    p.add_argument('key', nargs='?')
+    p.set_defaults(run=text)
 
     p = sub.add_parser('fonts', help="a package's fonts")
     p.add_argument('package')

@@ -129,7 +129,11 @@ whose records carry native data after their properties.
 - [ ] `KMeshProps` (320), Karma physics; `ConvexVolume` (156), KnowWonder's
   volumes; `VertMesh` (4), vertex animated meshes.
 - [ ] `Polys` (3039), the editor's brush polygons; probably not needed to run.
-- [ ] Text: localisation `.int` (196) and config `.ini` files.
+- [x] Text: all 199 `.ini` and `.int` files, subtitles, bump sets, menus and
+  cutscene scripts.
+- [ ] The cutscene script language: some fifty commands, Cue, Say, FlyTo,
+  PlayAnim and the rest, which the engine has to run. Which script classes
+  interpret them is the place to start.
 - [ ] Script: the 39 functions that still fail end alignment, 33 of them in
   GUI.u, and the class header fields between the struct and the defaults.
 

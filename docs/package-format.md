@@ -309,9 +309,10 @@ Read on all 29 maps, it lands on the end of every record: count equals
 capacity, no actor slot is empty, LevelInfo comes first, the 18 bytes are zero,
 and the Model it names is in every map the one found before by elimination, the
 Model no Brush refers to. The URL is `unreal:HP-Test.unr` on port 7777 in 28
-of the 29; only Entry says `Index.unr`. KnowWonder's levels were saved from an
-editor session that began on a Harry Potter test map, which fits a studio that
-made both.
+of the 29; only Entry says `Index.unr`. That is the default URL from the game's
+own configuration: Default.ini's [URL] section still names HP-Test.unr as its
+Map, a leftover from KnowWonder's Harry Potter games, and a level saved in the
+editor carries the URL it was opened with.
 
 **A package keeps actors its level has deleted.** 8572 actors in the game's maps
 are not on any Level's list, and 8537 of them carry bDeleteMe, most with
@@ -1426,6 +1427,41 @@ lit when it had 143 vertices and shipped with 79: stale light an engine has to
 throw away. 1563 instances are black throughout with no light reaching them,
 lit, presumably, by their zone's ambient alone; 544 more are black throughout
 although lights reach them, which is not explained yet.
+
+## Text files
+
+Configuration (`.ini`), localisation (`.int`) and KnowWonder's cutscene scripts
+(`System/Cutscenes/*.int`) share one layout: `[Section]` lines, `key=value`
+lines, and `;` comments. A key may repeat, and every line counts, in order.
+Most files are single byte text, Windows-1252; a file starting with FF FE is
+UTF-16 little endian, and four are: the subtitles, the bump line sets and the
+menu text, the ones with typographic quotes and accented names in them.
+
+All 199 text files in System parse with no line left over: 1376 sections and
+19511 key=value lines. What they hold, and how it was checked:
+
+- **Subtitles.** HpDialog.int and BumpDialog.int, one section each, map a
+  sound's name to its line: `pc_nar_StoryBook1_16=[_Calm]Once upon a time, in a
+  kingdom far, far away...`. 2859 of HpDialog's 2863 keys and 2024 of
+  BumpDialog's 2028 are sounds in AllDialog.uax, and 2859 of that package's
+  2947 sounds have a subtitle. The bracket starts the line with an emotion:
+  `_Calm`, `surprised`, `mad`, `Question`, `sad`, `sneer`, and on 170 lines
+  `* NULL VALUE *`, a field nobody filled in.
+- **Bump lines.** BumpSet.int's 496 sections are the sets a character picks
+  from when bumped into, `Line0=pc_bbs_bumpline_85` and on; 2645 of 2647 name
+  a sound, and every one has a subtitle. GameData.int decodes the speaker codes
+  in the names, BBS for Bandit_Boss and BND for Bandit.
+- **Cutscenes.** 180 scripts, a section per sequence and `line_N=` commands:
+  Cue, WaitForCue, Sleep, FlyTo, Say, WaitForSay, PlayAnim, Trigger, Teleport,
+  PlayMusic and some forty more. Every PlayMusic names a track in `Music/`, 52 of
+  52. Of 462 Say commands 430 name a sound; the other 32, all in the early
+  swamp and hunt cutscenes, name sounds that are not in the game and have no
+  subtitle either, lines cut from the game and left in the script.
+- **Menus.** HpMenu.int, 701 lines of interface text.
+- **Engine.int is Epic's.** Its sections are classes and its keys localised
+  properties, but 33 of the 43 such keys, Console's messages and Weapon's
+  DeathMessage, name properties Shrek 2's script no longer has: the file was
+  never brought in line with KnowWonder's changes.
 
 ## A warning about parsers
 
