@@ -142,7 +142,19 @@ video, which FFmpeg decodes.
 
 Engine:
 
-- [ ] Run the VM on a real corpus: `ffa-script check` is built for it.
+- [x] Run the VM on a real corpus. `ffa-script check` loads all 2002 classes
+  of Shrek 2 and compiles 7961 of 8145 functions and all 968 states, whose
+  tails are 22 bytes in every one. The first run crashed, and the cause was the
+  readers': the field record layout, now fixed in both.
+- [ ] Which structs are stored raw. Range, Plane and Scale are tagged in Shrek
+  2, not raw as the readers assume: `Range reads 8 bytes of 13`, and 1858
+  default objects report it. Measure every struct property's size against
+  both readings.
+- [ ] The functions the VM does not load: 121 with a LocalVariable that names
+  no variable, 6 InstanceVariable, 3 StateVariable, the 39 known misaligned
+  ones, and about 15 jumps that land inside a statement.
+- [ ] LabelTableOffset in a state's tail agrees with the label table found by
+  the bytecode walk in 216 states and not in 752.
 - [ ] Engine natives: Actor, Level, spawning, timers, the tick.
 - [ ] Loading a level: its actors as objects, with their state frames.
 - [ ] Collision queries, a line trace and a swept box, on the static mesh
