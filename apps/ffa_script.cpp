@@ -180,9 +180,11 @@ int check(const std::string& dir) {
                         uint32_t sf;
                         std::memcpy(&sf, q + 2, 4);
                         stateFlags[sf]++;
+                        // LabelTableOffset points at the table's entries, one
+                        // byte past its token, or is 0xFFFF for no table.
                         uint16_t found = 0xFFFF;
                         for (const Ins& n : st->code)
-                            if (n.op == Op::LabelTable) found = uint16_t(n.mem);
+                            if (n.op == Op::LabelTable) found = uint16_t(n.mem + 1);
                         (lto == found ? labelAgree : labelDisagree)++;
                     }
                 }

@@ -26,14 +26,15 @@ name and chain of outers name the export with the same path in that package.
 `udefaults.py` does: the offset that parses exactly to the end of the record and whose names
 are all variables of the class. A class's default object is its parent's, with
 its own variables at their type's zero, and then its own block applied. Struct
-values of Vector, Plane, Rotator, Color, Range and Scale are raw memory; the
-engine reads them field by field in declaration order and requires the size to
-come out exact.
+values of Vector, Rotator and Color are raw memory; the engine reads them field
+by field in declaration order and requires the size to come out exact. Every
+other struct, Plane, Range and Scale included, is a tagged list of its own.
 
-**Corpus check.** A state's record ends in ProbeMask (8 bytes), IgnoreMask (8),
-LabelTableOffset (2) and StateFlags (4). StateFlags 0x2 marks the auto state.
-`check` reports every state's tail length and whether LabelTableOffset agrees
-with the label table found by walking the bytecode.
+**Measured.** A state's record ends in ProbeMask (8 bytes), IgnoreMask (8),
+LabelTableOffset (2) and StateFlags (4), 22 bytes after the bytecode in all 968
+states of Shrek 2. LabelTableOffset points at the label table's entries, one
+byte past its 0x0C token, in all 752 states that have one, and is 0xFFFF in the
+216 that do not. StateFlags 0x2 marks the auto state. `check` reports both.
 
 ## Compiling
 

@@ -64,12 +64,12 @@ every jump to land on the start of a statement. It then tests two readings that
 come from knowledge of the engine rather than from measurement, against what
 the bytecode itself says:
 
-- **The state tail.** A state's record is taken to end in ProbeMask,
-  IgnoreMask, LabelTableOffset and StateFlags, 22 bytes. `check` reports the
-  tail length of every state, and whether LabelTableOffset points at the label
-  table the bytecode walk found.
-- **The conversion tokens.** 0x39 to 0x59 are taken from the engine's
-  published token list. `check` tallies the declared type of every operand each
+- **The state tail.** A state's record ends in ProbeMask, IgnoreMask,
+  LabelTableOffset and StateFlags, 22 bytes. `check` reports the tail length
+  of every state, and whether LabelTableOffset points at the entries of the
+  label table the bytecode walk found; on Shrek 2 both hold for all 968.
+- **The conversion tokens.** The codes after the 0x39 cast prefix are the
+  engine's published conversions. `check` tallies the declared type of every operand each
   token is given; IntToString should only ever be handed ints.
 
 It also lists the natives the script calls that are not implemented yet, most

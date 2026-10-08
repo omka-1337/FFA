@@ -154,8 +154,8 @@ Engine:
 - [x] The functions the VM does not load: all 8140 script functions compile,
   with the net function tail, the cast prefix and the delegate and dynamic
   array tokens read right, and Insert and Remove tested in the fixtures.
-- [ ] LabelTableOffset in a state's tail agrees with the label table found by
-  the bytecode walk in 216 states and not in 752.
+- [x] LabelTableOffset in a state's tail: the label table's entries, one byte
+  past its token, in all 752 states with one, and 0xFFFF in the other 216.
 - [ ] Engine natives: Actor, Level, spawning, timers, the tick.
 - [ ] Loading a level: its actors as objects, with their state frames.
 - [ ] Collision queries, a line trace and a swept box, on the static mesh
