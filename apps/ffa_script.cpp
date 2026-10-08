@@ -41,7 +41,7 @@ int usage() {
                  "       ffa-script smoke <System dir>\n"
                  "       ffa-script level <System dir> <map.unr> [dump.tsv]\n"
                  "       ffa-script start <System dir> <map.unr>\n"
-                 "       ffa-script run <System dir> <map.unr> <seconds> [--hold <alias>]...\n"
+                 "       ffa-script run <System dir> <map.unr> <seconds> [--hold <alias>] [--event <tag>]...\n"
                  "       ffa-script collide <System dir> <map.unr or .usx>...\n");
     return 2;
 }
@@ -439,7 +439,8 @@ std::string iniValue(const std::string& file, const std::string& section, const 
 // then PostBeginPlay and PostNetBeginPlay, then SetInitialState. The order is
 // the engine's, from its published behaviour, not from the data. Reports what
 // ran, what failed, and the natives the sequence needed that do not exist.
-int start(const std::string& dir, const std::string& map, float seconds, const std::vector<std::string>& hold = {}) {
+int start(const std::string& dir, const std::string& map, float seconds, const std::vector<std::string>& hold = {},
+          const std::vector<std::string>& events = {}) {
     std::vector<std::string> paths = Linker::packageFiles(dir);
     paths.push_back(map);
     Linker lk(paths);
@@ -494,6 +495,22 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
         }
         if (!found) throw std::runtime_error("no axis alias " + want + " in DefUser.ini");
     }
+    // Events sent at the start, as a trigger would: the game's own
+    // TriggerEvent, which triggers every actor with that Tag.
+    for (const std::string& e : events) {
+        Object* pawn = pc ? w.obj(pc, "Pawn") : nullptr;
+        vm.event(w.info, "TriggerEvent", {Value::Nm(Name(e)), Value::Obj(w.info), Value::Obj(pawn)});
+        std::printf("event               %s triggered\n", e.c_str());
+    }
+    // Where every mover starts, to see which move.
+    std::map<Object*, Vec3> moverStart;
+    if (Class* moverClass = vm.findClass("Mover"))
+        for (Object* a : w.actors)
+            if (!a->deleted && a->isA(moverClass)) {
+                Vec3 v;
+                vm.unvector(w.var(a, "Location"), v.x, v.y, v.z);
+                moverStart[a] = v;
+            }
     // Where every pawn starts, to see where physics takes it.
     std::map<Object*, float> startZ;
     for (Object* a : w.actors)
@@ -645,6 +662,19 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
                 worstName = a->path() + " (" + a->cls->name.str() + ")";
             }
         }
+        size_t moved = 0, interpolating = 0;
+        float farthest = 0;
+        for (auto& [m, v0] : moverStart) {
+            Vec3 v;
+            vm.unvector(w.var(m, "Location"), v.x, v.y, v.z);
+            float d = length(v - v0);
+            moved += d > 1;
+            farthest = std::max(farthest, d);
+            interpolating += w.flag(m, "bInterpolating");
+        }
+        if (!moverStart.empty())
+            std::printf("movers              %zu: %zu moved, the farthest %.0f; %zu moving at the end\n", moverStart.size(),
+                        moved, farthest, interpolating);
         std::printf("pawns               %zu: within a unit of where they started %zu, higher %zu, lower %zu, "
                     "more than 500 lower %zu; the lowest %s by %.0f\n",
                     startZ.size(), still, up, down, fell, worstName.c_str(), -worst);
@@ -659,6 +689,15 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
         physics[m >= 0 && m < 16 ? modes[m] : "?"]++;
     }
     std::printf("physics, not static %s\n", top(physics, 16).c_str());
+    {
+        std::map<std::string, size_t> movers;
+        Class* moverClass = vm.findClass("Mover");
+        for (Object* a : w.actors)
+            if (!a->deleted && moverClass && a->isA(moverClass))
+                movers[a->cls->name.str() + " drawn " + std::to_string(w.var(a, "DrawType").i()) +
+                       (w.obj(a, "StaticMesh") ? " with a mesh" : "") + (w.obj(a, "Brush") ? " with a brush" : "")]++;
+        if (!movers.empty()) std::printf("movers             %s\n", top(movers, 8).c_str());
+    }
     size_t inState = 0;
     for (auto& [s, n] : states) inState += n;
     std::printf("in a state          %zu:%s\n", inState, top(states, 8).c_str());
@@ -873,10 +912,12 @@ int main(int argc, char** argv) {
         if (cmd == "collide" && argc >= 4) return collide(dir, std::vector<std::string>(argv + 3, argv + argc));
         if (cmd == "start" && argc >= 4) return start(dir, argv[3], 0.0f);
         if (cmd == "run" && argc >= 5) {
-            std::vector<std::string> hold;
-            for (int i = 5; i + 1 < argc; i += 2)
+            std::vector<std::string> hold, events;
+            for (int i = 5; i + 1 < argc; i += 2) {
                 if (std::string(argv[i]) == "--hold") hold.push_back(argv[i + 1]);
-            return start(dir, argv[3], std::stof(argv[4]), hold);
+                if (std::string(argv[i]) == "--event") events.push_back(argv[i + 1]);
+            }
+            return start(dir, argv[3], std::stof(argv[4]), hold, events);
         }
         if (cmd == "level" && argc >= 4) return level(dir, argv[3], argc >= 5 ? argv[4] : nullptr);
         if (cmd == "call" && argc >= 4)

@@ -163,8 +163,12 @@ Engine:
   Touch and UnTouch. No pawn falls through any level.
 - [x] Player input: held keys by their bindings, through the game's own
   input and movement script. Shrek walks, picks up coins, falls and lands.
-- [ ] Swimming, ladders, movers (MovingBrush, Interpolating), Karma; and the
-  latent natives that wait on physics or animation.
+- [x] Movers: MovingBrush physics, FinishInterpolation, Move, and what
+  stands on a mover going with it. Trace with an extent and SetLocation testing
+  room, on the swept boxes.
+- [ ] Movers pushing what they run into (EncroachingOn), KnowWonder's
+  MV_SpringByTime, swimming, ladders, Interpolating, Karma; and the latent
+  natives that wait on physics or animation.
 - [x] Loading a level: all 22606 live actors of the 29 levels as objects,
   agreeing with tools/umap.py on every one.
 - [x] Starting a level: the game spawned and InitGame'd, the start up events
@@ -181,8 +185,6 @@ Engine:
   that collision, with actors' cylinders.
 - [x] Boxes swept through the BSP's solid faces, terrains, meshes, colliding
   brushes and actors' cylinders, exactly; path nodes agree with the line trace.
-- [ ] Trace with an extent and SetLocation testing room, on those boxes: 650
-  and 45 uses in twenty seconds of every level.
 - [ ] Which of a mesh's collision forms boxes use: the triangles now; the
   collision model is read and unused.
 - [ ] Config and localisation, probe masks, replication, garbage collection.

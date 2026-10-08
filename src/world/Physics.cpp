@@ -270,6 +270,55 @@ void physTrailer(World& w, Object* a) {
     if (w.flag(a, "bTrailerSameRotation")) w.var(a, "Rotation") = w.var(owner, "Rotation");
 }
 
+// An element of a static array variable.
+Value& element(World& w, Object* a, const char* name, int k) {
+    Prop* p = a->cls->findProp(Name(name));
+    if (!p || k < 0 || k >= p->dim) throw w.vm.error(a->path() + std::string(": no element of ") + name);
+    return a->props[size_t(p->slot + k)];
+}
+
+// Moving a mover: what stands on it goes with it.
+void moveMover(World& w, Object* m, Vec3 to, int32_t rot[3]) {
+    Vec3 from = vget(w, m, "Location");
+    Vec3 delta = to - from;
+    w.collision->place(m, to);
+    w.var(m, "Rotation") = w.vm.rotator(rot[0], rot[1], rot[2]);
+    if (length(delta) == 0) return;
+    for (Object* o : w.actors)
+        if (!o->deleted && o != m && w.obj(o, "Base") == m) w.collision->place(o, vget(w, o, "Location") + delta);
+}
+
+// MovingBrush: a mover on its way from OldPos and OldRot to its key, at
+// PhysRate, eased in and out for MV_GlideByTime. At the end, bInterpolating
+// goes and FinishedInterpolation is sent.
+void physMovingBrush(World& w, Object* a, float dt) {
+    if (!w.flag(a, "bInterpolating")) return;
+    float alpha = w.var(a, "PhysAlpha").f() + w.var(a, "PhysRate").f() * dt;
+    bool done = alpha >= 1;
+    alpha = std::min(alpha, 1.0f);
+    w.var(a, "PhysAlpha") = Value::Float(alpha);
+    float t = alpha;
+    if (w.var(a, "MoverGlideType").i() == 1) t = alpha * alpha * (3 - 2 * alpha);
+    int key = w.var(a, "KeyNum").i();
+    Vec3 keyPos, basePos = vget(w, a, "BasePos"), oldPos = vget(w, a, "OldPos");
+    w.vm.unvector(element(w, a, "KeyPos", key), keyPos.x, keyPos.y, keyPos.z);
+    int32_t kr[3], br[3], orr[3], r[3];
+    w.vm.unrotator(element(w, a, "KeyRot", key), kr[0], kr[1], kr[2]);
+    w.vm.unrotator(w.var(a, "BaseRot"), br[0], br[1], br[2]);
+    w.vm.unrotator(w.var(a, "OldRot"), orr[0], orr[1], orr[2]);
+    bool shortest = w.flag(a, "bUseShortestRotation");
+    for (int k = 0; k < 3; ++k) {
+        int32_t d = br[k] + kr[k] - orr[k];
+        if (shortest) d = int32_t(int16_t(d & 0xFFFF));
+        r[k] = orr[k] + int32_t(float(d) * t);
+    }
+    moveMover(w, a, oldPos + (basePos + keyPos - oldPos) * t, r);
+    if (done) {
+        w.var(a, "bInterpolating") = Value::Bool(false);
+        w.vm.event(a, "FinishedInterpolation");
+    }
+}
+
 }  // namespace
 
 void performPhysics(World& w, Object* a, float dt) {
@@ -300,8 +349,11 @@ void performPhysics(World& w, Object* a, float dt) {
     case PHYS_Trailer:
         physTrailer(w, a);
         return;
+    case PHYS_MovingBrush:
+        physMovingBrush(w, a, dt);
+        return;
     default: {
-        static const char* names[] = {"", "", "", "Swimming", "", "", "", "Interpolating", "MovingBrush",
+        static const char* names[] = {"", "", "", "Swimming", "", "", "", "Interpolating", "",
                                       "Spider", "", "Ladder", "RootMotion", "Karma", "KarmaRagDoll", "PushPulled"};
         w.vm.missingCalls[std::string("physics PHYS_") + (mode >= 0 && mode < 16 ? names[mode] : "?")]++;
     }
@@ -369,6 +421,30 @@ void registerPhysicsNatives(VM& vm) {
             for (const Value& e : Array(t.arr()))
                 if (e.o() && !e.o()->deleted && e.o()->isA(static_cast<Class*>(base))) c.yield({e});
         return Value();
+    };
+    // FinishInterpolation: state code waits until the interpolation is over.
+    n["actor.finishinterpolation"] = [](NativeCall& c) {
+        World* w = World::of(c.vm);
+        Object* self = c.self;
+        if (!w || !w->flag(self, "bInterpolating")) return Value();
+        self->latent = [w, self](float) { return self->deleted || !w->flag(self, "bInterpolating"); };
+        return Value();
+    };
+    // Move(Delta): an actor that collides with the world stops at what is in
+    // the way; one that does not goes all the way. True when it moved at all.
+    n["actor.move"] = [](NativeCall& c) {
+        World* w = World::of(c.vm);
+        if (!w || !w->collision) return Value::Bool(false);
+        Vec3 d;
+        c.vm.unvector(c.get(0), d.x, d.y, d.z);
+        Vec3 before = vget(*w, c.self, "Location");
+        if (w->flag(c.self, "bCollideWorld")) {
+            move(*w, c.self, d);
+        } else {
+            w->collision->place(c.self, before + d);
+            updateTouching(*w, c.self);
+        }
+        return Value::Bool(length(vget(*w, c.self, "Location") - before) > 0 || length(d) == 0);
     };
     n["actor.setphysics"] = [](NativeCall& c) {
         World* w = World::of(c.vm);

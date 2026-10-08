@@ -310,6 +310,21 @@ parts 2 and 3 waits on a cutscene mark right over a BouncePad, whose Touch
 throws him to its target. Before the colliding brushes were in, Shrek on
 6_Hamlet_Mine and Puss on The Hunt part 4 fell, standing on BlockingVolumes.
 
+**Movers.** Nearly every mover in the game is a static mesh: 293 of the
+levels' movers are drawn as one, and they collide as one, their transform
+taken again at each query. The script does the planning, InterpolateTo
+setting OldPos, OldRot, KeyNum, PhysRate and bInterpolating; MovingBrush
+physics moves the mover from OldPos to BasePos + KeyPos[KeyNum] as PhysAlpha
+goes from 0 to 1 at PhysRate, eased in and out as 3a^2 - 2a^3 for
+MV_GlideByTime and straight for MV_MoveByTime, its rotation the same way, the
+short way round with bUseShortestRotation. What stands on the mover, its Base,
+goes with it. At the end bInterpolating is cleared and FinishedInterpolation
+sent, and the latent FinishInterpolation waits for that. KnowWonder's
+MV_SpringByTime moves straight for now. Movers wait to be triggered, so
+`run ... --event LightMover1` sends an event first, through the game's own
+TriggerEvent: the five swinging lights of the first story book then go
+through their three keys in 7 seconds each, round again at 21.
+
 **Input.** `run ... --hold MoveForward` holds a key for the whole run, by its
 alias in DefUser.ini: `Axis aBaseY Speed=+1200`. Each frame, before the
 controller's PlayerTick, every controller variable declared `input` is set to

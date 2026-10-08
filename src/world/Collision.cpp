@@ -691,9 +691,8 @@ void registerCollisionNatives(VM& vm) {
         World& w = col.world;
         Vec3 end = vecArg(c, 2);
         Vec3 start = c.has(3) ? vecArg(c, 3) : locationOf(w, c.self);
-        // A box is traced as a line until extents are done.
-        if (hasExtent(c, 5)) c.vm.missingCalls["Actor.Trace with an extent, traced as a line"]++;
-        TraceHit h = col.lineCheck(start, end, c.self, c.b(4));
+        TraceHit h = hasExtent(c, 5) ? col.boxCheck(start, end, vecArg(c, 5), c.self)
+                                     : col.lineCheck(start, end, c.self, c.b(4));
         if (!h) {
             c.out(0, c.vm.vector(0, 0, 0));
             c.out(1, c.vm.vector(0, 0, 0));
@@ -726,15 +725,18 @@ void registerCollisionNatives(VM& vm) {
         }
         return Value();
     };
-    // SetLocation moves the actor and updates its zone. For an actor that
-    // collides the engine also refuses a place it would not fit, which needs
-    // box checks; until then it is moved regardless, and counted.
+    // SetLocation moves the actor and updates its zone, refusing a place that
+    // an actor colliding with the world would not fit.
     n["actor.setlocation"] = [](NativeCall& c) {
         Collision& col = collisionOf(c);
         World& w = col.world;
-        if (w.flag(c.self, "bCollideActors") || w.flag(c.self, "bCollideWorld"))
-            c.vm.missingCalls["Actor.SetLocation of a colliding actor, not tested for room"]++;
-        col.place(c.self, vecArg(c, 0));
+        Vec3 to = vecArg(c, 0);
+        // An actor that collides with the world goes only where it fits.
+        if (w.flag(c.self, "bCollideWorld")) {
+            float r = w.var(c.self, "CollisionRadius").f();
+            if (!col.fits(to, Vec3{r, r, w.var(c.self, "CollisionHeight").f()}, c.self)) return Value::Bool(false);
+        }
+        col.place(c.self, to);
         return Value::Bool(true);
     };
 }
