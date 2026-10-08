@@ -131,31 +131,39 @@ void StaticMeshCollision::node(size_t i, Vec3 a, Vec3 b, Hit& hit) const {
         // the box holds the node's whole subtree
         Vec3 pad{0.01f, 0.01f, 0.01f};
         if (!meetsBox(a, end, n.min - pad, n.max + pad)) return;
-        const MeshTriangle& t = triangles[n.triangle];
-        Vec3 v0 = positions[t.v[0]], v1 = positions[t.v[1]], v2 = positions[t.v[2]];
-        Vec3 normal = cross(v1 - v0, v2 - v0);
-        float da = dot(normal, a - v0), db = dot(normal, b - v0);
-        if ((da > 0) != (db > 0) && da != db) {
-            float f = da / (da - db);
-            if (f >= 0 && f < hit.time) {
-                Vec3 p = lerp(a, b, f);
-                // inside all three edges, for either winding
-                float c0 = dot(cross(v1 - v0, p - v0), normal);
-                float c1 = dot(cross(v2 - v1, p - v1), normal);
-                float c2 = dot(cross(v0 - v2, p - v2), normal);
-                if ((c0 >= 0 && c1 >= 0 && c2 >= 0) || (c0 <= 0 && c1 <= 0 && c2 <= 0)) {
-                    float len = length(normal);
-                    hit.time = f;
-                    hit.location = p;
-                    hit.normal = (da > 0 ? normal : -normal) * (len > 0 ? 1 / len : 0);
-                }
-            }
-        }
+        triangle(triangles[n.triangle], a, b, hit);
         // the coplanar chain and both sides; the loop takes the back side
         if (n.coplanar != 0xFFFF) node(n.coplanar, a, b, hit);
         if (n.front != 0xFFFF) node(n.front, a, b, hit);
         i = n.back;
     }
+}
+
+bool StaticMeshCollision::triangle(const MeshTriangle& t, Vec3 a, Vec3 b, Hit& hit) const {
+    Vec3 v0 = positions[t.v[0]], v1 = positions[t.v[1]], v2 = positions[t.v[2]];
+    Vec3 normal = cross(v1 - v0, v2 - v0);
+    float da = dot(normal, a - v0), db = dot(normal, b - v0);
+    if ((da > 0) == (db > 0) || da == db) return false;
+    float f = da / (da - db);
+    if (f < 0 || f >= hit.time) return false;
+    Vec3 p = lerp(a, b, f);
+    // inside all three edges, for either winding
+    float c0 = dot(cross(v1 - v0, p - v0), normal);
+    float c1 = dot(cross(v2 - v1, p - v1), normal);
+    float c2 = dot(cross(v0 - v2, p - v2), normal);
+    if (!((c0 >= 0 && c1 >= 0 && c2 >= 0) || (c0 <= 0 && c1 <= 0 && c2 <= 0))) return false;
+    float len = length(normal);
+    hit.time = f;
+    hit.location = p;
+    hit.normal = (da > 0 ? normal : -normal) * (len > 0 ? 1 / len : 0);
+    return true;
+}
+
+Hit StaticMeshCollision::lineCheckAll(Vec3 a, Vec3 b) const {
+    Hit hit;
+    hit.location = b;
+    for (const MeshTriangle& t : triangles) triangle(t, a, b, hit);
+    return hit;
 }
 
 Hit StaticMeshCollision::lineCheck(Vec3 a, Vec3 b) const {

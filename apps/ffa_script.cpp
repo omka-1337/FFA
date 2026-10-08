@@ -578,9 +578,10 @@ int collide(const std::string& dir, const std::vector<std::string>& files) {
     size_t traces = 0, hits = 0, onPoly = 0, startSolid = 0, meshHits = 0;
     size_t meshActors = 0, meshesMissing = 0;
     size_t terrainCount = 0, terrainHits = 0;
+    size_t treeChecks = 0, treeAgree = 0;
     float worstNormal = 0;
     std::vector<float> drops, bspDrops;
-    std::map<std::string, std::vector<float>> byClass;
+    std::map<std::string, std::vector<float>> byClass, withActors;
     std::map<std::string, size_t> problems;
     std::string gameDir = dir + "/..";
     for (const std::string& file : files) {
@@ -641,10 +642,19 @@ int collide(const std::string& dir, const std::vector<std::string>& files) {
                 bspDrops.push_back(at.z - h.location.z);
             }
             TraceHit t = col.lineCheck(at, down, a);
+            // with the actors that block players standing on them, the
+            // beanstalk's leaves among them, which are meshes with cylinders
+            TraceHit ta = col.lineCheck(at, down, a, true);
+            if (ta) withActors[cls.find("Coin") != std::string::npos ? "Coin" : "PathNode"].push_back(at.z - ta.location.z);
+            col.everyTriangle = true;
+            TraceHit all = col.lineCheck(at, down, a);
+            col.everyTriangle = false;
+            ++treeChecks;
+            treeAgree += std::fabs(all.time - t.time) * 8192 < 0.01f && all.actor == t.actor;
             if (t) {
                 byClass[cls + " (CollisionHeight " + std::to_string(int(w.var(a, "CollisionHeight").f())) + ")"]
                     .push_back(at.z - t.location.z);
-                drops.push_back(at.z - t.location.z);;
+                drops.push_back(at.z - t.location.z);
                 meshHits += t.actor && t.actor->cls->name != Name("TerrainInfo");
                 terrainHits += t.actor && t.actor->cls->name == Name("TerrainInfo");
             }
@@ -665,6 +675,10 @@ int collide(const std::string& dir, const std::vector<std::string>& files) {
                 hits, onPoly, startSolid, q(bspDrops, 0.1), q(bspDrops, 0.5), q(bspDrops, 0.9));
     std::printf("  everything        %zu hit, %zu on a mesh, %zu on terrain; drop 10%% %.1f median %.1f 90%% %.1f\n",
                 drops.size(), meshHits, terrainHits, q(drops, 0.1), q(drops, 0.5), q(drops, 0.9));
+    for (auto& [c, v] : withActors)
+        std::printf("  with actors, %-9s %5zu: 10%% %.1f median %.1f 90%% %.1f 99%% %.1f\n", c.c_str(), v.size(), q(v, 0.1),
+                    q(v, 0.5), q(v, 0.9), q(v, 0.99));
+    std::printf("  the mesh trees agree with testing every triangle on %zu of %zu\n", treeAgree, treeChecks);
     for (auto& [c, v] : byClass)
         if (v.size() >= 20)
             std::printf("  %-36s %5zu: 10%% %.1f median %.1f 90%% %.1f\n", c.c_str(), v.size(), q(v, 0.1), q(v, 0.5),

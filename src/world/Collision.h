@@ -49,6 +49,7 @@ public:
     // The collision of a StaticMesh object, or null when it cannot be found.
     const StaticMeshCollision* mesh(Object* meshObject);
 
+    bool everyTriangle = false;     // test meshes without their trees, as a check
     size_t meshActors = 0, meshesMissing = 0;
     std::map<std::string, size_t> problems;
 

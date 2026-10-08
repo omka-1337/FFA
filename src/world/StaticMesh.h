@@ -37,9 +37,12 @@ public:
     // The first triangle the segment a..b crosses, in the mesh's own space,
     // from either side.
     Hit lineCheck(Vec3 a, Vec3 b) const;
+    // The same by testing every triangle, without the tree: a check on it.
+    Hit lineCheckAll(Vec3 a, Vec3 b) const;
 
 private:
     void node(size_t i, Vec3 a, Vec3 b, Hit& hit) const;
+    bool triangle(const MeshTriangle& t, Vec3 a, Vec3 b, Hit& hit) const;
 };
 
 }  // namespace ffa

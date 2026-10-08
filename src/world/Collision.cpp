@@ -266,7 +266,8 @@ void Collision::meshHits(Vec3 a, Vec3 b, const Object* ignore, bool worldOnly, s
         if (pl.actor == ignore || pl.actor->deleted || (worldOnly && !pl.world)) continue;
         if (!pl.fixed) update(pl);
         if (!pl.invertible || !segmentMeetsBox(a, b, pl.lo, pl.hi)) continue;
-        Hit h = pl.mesh->lineCheck(mul(pl.inv, a - pl.origin), mul(pl.inv, b - pl.origin));
+        Vec3 ma = mul(pl.inv, a - pl.origin), mb = mul(pl.inv, b - pl.origin);
+        Hit h = everyTriangle ? pl.mesh->lineCheckAll(ma, mb) : pl.mesh->lineCheck(ma, mb);
         if (!h || (!all && h.time >= best.time)) continue;
         TraceHit t;
         t.time = h.time;

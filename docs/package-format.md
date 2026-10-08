@@ -711,8 +711,17 @@ they stand on, and path nodes are where the editor puts them, at their own
 collision height above the ground: the 1086 with a CollisionHeight of 50 stand
 a median 52.5 above it, the lowest tenth 49.5. The level saved where its
 actors are too, in each actor's Region, and the walk agrees on the zone for
-20023 of the 20115 actors the game loads, and on the leaf for 20007. The coins
-high above anything are on the beanstalk bonus levels and in the prison.
+20023 of the 20115 actors the game loads, and on the leaf for 20007.
+
+What still floats were coins on the beanstalk bonus levels and in the prison,
+and the reason is that some ground is actors. The beanstalk's leaves, the ones
+the player walks on, are AmbientLeaf and BounceLeaf actors drawn as skeletal
+meshes, DrawType 2, and they block with their collision cylinders, not with
+triangles. Counting the cylinders of the actors that block too, 90 percent of
+the 1214 coins are within 107 units of what is under them, against 1239 units
+before. What is left high is over the yellow BounceLeaf pads that throw the
+player up, the coins strung along the jump, as the game plays. The tree trace
+agrees with testing every triangle of every mesh on all 2331 traces.
 
 Light lists are the other run-length array: a leaf's iPermeating and
 iVolumetric each start a list of Light actors ending in 0, or are -1 for none.
