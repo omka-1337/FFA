@@ -410,6 +410,18 @@ deleted ones include nearly all the AutoLadders, 8158 of 8190, and 67 coins, 59
 of them on Shrek's swamp, which the viewer drew until it read the list. Only
 the listed actors are the level.
 
+**And lists some the game never loads.** The export's object flags say who
+loads it. 20115 of the 22606 listed actors carry 0x02070001: the state frame
+flag 0x02000000, LoadForClient 0x10000, LoadForServer 0x20000, LoadForEdit
+0x40000, and Transactional 0x1. The other 2491 have neither load bit and carry
+NotForClient 0x100000 and NotForServer 0x200000 in their place: all 2056 Brush
+actors, the editor's builder brushes the BSP was made from (0x02340001), and
+all 435 Camera actors, the editor's viewports (0x02340000), each with its
+RendMap, ShowFlags and OrthoZoom saved. Volumes, Brush subclasses, load like any
+other actor. The bit values are the engine family's; that exactly the editor's
+objects lack the load bits is what confirms them. The engine loads an actor of
+the level only with both load bits.
+
 ## Static meshes
 
 A StaticMesh record is a tagged property block followed by a native payload:

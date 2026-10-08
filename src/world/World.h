@@ -1,0 +1,74 @@
+// A running level: its actors, the game that rules it, and the natives that
+// act on them.
+//
+// The actor list starts as the Level record's, LevelInfo first, less the
+// editor's own actors, and grows as script spawns. A destroyed actor stays in the list marked bDeleteMe, which
+// is what script tests, and the iterators and the start up pass skip it.
+//
+// What the engine does when it spawns, destroys and starts a level is its
+// published behaviour, not something the data records. Where that behaviour
+// depends on collision, which the engine does not have yet, it is left out and
+// said so at the place.
+#pragma once
+
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "script/VM.h"
+#include "world/Level.h"
+
+namespace ffa {
+
+class World {
+public:
+    World(VM& vm, int pkg, const LevelRecord& level);
+
+    VM& vm;
+    Linker& linker;
+    std::vector<Object*> actors;
+    Object* info = nullptr;         // the LevelInfo
+    Object* game = nullptr;         // the GameInfo, once begun
+    bool begunPlay = false;
+    size_t editorOnly = 0;          // listed actors the game does not load
+
+    // The world a VM's natives act on; null when none is attached.
+    static World* of(VM& vm) { return static_cast<World*>(vm.host); }
+
+    // A new actor of class c. With play begun it also takes its start up
+    // events. Null when the class cannot be spawned, or when the actor
+    // destroyed itself on the way.
+    Object* spawn(Class* c, Object* spawner, Object* owner = nullptr, Name tag = Name(),
+                  const Value* location = nullptr, const Value* rotation = nullptr);
+    // False for an actor that is bStatic or bNoDelete.
+    bool destroy(Object* a);
+    void setOwner(Object* a, Object* owner);
+
+    // Spawn the game, InitGame it with the URL's options, and send every
+    // actor the start up events: PreBeginPlay, BeginPlay, PostBeginPlay with
+    // PostNetBeginPlay, SetInitialState.
+    void beginPlay(Class* gameClass, const String& options);
+
+    // An actor variable by name, as the engine's own code reaches it.
+    Value& var(Object* a, const char* name);
+    bool flag(Object* a, const char* name) { return var(a, name).b(); }
+    Object* obj(Object* a, const char* name) { return var(a, name).o(); }
+
+    // Every event the start up pass sent, by name, and how many failed.
+    std::unordered_map<std::string, size_t> sent, failed;
+    std::unordered_map<std::string, size_t> failures;   // by message
+
+private:
+    void send(Object* a, const char* event);
+    Name uniqueName(Class* c);
+
+    Object* outer_ = nullptr;
+    std::unordered_set<Name> names_;
+    std::unordered_map<Class*, int> counters_;
+};
+
+// Actor, LevelInfo, Pawn and Controller natives that act on a World.
+void registerWorldNatives(VM& vm);
+
+}  // namespace ffa

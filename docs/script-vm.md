@@ -171,18 +171,50 @@ sequence, SetInitialState, not from the file.
 
 ## Starting a level
 
-`ffa-script start <System> <map.unr>` loads a level and sends its actors the
-start up events in the engine's order: PreBeginPlay to every actor, then
-BeginPlay to every actor, then PostBeginPlay, then SetInitialState. The order
-is the engine's published behaviour, not something the data says.
+`ffa-script start <System> <map.unr>` begins play on a level the way the
+engine does when a map loads, in `src/world/World.cpp`:
 
-**Corpus check.** Across all 29 levels the 22606 actors take 90423 events with
-no script error. On Shrek's swamp 170 of the 1650 enter a state, pickups
-Pickup, triggers NormalTrigger, the player start PlayerWaiting. The one error
-on the way was the VM's: BanditBoss declares an int MaxHealth over KWPawn's
-float one, and KWPawn's PostBeginPlay sets its own. Both variables live in the
-object, and each class's code reaches its own. The natives the sequence needs
-and the engine lacks are reported by how often they are called: on the swamp
-Actor.Spawn 6780 times, Actor.Destroy 1644. The Destroy calls come from Actor.PreBeginPlay
-finding no GameInfo, which the engine does not spawn yet.
+1. Load the actors the Level lists and the game loads: both load bits set,
+   which leaves out the editor's builder brushes and viewport cameras
+   (docs/package-format.md, the Level object).
+2. Spawn the game. Its class is a `Game=` option of the URL, else Default.ini's
+   `[Engine.Engine] DefaultGame`, ShGame.ShGame. No level sets
+   LevelInfo.DefaultGameType. LevelInfo.Game points at it.
+3. Set LevelInfo's bBegunPlay and bStartup, and call the game's InitGame with
+   the URL's options.
+4. Send PreBeginPlay to every actor, then BeginPlay to every actor, then
+   PostBeginPlay and PostNetBeginPlay, then SetInitialState, then clear
+   bStartup.
 
+From step 3 a spawned actor takes Spawned, PreBeginPlay, BeginPlay,
+PostBeginPlay, PostNetBeginPlay and SetInitialState in its Spawn, and
+Actor.SetInitialState marks it bScriptInitialized; the passes of step 4 skip
+such an actor, so none takes an event twice. The order is the engine's
+published behaviour, not something the data says.
+
+Spawn names the actor after its class with the next free number, places it at
+the spawner's Location and Rotation unless given others, copies the spawner's
+Instigator, and sets its Tag to the class name unless given one: 1359 of the
+swamp's 1650 placed actors still carry that Tag, which the editor's spawn gave
+them. It refuses a bStatic or bNoDelete class. What it does not do yet is
+collision: the engine moves a new actor out of whatever it would sit in, or
+refuses it when there is no room. Destroy refuses bStatic and bNoDelete
+actors, sends Destroyed, tells the owner LostChild, frees what the actor owned,
+and marks it bDeleteMe; it stays in the list, and the iterators skip it.
+
+**Corpus check.** Across all 29 levels, 20115 actors are loaded and 2491 are
+the editor's. InitGame and the start up passes run 100749 events with no
+script error, spawn 6603 actors, coins, AI controllers, potions, shadow
+projectors, and destroy 2. On Shrek's swamp 222 actors end in a state, pickups
+Pickup, triggers NormalTrigger. Two errors came up on the way, both the VM's.
+BanditBoss declares an int MaxHealth over KWPawn's float one, and KWPawn's
+PostBeginPlay sets its own: both variables live in the object, and each
+class's code reaches its own. And with no game, every actor not
+bGameRelevant destroyed itself in Actor.PreBeginPlay, asking a mutator that
+did not exist, and script retried what it could not spawn: 6780 Spawn and 1644
+Destroy calls on the swamp alone, where with the game there are 131 and 2.
+
+The natives still missing on the way are animation (AnimBlendParams, HasAnim,
+LinkSkelAnim), attachment (AttachToBone, SetRelativeLocation and Rotation),
+projectors, ParticleEmitter.Trigger, and those that need collision, SetLocation
+and Move.

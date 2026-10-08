@@ -120,6 +120,7 @@ public:
     std::unordered_set<std::string> missing;    // natives called but not implemented
     std::unordered_map<std::string, size_t> missingCalls;   // and how often each was
     std::vector<std::unique_ptr<Object>> objects;
+    void* host = nullptr;           // what the engine's natives act on: a World
 
     void write(const std::string& tag, const std::string& text);
     void warn(const Frame* f, const Ins* at, const std::string& msg);

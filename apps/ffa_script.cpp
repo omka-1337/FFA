@@ -14,11 +14,13 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <map>
 #include <set>
 
 #include "script/VM.h"
 #include "world/Level.h"
+#include "world/World.h"
 
 using namespace ffa;
 
@@ -400,10 +402,32 @@ int level(const std::string& dir, const std::string& map, const char* dump) {
     return 0;
 }
 
-// Load a level and send its actors the start up events, the way the engine
-// does when a map begins: PreBeginPlay to every actor, then BeginPlay to
-// every actor, then PostBeginPlay, then SetInitialState. The order is the
-// engine's, from its published behaviour, not from the data. Reports what
+// A key of an .ini file in the System directory, or empty. Enough for the
+// few settings the engine reads before any script runs.
+std::string iniValue(const std::string& file, const std::string& section, const std::string& key) {
+    std::ifstream in(file);
+    std::string line, at;
+    auto lower = [](std::string x) {
+        for (char& ch : x) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+        return x;
+    };
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.size() > 1 && line[0] == '[') {
+            at = lower(line.substr(1, line.find(']') - 1));
+            continue;
+        }
+        size_t eq = line.find('=');
+        if (at == lower(section) && eq != std::string::npos && lower(line.substr(0, eq)) == lower(key))
+            return line.substr(eq + 1);
+    }
+    return std::string();
+}
+
+// Load a level and begin play the way the engine does when a map loads: spawn
+// the game, InitGame it, then send every actor PreBeginPlay, then BeginPlay,
+// then PostBeginPlay and PostNetBeginPlay, then SetInitialState. The order is
+// the engine's, from its published behaviour, not from the data. Reports what
 // ran, what failed, and the natives the sequence needed that do not exist.
 int start(const std::string& dir, const std::string& map) {
     std::vector<std::string> paths = Linker::packageFiles(dir);
@@ -414,43 +438,62 @@ int start(const std::string& dir, const std::string& map) {
     int pkg = lk.packageIndex(stem);
     if (pkg < 0) throw std::runtime_error("the level " + stem + " did not load");
     LevelRecord lv = readLevel(*lk.packages[size_t(pkg)]);
-    std::vector<Object*> actors = loadActors(lk, pkg, lv);
     VM vm(lk);
     vm.sink = [](const std::string&, const std::string&) {};
-    std::map<std::string, size_t> failures;
-    for (const char* ev : {"PreBeginPlay", "BeginPlay", "PostBeginPlay", "SetInitialState"}) {
-        size_t ok = 0, failed = 0;
-        for (Object* a : actors) {
-            if (a->deleted) continue;
-            try {
-                vm.event(a, ev);
-                ++ok;
-            } catch (const std::exception& ex) {
-                ++failed;
-                failures[std::string(ev) + ": " + pattern(ex.what())]++;
-            }
-        }
-        std::printf("%-19s %zu ran, %zu failed\n", ev, ok, failed);
+    registerWorldNatives(vm);
+    World w(vm, pkg, lv);
+    size_t loaded = w.actors.size();
+    // The game: a Game= option of the URL, else the engine's default.
+    std::string gameName = iniValue(dir + "/Default.ini", "Engine.Engine", "DefaultGame");
+    String options;
+    for (const std::string& o : lv.options) {
+        options += u"?" + widen(o);
+        if (o.size() > 5 && (o.compare(0, 5, "Game=") == 0 || o.compare(0, 5, "game=") == 0)) gameName = o.substr(5);
     }
-    std::map<std::string, size_t> states;
-    for (Object* a : actors)
+    Class* gameClass = vm.findClass(gameName.substr(gameName.find('.') + 1));
+    std::string dgt = utf8(w.var(w.info, "DefaultGameType").s());
+    std::printf("game                %s%s, the level's DefaultGameType %s\n", gameName.c_str(),
+                gameClass ? "" : " (not found)", dgt.empty() ? "empty" : dgt.c_str());
+    w.beginPlay(gameClass, options);
+    for (const char* ev : {"InitGame", "PreBeginPlay", "BeginPlay", "PostBeginPlay", "PostNetBeginPlay",
+                           "SetInitialState"})
+        std::printf("%-19s %zu ran, %zu failed\n", ev, w.sent[ev], w.failed[ev]);
+    size_t live = 0, spawnedLive = 0;
+    std::map<std::string, size_t> states, spawned;
+    for (size_t i = 0; i < w.actors.size(); ++i) {
+        Object* a = w.actors[i];
+        if (a->deleted) continue;
+        ++live;
         if (a->state) states[a->state->name.str()]++;
-    std::vector<std::pair<size_t, std::string>> top;
-    for (auto& [s, n] : states) top.emplace_back(n, s);
-    std::sort(top.rbegin(), top.rend());
+        if (i >= loaded) {
+            ++spawnedLive;
+            spawned[a->cls->name.str()]++;
+        }
+    }
+    auto top = [](const std::map<std::string, size_t>& m, size_t k) {
+        std::vector<std::pair<size_t, std::string>> t;
+        for (auto& [s, n] : m) t.emplace_back(n, s);
+        std::sort(t.rbegin(), t.rend());
+        std::string out;
+        for (size_t i = 0; i < t.size() && i < k; ++i) out += " " + t[i].second + " " + std::to_string(t[i].first);
+        return out;
+    };
+    std::printf("actors              %zu loaded, %zu for the editor only, %zu spawned, %zu destroyed, %zu live\n",
+                loaded, w.editorOnly, w.actors.size() - loaded, w.actors.size() - live, live);
+    std::printf("spawned and live    %zu:%s\n", spawnedLive, top(spawned, 8).c_str());
     size_t inState = 0;
-    for (auto& [n, s] : top) inState += n;
-    std::printf("in a state          %zu of %zu actors:", inState, actors.size());
-    for (size_t i = 0; i < top.size() && i < 8; ++i) std::printf(" %s %zu", top[i].second.c_str(), top[i].first);
-    std::printf("\n");
+    for (auto& [s, n] : states) inState += n;
+    std::printf("in a state          %zu:%s\n", inState, top(states, 8).c_str());
     std::vector<std::pair<size_t, std::string>> miss;
     for (auto& [k, n] : vm.missingCalls) miss.emplace_back(n, k);
     std::sort(miss.rbegin(), miss.rend());
     std::printf("missing natives     %zu, most called:\n", miss.size());
     for (size_t i = 0; i < miss.size() && i < 25; ++i) std::printf("  %7zu  %s\n", miss[i].first, miss[i].second.c_str());
-    if (!failures.empty()) {
+    if (!w.failures.empty()) {
         std::vector<std::pair<size_t, std::string>> f;
-        for (auto& [m, n] : failures) f.emplace_back(n, m);
+        std::map<std::string, size_t> grouped;
+        for (auto& [m, n] : w.failures) grouped[pattern(m)] += n;
+        for (auto& [m, n] : grouped) f.emplace_back(n, m);
         std::sort(f.rbegin(), f.rend());
         std::printf("failures:\n");
         for (size_t i = 0; i < f.size() && i < 20; ++i) std::printf("  %7zu  %s\n", f[i].first, f[i].second.c_str());

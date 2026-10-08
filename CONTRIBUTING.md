@@ -159,8 +159,13 @@ Engine:
 - [ ] Engine natives: Actor, Level, spawning, timers, the tick.
 - [x] Loading a level: all 22606 live actors of the 29 levels as objects,
   agreeing with tools/umap.py on every one.
-- [ ] Starting a level: the start up sequence, PreBeginPlay, BeginPlay,
-  PostBeginPlay, SetInitialState, and the natives it calls.
+- [x] Starting a level: the game spawned and InitGame'd, the start up events
+  to every actor, Spawn and Destroy. All 29 levels start with no script error.
+- [ ] The player: GameInfo.Login and PostLogin, which spawn the controller and
+  Shrek, as the engine does once the level has begun.
+- [ ] The natives the start up still calls without having them: animation,
+  attachment to bones, projectors, emitters, and SetLocation and Move, which
+  need collision.
 - [ ] Collision queries, a line trace and a swept box, on the static mesh
   triangle trees and collision models and on the BSP's leaves and hulls, all
   decoded. Checked against where the game's own actors stand.
