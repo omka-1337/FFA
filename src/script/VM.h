@@ -118,6 +118,7 @@ public:
     std::function<void(const std::string& tag, const std::string& text)> sink;
     std::vector<std::pair<std::string, std::string>> log;
     std::unordered_set<std::string> missing;    // natives called but not implemented
+    std::unordered_map<std::string, size_t> missingCalls;   // and how often each was
     std::vector<std::unique_ptr<Object>> objects;
 
     void write(const std::string& tag, const std::string& text);

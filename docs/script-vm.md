@@ -169,3 +169,17 @@ its state node are the actor's own class, with no code position: the level
 was saved before anything ran. An actor's first state comes from the start up
 sequence, SetInitialState, not from the file.
 
+## Starting a level
+
+`ffa-script start <System> <map.unr>` loads a level and sends its actors the
+start up events in the engine's order: PreBeginPlay to every actor, then
+BeginPlay to every actor, then PostBeginPlay, then SetInitialState. The order
+is the engine's published behaviour, not something the data says.
+
+**Corpus check.** On Shrek's swamp all 1650 actors take all four events with no
+script error, and 170 of them enter a state, pickups Pickup, triggers
+NormalTrigger, the player start PlayerWaiting. The natives the sequence needs
+and the engine lacks are reported by how often they are called: Actor.Spawn
+6780 times, Actor.Destroy 1644. The Destroy calls come from Actor.PreBeginPlay
+finding no GameInfo, which the engine does not spawn yet.
+

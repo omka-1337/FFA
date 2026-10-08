@@ -4,6 +4,7 @@
 //   ffa-script call  <System dir> Class.Function [args...]
 //   ffa-script smoke <System dir>                 call every static function once
 //   ffa-script level <System dir> <map> [dump]    load a level's live actors
+//   ffa-script start <System dir> <map>           and run its start up sequence
 //
 // `check` is the corpus-wide proof the VM rests on, in the manner of the
 // Python readers in tools/: every class loads, every function and state compiles with
@@ -28,7 +29,8 @@ int usage() {
                  "usage: ffa-script check <System dir>\n"
                  "       ffa-script call <System dir> Class.Function [args...]\n"
                  "       ffa-script smoke <System dir>\n"
-                 "       ffa-script level <System dir> <map.unr> [dump.tsv]\n");
+                 "       ffa-script level <System dir> <map.unr> [dump.tsv]\n"
+                 "       ffa-script start <System dir> <map.unr>\n");
     return 2;
 }
 
@@ -398,12 +400,71 @@ int level(const std::string& dir, const std::string& map, const char* dump) {
     return 0;
 }
 
+// Load a level and send its actors the start up events, the way the engine
+// does when a map begins: PreBeginPlay to every actor, then BeginPlay to
+// every actor, then PostBeginPlay, then SetInitialState. The order is the
+// engine's, from its published behaviour, not from the data. Reports what
+// ran, what failed, and the natives the sequence needed that do not exist.
+int start(const std::string& dir, const std::string& map) {
+    std::vector<std::string> paths = Linker::packageFiles(dir);
+    paths.push_back(map);
+    Linker lk(paths);
+    std::string stem = map.substr(map.find_last_of("/\\") + 1);
+    stem = stem.substr(0, stem.find_last_of('.'));
+    int pkg = lk.packageIndex(stem);
+    if (pkg < 0) throw std::runtime_error("the level " + stem + " did not load");
+    LevelRecord lv = readLevel(*lk.packages[size_t(pkg)]);
+    std::vector<Object*> actors = loadActors(lk, pkg, lv);
+    VM vm(lk);
+    vm.sink = [](const std::string&, const std::string&) {};
+    std::map<std::string, size_t> failures;
+    for (const char* ev : {"PreBeginPlay", "BeginPlay", "PostBeginPlay", "SetInitialState"}) {
+        size_t ok = 0, failed = 0;
+        for (Object* a : actors) {
+            if (a->deleted) continue;
+            try {
+                vm.event(a, ev);
+                ++ok;
+            } catch (const std::exception& ex) {
+                ++failed;
+                failures[std::string(ev) + ": " + pattern(ex.what())]++;
+            }
+        }
+        std::printf("%-19s %zu ran, %zu failed\n", ev, ok, failed);
+    }
+    std::map<std::string, size_t> states;
+    for (Object* a : actors)
+        if (a->state) states[a->state->name.str()]++;
+    std::vector<std::pair<size_t, std::string>> top;
+    for (auto& [s, n] : states) top.emplace_back(n, s);
+    std::sort(top.rbegin(), top.rend());
+    size_t inState = 0;
+    for (auto& [n, s] : top) inState += n;
+    std::printf("in a state          %zu of %zu actors:", inState, actors.size());
+    for (size_t i = 0; i < top.size() && i < 8; ++i) std::printf(" %s %zu", top[i].second.c_str(), top[i].first);
+    std::printf("\n");
+    std::vector<std::pair<size_t, std::string>> miss;
+    for (auto& [k, n] : vm.missingCalls) miss.emplace_back(n, k);
+    std::sort(miss.rbegin(), miss.rend());
+    std::printf("missing natives     %zu, most called:\n", miss.size());
+    for (size_t i = 0; i < miss.size() && i < 25; ++i) std::printf("  %7zu  %s\n", miss[i].first, miss[i].second.c_str());
+    if (!failures.empty()) {
+        std::vector<std::pair<size_t, std::string>> f;
+        for (auto& [m, n] : failures) f.emplace_back(n, m);
+        std::sort(f.rbegin(), f.rend());
+        std::printf("failures:\n");
+        for (size_t i = 0; i < f.size() && i < 20; ++i) std::printf("  %7zu  %s\n", f[i].first, f[i].second.c_str());
+    }
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) return usage();
     std::string cmd = argv[1], dir = argv[2];
     try {
         if (cmd == "check") return check(dir);
         if (cmd == "smoke") return smoke(dir);
+        if (cmd == "start" && argc >= 4) return start(dir, argv[3]);
         if (cmd == "level" && argc >= 4) return level(dir, argv[3], argc >= 5 ? argv[4] : nullptr);
         if (cmd == "call" && argc >= 4)
             return call(dir, argv[3], std::vector<std::string>(argv + 4, argv + argc));

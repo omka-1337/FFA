@@ -476,6 +476,7 @@ Value VM::runNative(NativeCall& c) {
 
 Value VM::noNative(Function* fn) {
     if (strict) throw NativeMissing("native " + fn->qualname() + " is not implemented", trace());
+    missingCalls[fn->qualname()]++;
     if (missing.insert(fn->nativeKey()).second) write("Error", "native " + fn->qualname() + " is not implemented");
     return fn->ret ? fn->ret->zero() : Value();
 }
