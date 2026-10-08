@@ -135,6 +135,7 @@ Not done yet, roughly in order:
 | `tools/ulevel.py` | Assembles a level: BSP polygons and placed static meshes |
 | `tools/umaterial.py` | Materials: from shaders and modifiers down to the base texture |
 | `tools/utexture.py` | Textures: every format the game uses, decoded to RGBA and PNG |
+| `tools/usound.py` | Sounds: the Bink and WAV files inside, and their lip sync data |
 | `tools/uterrain.py` | Terrain: heightmaps, holes, and the world transform |
 | `tools/uskel.py` | Skeletal meshes: reference pose and skeleton |
 | `tools/uanim.py` | Animations: bones, keyframe tracks, sequences, playback |
@@ -176,6 +177,9 @@ UnrealEngine2 Runtime (version 126):
   their collision height. That offset is not in the script, the animations or
   the mesh data, which leaves native code.
 - **Textures.** All 2121, in every format the game uses, decoded.
+- **Sounds.** All 3769, Bink Audio and WAV stored whole, every one decoding
+  in FFmpeg, with the lip sync block after each read as far as its third
+  version, which is not decoded yet.
 - **Materials.** Shaders, blends and modifiers followed down to their texture.
   Of the 11429 static meshes placed in the levels, every section with triangles
   finds its texture except 7 whose material slot is empty.
@@ -201,6 +205,7 @@ rather than labels and gotos.
 ./ffa info      $SYS/Engine.u                         # what a package holds
 ./ffa list      ../Textures/SHCharacters.utx -c Palette
 ./ffa extract   ../Textures/SHCharacters.utx -o out    # textures as PNG
+./ffa sounds    ../Sounds/Shrek.uax -o out             # sounds as .wav and .bik
 ./ffa decompile $SYS Engine.u Pawn                    # one class, or --all -o DIR
 ./ffa defaults  $SYS Engine.u Pawn
 ./ffa actors    ../Maps/1_Shreks_Swamp.unr SkyZoneInfo

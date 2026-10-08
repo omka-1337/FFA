@@ -1173,6 +1173,47 @@ one usually does exist, `bush_red` beside the missing `red_bush`.
 Over the 11429 static meshes placed in the 26 levels, every section with
 triangles finds its texture except 7, and those 7 have an empty material slot.
 
+## Sounds
+
+A Sound record is a property block, empty in every sound of the game, then the
+sound file whole:
+
+```
+index       FileType, a name: "bik" or "WAV"
+lazy array  u32 offset of the array's end, a compact count, that many bytes
+...         KnowWonder's lip sync data
+```
+
+The block's None is a name like any other, so its index is whatever None has in
+that package's name table; in AllDialog.uax index 0 is "bik". Reading the end of
+the property block as a zero byte is the mistake to avoid.
+
+All 3769 sounds read this way, 3353 in `.uax` packages and 4 each in `.u` and
+`.ukx`, for 136.5 MB, every lazy offset landing on the end of its data. The
+files are 3353 Bink Audio, 22050 Hz mono, and 416 RIFF WAV, 16 bit PCM. Bink is
+RAD's own format, but FFmpeg decodes it: all 3769, extracted and decoded in
+full, with not one decoder error. Music is not in packages at all; it is plain
+Ogg Vorbis in `Music/`.
+
+**Lip sync.** After every sound comes a block starting with an i32 version,
+each checked against the sound's length as FFmpeg decodes it:
+
+| Version | Sounds | Layout |
+|--|--|--|
+| 0 | 818 | nothing more (25), or one i32: -1 (442) or the sound's length as 16 bit PCM in bytes |
+| 1 | 270 | a compact count, that many amplitude bytes, then the length as 16 bit PCM in bytes |
+| 2 | 2681 | i32 length in milliseconds, i32 30, i32 -9 to -13, then curves of floats over time |
+
+Version 1 reads to the exact end of all 270. Its amplitudes come 50 to the
+second, 49.6 on median over the dialogue, one per 20 ms, and the length field
+runs at 43546 bytes per second of decoded sound against 44100 for 22050 Hz 16
+bit mono, the difference being Bink's padding to whole frames. Version 2's
+length is 98.5 percent of the decoded duration on median, for the same reason.
+The rest of version 2, nearly all the dialogue, is not decoded: what follows the
+three fields is floats starting two bytes out of alignment, with channels that
+ramp smoothly over the frames, and two further i32s whose meaning is unknown,
+the second of which is not the body's size.
+
 ## A warning about parsers
 
 A desynchronised parse will happily read garbage as opcodes and walk off the end
@@ -1192,6 +1233,8 @@ budget per record. Run bulk passes under an external memory cap.
   the end of a BSP node.
 - Which of a static mesh's two collision forms, its triangle tree or its
   collision model, the engine uses for which kind of check.
+- Version 2 lip sync after a sound, the curves that move the characters'
+  mouths in the dialogue.
 
 - 39 of 8638 functions still fail end alignment, 33 of them in GUI.u.
 - 212 functions align but disagree on size, so one token's memory size is still

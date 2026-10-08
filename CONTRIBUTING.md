@@ -112,8 +112,11 @@ whose records carry native data after their properties.
 
 - [x] **Level** (29). The live actor list, the URL and the level's Model, to
   the end of every record.
-- [ ] **Sound** (3769, 160 MB in `.uax`, `.u`, `.ukx`). Every sound and line
-  of dialogue, the largest part of the game's data.
+- [x] **Sound** (3769). Bink Audio and WAV files stored whole; FFmpeg decodes
+  every one.
+- [ ] **Lip sync**, version 2, after 2681 of the sounds, nearly all the
+  dialogue: curves of floats over time that move the characters' mouths.
+  Versions 0 and 1 are read.
 - [ ] **Font** (120). The menus' and HUD's text.
 - [ ] **Lighting**: BSP lightmaps, the rest of a level Model after Linked, and
   `StaticMeshInstance` (9260), each placed mesh's baked vertex light.

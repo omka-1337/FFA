@@ -4,6 +4,7 @@
     ffa info      PKG...                     what a package holds
     ffa list      PKG [-c CLASS]             its exports
     ffa extract   PKG [-o DIR] [--max N]     its textures, as PNG
+    ffa sounds    PKG [-o DIR]               its sounds, as .wav and .bik files
     ffa decompile SYSTEM PKG CLASS           one class back to UnrealScript
     ffa decompile SYSTEM PKG --all -o DIR    every class of a package
     ffa defaults  SYSTEM PKG CLASS           a class's defaultproperties
@@ -98,6 +99,12 @@ def extract(args):
     print(f'{pkg.name}: saved {ok} textures, failed {bad}')
 
 
+def sounds(args):
+    import usound
+    pkg = os.path.splitext(os.path.basename(args.package))[0]
+    usound.main([args.package, '-o', os.path.join(args.out, pkg)])
+
+
 def decompile(args):
     import udecompile
     if args.all:
@@ -146,7 +153,7 @@ def check(args):
             print('  failed: %s' % ex)
         sys.stdout.flush()
 
-    import uscript, udefaults, umap, umesh, ubsp, uskel, uanim, umaterial
+    import uscript, udefaults, umap, umesh, ubsp, uskel, uanim, umaterial, usound
     section('script: functions to the exact end of their records', lambda: uscript.main(u))
     section('class defaults', lambda: udefaults.main([sysdir]))
     section('levels: objects whose properties parse', lambda: umap.main([maps]))
@@ -158,6 +165,7 @@ def check(args):
     section('BSP solid and empty under actors', lambda: ubsp.main(['--solid', maps]))
     section('skeletal meshes', lambda: uskel.main([os.path.join(g, 'Animations')]))
     section('animations', lambda: uanim.main([os.path.join(g, 'Animations')]))
+    section('sounds', lambda: usound.main([os.path.join(g, d) for d in ('Sounds', 'System', 'Animations')]))
 
 
 def main():
@@ -179,6 +187,11 @@ def main():
     p.add_argument('--max', type=int, default=None,
                    help='largest mip side to save; the full size by default')
     p.set_defaults(run=extract)
+
+    p = sub.add_parser('sounds', help='extract sounds from the package')
+    p.add_argument('package')
+    p.add_argument('-o', '--out', default='out')
+    p.set_defaults(run=sounds)
 
     p = sub.add_parser('decompile', help='classes back to UnrealScript')
     p.add_argument('system', help="the game's System directory")
