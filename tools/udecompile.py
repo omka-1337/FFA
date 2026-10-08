@@ -118,6 +118,14 @@ class Printer:
             return '(%s != %s)' % (self.expr(n.kids[0]), self.expr(n.kids[1]))
         if op == 'InstanceDelegate':
             return self.ref(n)
+        if op == 'DelegateProperty':
+            return self.ref(n)
+        if op == 'DelegateFunction':
+            # a call through the delegate property, by the delegate's name
+            return '%s(%s)' % (self.p.names[n.vals[1][1]], self.args(n.kids))
+        if op in ('DynArrayInsert', 'DynArrayRemove') and len(n.kids) == 3:
+            return '%s.%s(%s, %s)' % (self.expr(n.kids[0]), op[8:],
+                                      self.expr(n.kids[1]), self.expr(n.kids[2]))
         if op == 'New':
             return 'new(%s)' % self.args(n.kids)
         if n.kids:
@@ -156,7 +164,7 @@ class Printer:
 
     def statement(self, n):
         op = n.op
-        if op in ('Let', 'LetBool') and len(n.kids) == 2:
+        if op in ('Let', 'LetBool', 'LetDelegate') and len(n.kids) == 2:
             return '%s = %s;' % (self.expr(n.kids[0]), self.expr(n.kids[1]))
         if op == 'Return':
             inner = self.expr(n.kids[0]) if n.kids else ''

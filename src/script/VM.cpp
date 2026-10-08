@@ -311,7 +311,14 @@ void VM::resolve(Ins& n, int pkg) {
     case Op::GlobalFunction:
     case Op::NameConst:
     case Op::InstanceDelegate:
+    case Op::DelegateProperty:
         n.name = p.name(ref());
+        break;
+    case Op::DelegateFunction:
+        if (n.raw.size() < 2) throw FormatError("DelegateFunction without its operands");
+        n.prop = linker.propRef(pkg, int32_t(n.raw[0]));
+        if (!n.prop) throw FormatError("DelegateFunction does not name a delegate");
+        n.name = p.name(int32_t(n.raw[1]));
         break;
     case Op::FinalFunction:
         n.fn = linker.functionRef(pkg, ref());
@@ -543,8 +550,33 @@ void VM::run(Frame& f) {
 
 void VM::stmt(const Ins& n, Frame& f) {
     switch (n.op) {
+    case Op::DynArrayInsert:
+    case Op::DynArrayRemove: {
+        // array.Insert(Index, Count) and array.Remove(Index, Count). The
+        // engine refuses an index or count out of range, with a warning.
+        LRef b = lv(n.kids[0], f, f.self, true);
+        Prop* inner = b.prop ? b.prop->inner() : nullptr;
+        int32_t at = ev(n.kids[1], f, f.self).i(), count = ev(n.kids[2], f, f.self).i();
+        Value* a = b.resolve();
+        if (!a || !a->isArr()) return;
+        Array& arr = a->arr();
+        bool insert = n.op == Op::DynArrayInsert;
+        if (at < 0 || count < 0 || size_t(at) > arr.size() ||
+            (!insert && size_t(at) + size_t(count) > arr.size())) {
+            warn(&f, &n, std::string("Attempt to ") + (insert ? "insert " : "remove ") +
+                             std::to_string(count) + " elements at " + std::to_string(at) +
+                             " in an " + std::to_string(arr.size()) + "-element array");
+            return;
+        }
+        if (insert)
+            arr.insert(arr.begin() + at, size_t(count), inner ? inner->zero() : Value());
+        else
+            arr.erase(arr.begin() + at, arr.begin() + at + count);
+        return;
+    }
     case Op::Let:
-    case Op::LetBool: {
+    case Op::LetBool:
+    case Op::LetDelegate: {
         // The value is computed before the variable is located, so that a
         // call on the right that grows an array cannot move the target away.
         Value v = ev(n.kids[1], f, f.self);
@@ -868,7 +900,19 @@ Value VM::ev(const Ins& n, Frame& f, Object* ctx) {
     case Op::NativeCall:
         return callNative(n.fn, ctx, n.kids, f);
     case Op::InstanceDelegate:
+    case Op::DelegateProperty:
         return Value::Dlg(Delegate{ctx, n.name});
+    case Op::DelegateFunction: {
+        // Call through the delegate property: its bound function on its
+        // object, or, unbound, the delegate's own body on this object.
+        if (!ctx) throw error("delegate call " + n.name.str() + " with no object");
+        Delegate d = slot(ctx, n.prop, &f, &n)->d();
+        Object* self = d.obj && !d.obj->deleted ? d.obj : ctx;
+        Name fname = d.obj && !d.obj->deleted ? d.func : n.name;
+        Function* fn = findVirtual(self, fname);
+        if (!fn) throw error(self->path() + " has no function " + fname.str());
+        return invoke(fn, self, n.kids, f);
+    }
     case Op::DynamicCast: {
         Object* o = ev(n.kids[0], f, f.self).o();
         return Value::Obj(isA(o, n.obj) ? o : nullptr);

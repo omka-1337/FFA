@@ -114,6 +114,24 @@ CASTS = {
 for _op in range(0x39, 0x60):
     OPS.setdefault(_op, (f'Cast_{CASTS.get(_op, "x%02x" % _op)}', ['expr']))
 
+# Codes in the conversion range that stand alone are tokens of their own. Each
+# layout was chosen by measurement, the one that makes the most functions both
+# end on their record and agree with their declared size:
+#   0x43 DelegateFunction: the delegate property, the name it is called by, and
+#        the parameters; 8599 to 8623 aligned, 8547 to 8595 sized.
+#   0x44 DelegateProperty: one name; with it all 8638 functions pass both.
+#   0x40 DynArrayInsert and 0x41 DynArrayRemove: the array, an index and a
+#        count; 0x45 LetDelegate: the delegate and its value. Lengths cannot
+#        tell these apart, the extra operands parse as statements of their
+#        own, so the count was chosen by what follows: read with one operand,
+#        each leaves its others behind as bare expressions, `0;` and
+#        `pris.Length;` after `pris.Remove`.
+OPS[0x40] = ('DynArrayInsert', ['expr', 'expr', 'expr'])
+OPS[0x41] = ('DynArrayRemove', ['expr', 'expr', 'expr'])
+OPS[0x43] = ('DelegateFunction', ['obj', 'name', 'parms'])
+OPS[0x44] = ('DelegateProperty', ['name'])
+OPS[0x45] = ('LetDelegate', ['expr', 'expr'])
+
 
 def read_tail(b, e):
     """FunctionFlags and tail length of a UFunction record.
@@ -192,7 +210,7 @@ class Script:
             code = r.u8()
             if not EX_PRIMITIVE_CAST <= code < 0x60:
                 raise ValueError('primitive cast with conversion 0x%02x' % code)
-            n.op = OPS[code][0]
+            n.op = 'Cast_' + CASTS.get(code, 'x%02x' % code)
             kid = self.token(r, mem + 2)
             n.kids.append(kid)
             n.mem_size = 2 + kid.mem_size

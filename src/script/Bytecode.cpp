@@ -77,8 +77,17 @@ const OpInfo& info(uint8_t op) {
         set(0x36, "StructMember", {Obj, Expr});
         set(0x37, "DynArrayLength", {Expr});
         set(0x38, "GlobalFunction", {Nm, Parms});
-        // 0x39 .. 0x5F are the primitive conversions, one expression each.
+        // 0x39 is the primitive cast prefix, read in token(); the codes after
+        // it, 0x39 .. 0x5F, are conversions of one expression each, and most
+        // also stand as tokens. Five do not: they are tokens of their own,
+        // each layout the one that makes every function in Shrek 2 end on its
+        // record and agree with its declared size (docs/package-format.md).
         for (int op = 0x39; op < 0x60; ++op) set(uint8_t(op), "Cast", {Expr});
+        set(0x40, "DynArrayInsert", {Expr, Expr, Expr});
+        set(0x41, "DynArrayRemove", {Expr, Expr, Expr});
+        set(0x43, "DelegateFunction", {Obj, Nm, Parms});
+        set(0x44, "DelegateProperty", {Nm});
+        set(0x45, "LetDelegate", {Expr, Expr});
         return t;
     }();
     return table[op];
@@ -156,7 +165,8 @@ Ins BytecodeParser::token(Reader& r, uint32_t mem) {
     }
     const OpInfo& oi = info(op);
     if (!oi.name) throw FormatError("unknown opcode");
-    n.op = op >= 0x39 ? Op::Cast : Op(op);
+    bool own = op == 0x40 || op == 0x41 || op == 0x43 || op == 0x44 || op == 0x45;
+    n.op = op >= 0x39 && !own ? Op::Cast : Op(op);
     int floats = 0;
     for (K k : oi.operands) {
         switch (k) {

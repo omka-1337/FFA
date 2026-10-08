@@ -31,6 +31,8 @@ enum class Op : uint8_t {
     IteratorNext = 0x31, StructCmpEq = 0x32, StructCmpNe = 0x33,
     UnicodeStringConst = 0x34, InstanceDelegate = 0x35, StructMember = 0x36,
     DynArrayLength = 0x37, GlobalFunction = 0x38,
+    DynArrayInsert = 0x40, DynArrayRemove = 0x41, DelegateFunction = 0x43,
+    DelegateProperty = 0x44, LetDelegate = 0x45,
     Cast = 0x39,            // 0x39 .. 0x5F, the conversion in `code`
     NativeCall = 0x60,      // 0x60 .. 0xFF, the index in `native`
 };

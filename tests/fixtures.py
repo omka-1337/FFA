@@ -369,9 +369,18 @@ class Asm:
         if op == 'dynlen':
             b, m = self.node(n[1], mem + 1)
             return b'\x37' + b, 1 + m
+        if op in ('dyninsert', 'dynremove'):
+            out, size = bytes([0x40 if op == 'dyninsert' else 0x41]), 1
+            for k in n[1:]:
+                b, m = self.node(k, mem + size)
+                out += b
+                size += m
+            return out, size
         if op == 'cast':
-            b, m = self.node(n[2], mem + 1)
-            return bytes([n[1]]) + b, 1 + m
+            # as the game's compiler writes it: EX_PrimitiveCast, the
+            # conversion code, then the expression
+            b, m = self.node(n[2], mem + 2)
+            return bytes([0x39, n[1]]) + b, 2 + m
         if op == 'native':
             index = n[1]
             head = bytes([index]) if index >= 0x70 and index < 0x100 else \
@@ -802,6 +811,21 @@ def build_game(core_obj, vector):
               nat('AddEqual_IntInt', ('local', 'R'), ('dynel', ('int', 10), ('inst', 'Items'))),
               ('let', ('dynlen', ('inst', 'Items')), ('int', 2)),
               ('return', add(add(('local', 'R'), ('local', 'L')), ('dynlen', ('inst', 'Items'))))]
+
+    # Items = [1, 2, 3]; Insert(1, 2) gives [1, 0, 0, 2, 3]; Items[1] = 9;
+    # Remove(0, 1) gives [9, 0, 2, 3]. Result 9000 + 200 + 30 + length 4.
+    f = base.func('InsertRemoveTest', ret='int')
+    f.code = [('let', ('dynlen', ('inst', 'Items')), ('int', 0)),
+              ('let', ('dynel', ('int', 0), ('inst', 'Items')), ('int', 1)),
+              ('let', ('dynel', ('int', 1), ('inst', 'Items')), ('int', 2)),
+              ('let', ('dynel', ('int', 2), ('inst', 'Items')), ('int', 3)),
+              ('dyninsert', ('inst', 'Items'), ('int', 1), ('int', 2)),
+              ('let', ('dynel', ('int', 1), ('inst', 'Items')), ('int', 9)),
+              ('dynremove', ('inst', 'Items'), ('int', 0), ('int', 1)),
+              ('return', add(add(add(nat('Multiply_IntInt', ('dynel', ('int', 0), ('inst', 'Items')), ('int', 1000)),
+                                     nat('Multiply_IntInt', ('dynel', ('int', 2), ('inst', 'Items')), ('int', 100))),
+                                 nat('Multiply_IntInt', ('dynel', ('int', 3), ('inst', 'Items')), ('int', 10))),
+                             ('dynlen', ('inst', 'Items'))))]
 
     # Slots[2] = 5; result Slots[2] * 10 + Slots[1] (7 from the defaults);
     # Slots[9] is clamped to Slots[3] with a warning and reads 0.

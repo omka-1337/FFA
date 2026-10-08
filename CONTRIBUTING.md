@@ -134,8 +134,10 @@ whose records carry native data after their properties.
 - [ ] The cutscene script language: some fifty commands, Cue, Say, FlyTo,
   PlayAnim and the rest, which the engine has to run. Which script classes
   interpret them is the place to start.
-- [ ] Script: the 39 functions that still fail end alignment, 33 of them in
-  GUI.u, and the class header fields between the struct and the defaults.
+- [x] Script: all 8638 functions end on their record and agree with their
+  size, since the delegate and dynamic array tokens were read.
+- [ ] The class header fields between the struct and the defaults, and what
+  the lone token 0x42 is.
 
 Not formats of our own: music is plain Ogg Vorbis, and the cutscenes are Bink
 video, which FFmpeg decodes.
@@ -149,11 +151,9 @@ Engine:
 - [x] Which structs are stored raw: Vector, Rotator and Color only. With tag
   type 7 read as a delegate and the defaults block chosen by tag types as well
   as names, all 2002 default objects build without a problem.
-- [ ] The functions the VM does not load: 8077 of 8140 compile now that the
-  net function tail and the primitive cast prefix are read right. Left: the 39
-  misaligned ones, 33 in GUI.u, 9 variable references in GUI.u that are most
-  likely the same misparse, about 15 jumps that land inside a statement, and
-  one undeclared native.
+- [x] The functions the VM does not load: all 8140 script functions compile,
+  with the net function tail, the cast prefix and the delegate and dynamic
+  array tokens read right, and Insert and Remove tested in the fixtures.
 - [ ] LabelTableOffset in a state's tail agrees with the label table found by
   the bytecode walk in 216 states and not in 752.
 - [ ] Engine natives: Actor, Level, spawning, timers, the tick.

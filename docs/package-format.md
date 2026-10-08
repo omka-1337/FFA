@@ -25,7 +25,7 @@ The class reader was additionally confirmed against the outside world: the
 recovered signatures of `Actor.Spawn`, `Actor.Trace`, `Actor.PlaySound` and
 `Actor.PlayAnim` match the published UE2 API exactly.
 
-Current state: 8599 of 8638 functions pass end alignment, 8547 pass both checks.
+Current state: all 8638 functions pass both end alignment and the size check.
 
 ## Primitives
 
@@ -226,8 +226,33 @@ index, `parms` expressions terminated by EndFunctionParms (0x16).
 0x34 UnicodeStringConst     0x35 InstanceDelegate name  0x36 StructMember obj expr
 0x37 DynArrayLength expr    0x38 GlobalFunction name parms
 0x39 PrimitiveCast u8 expr  the byte is the conversion, 0x39 .. 0x5F
-0x3A .. 0x5F                the conversions also stand as tokens, rarely
+0x40 DynArrayInsert e e e   array, index, count
+0x41 DynArrayRemove e e e   array, index, count
+0x43 DelegateFunction obj name parms
+                            a call through a delegate property
+0x44 DelegateProperty name  a function, as a delegate value
+0x45 LetDelegate expr expr  delegate assignment
+other 0x3A .. 0x5F          conversions as tokens of their own, 53 in all
 ```
+
+**These five closed the last misaligned functions.** For as long as the token
+table had 0x39 to 0x5F as one run of casts, 39 functions failed to end on their
+record, 33 of them in GUI.u, the package that uses delegates for every button.
+0x43 was found by hand on GUIListBox.InternalOnChange, `43 10 0a 17 16 04 0b`:
+the delegate property, the name OnChange, the parameter self, then return,
+13 bytes in memory against a declared 13. Every other layout was chosen by
+measurement over the whole corpus. Read as DelegateFunction, 24 more functions
+align; with 0x44 taking a single name, all 8638 functions of the game end on
+their record and agree with their declared size, the first time with no
+exception. The 94 names 0x44 carries are all functions of their class, bar 3
+None; the property 0x43 carries is a DelegateProperty in all 54.
+
+Three of the five cannot be told apart by length. A token that takes three
+expressions read as taking one leaves the other two behind as statements of
+their own, and the function still ends where it should. They show as bare
+expressions instead, `pris.Remove` followed by the statements `0;` and
+`pris.Length;`, and the right count is the one that leaves none: three for
+0x40 and 0x41, two for 0x45, 262 such statements gone in all.
 
 0x39 is a prefix, EX_PrimitiveCast: the byte after it says which conversion,
 0x3A ByteToInt, 0x3F IntToFloat, 0x53 IntToString and so on, with 0x39 itself
@@ -1547,8 +1572,8 @@ budget per record. Run bulk passes under an external memory cap.
 - Version 2 lip sync after a sound, the curves that move the characters'
   mouths in the dialogue.
 
-- 39 of 8638 functions still fail end alignment, 33 of them in GUI.u.
-- 52 functions align but disagree on size, 42 of them in GUI.u.
+- 0x42, standing alone five times, is read with one expression; nothing yet
+  says what it is.
 - The seventh index of struct-like records is zero everywhere seen, so its
   meaning is unknown.
 - The fields between a class's struct header and its defaults block are still
