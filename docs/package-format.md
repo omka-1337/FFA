@@ -682,9 +682,10 @@ How the engine combines it is not in the data. The viewer draws a lit surface
 as its texture times the light, the lightmap texel or the vertex colour, plus
 its zone's ambient, and compared by eye with the game the light looks right
 doubled rather than as stored. The shadows in the lightmaps are baked ones, cast
-when the level's lighting was built, among them hard shadows of the bars in the
-Donkey prison; whether the game shows them as plainly as the viewer does has
-not been compared at the same spot yet.
+when the level's lighting was built, among them the shadows of the bars in the
+Donkey prison, and the game shows them the same way: compared with gameplay
+footage, they are there, as darker patches of the surface, with no shadow drawn
+at run time.
 
 Three levels, the Fairy Godmother battle, Hamlet and the Hamlet mine, have
 their lightmaps with all their shadow bitmaps but a single texture with both
