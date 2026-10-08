@@ -32,8 +32,19 @@ public:
     std::vector<Object*> terrainActors;
 
     // The first thing the segment from a to b hits: the BSP, the terrains,
-    // and every blocking static mesh actor but `ignore`.
-    TraceHit lineCheck(Vec3 a, Vec3 b, const Object* ignore = nullptr);
+    // and every blocking static mesh actor but `ignore`. With `actors`, also
+    // the collision cylinders of the actors that block traces. With
+    // `worldOnly`, only what is world geometry.
+    TraceHit lineCheck(Vec3 a, Vec3 b, const Object* ignore = nullptr, bool actors = false,
+                       bool worldOnly = false);
+    // Every actor the segment passes through before it hits the BSP, nearest
+    // first, and then the BSP's hit as the LevelInfo.
+    std::vector<TraceHit> multiLineCheck(Vec3 a, Vec3 b, const Object* ignore = nullptr);
+
+    // Move an actor to p, and update its Region; with `events`, the zones'
+    // ActorLeaving and ActorEntered and the actor's ZoneChange when the zone
+    // is another. Collision is not tested.
+    void place(Object* a, Vec3 p, bool events = true);
 
     // The collision of a StaticMesh object, or null when it cannot be found.
     const StaticMeshCollision* mesh(Object* meshObject);
@@ -45,7 +56,15 @@ private:
     struct Placed {
         Object* actor;
         const StaticMeshCollision* mesh;
+        bool fixed;                 // bStatic: its transform is kept
+        bool world;                 // bWorldGeometry
+        float m[3][3], inv[3][3];
+        Vec3 origin, lo, hi;        // and its box in the world
+        bool invertible = false;
     };
+    void update(Placed& pl);
+    void meshHits(Vec3 a, Vec3 b, const Object* ignore, bool worldOnly, std::vector<TraceHit>* all,
+                  TraceHit& best);
     // An actor's mesh to world transform: world = origin + M v.
     struct Transform {
         float m[3][3];              // columns are the scaled axes
@@ -59,5 +78,8 @@ private:
     std::map<std::string, std::unique_ptr<Package>> packages_;
     std::map<std::string, std::unique_ptr<StaticMeshCollision>> meshes_;   // by path
 };
+
+// Trace, FastTrace, TraceActors and SetLocation, on the World's Collision.
+void registerCollisionNatives(VM& vm);
 
 }  // namespace ffa

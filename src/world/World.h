@@ -21,6 +21,8 @@
 
 namespace ffa {
 
+class Collision;
+
 class World {
 public:
     World(VM& vm, int pkg, const LevelRecord& level);
@@ -33,6 +35,8 @@ public:
     bool begunPlay = false;
     size_t editorOnly = 0;          // listed actors the game does not load
     std::unordered_map<const Object*, int32_t> exportOf;   // the loaded actors' exports
+    std::unordered_map<int32_t, Object*> actorAt;         // and back
+    Collision* collision = nullptr;  // what traces hit, once attached
 
     // The world a VM's natives act on; null when none is attached.
     static World* of(VM& vm) { return static_cast<World*>(vm.host); }

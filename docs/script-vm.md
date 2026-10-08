@@ -267,9 +267,27 @@ each waits one frame and is counted as missing: state code that loops on one
 then gives way each frame, as it would in the game, where without it the loop
 would spin within a single frame.
 
+Traces go through the level's collision (`src/world/Collision.cpp`): the BSP,
+the terrains, and the static mesh actors that block traces, with the actors'
+cylinders when asked for. Trace returns the actor hit, the LevelInfo for the
+BSP, and zero vectors when nothing is hit. TraceActors yields the actors along
+the line nearest first and then the BSP's hit as the LevelInfo, which the
+data asks for: the camera's script, BaseCam.bShouldBlock, tests a hit with
+IsA('LevelInfo'). FastTrace counts world geometry only. SetLocation moves the
+actor and updates its Region, sending ActorLeaving, ZoneChange and
+ActorEntered when the zone changes. Two things are approximated and counted as
+such: a trace with an extent is traced as a line, and an actor that collides is
+moved by SetLocation without testing that it fits. In twenty seconds of every
+level that happens 650 and 45 times.
+
+The camera shows the collision at work. KnowWonder's camera, ShCam, is an actor
+that traces from Shrek back to where it wants to be; at the swamp's start that
+place is inside the bank behind him, the terrain at 49 against the camera's
+-93, so it settles 115 units from him instead of 200.
+
 **Corpus check.** Twenty seconds of every level run 8014835 events with no
 script error. Thirty seconds of Shrek's swamp take 2.4 s. Gnats and dragonflies
 spawn and wander, 32 KWCutScene objects come up, the camera ShCam runs in
-StateStandardCam, and Shrek, Donkey and Fiona idle. What the frames call most
-without having it is collision, Trace, TraceActors and SetLocation, the camera
-and the shadow projectors above all, and then animation blending.
+StateStandardCam, and Shrek, Donkey and Fiona idle. With collision in, what the
+frames call most without having it is animation, projectors and attachment to
+bones. Twenty seconds of the slowest level, 6_Hamlet, take 10.4 s.

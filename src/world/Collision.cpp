@@ -1,6 +1,7 @@
 #include "world/Collision.h"
 
 #include <cctype>
+#include <algorithm>
 #include <filesystem>
 
 namespace ffa {
@@ -96,7 +97,13 @@ Collision::Collision(World& w, int mapPkg, int32_t model, const std::string& gam
             ++meshesMissing;
             continue;
         }
-        placed_.push_back({a, c});
+        Placed pl{};
+        pl.actor = a;
+        pl.mesh = c;
+        pl.fixed = w.flag(a, "bStatic");
+        pl.world = w.flag(a, "bWorldGeometry");
+        update(pl);
+        placed_.push_back(pl);
     }
 }
 
@@ -177,7 +184,103 @@ Collision::Transform Collision::transform(Object* a) {
     return t;
 }
 
-TraceHit Collision::lineCheck(Vec3 a, Vec3 b, const Object* ignore) {
+void Collision::update(Placed& pl) {
+    Transform t = transform(pl.actor);
+    std::copy(&t.m[0][0], &t.m[0][0] + 9, &pl.m[0][0]);
+    pl.origin = t.origin;
+    pl.invertible = invert(pl.m, pl.inv);
+    // the mesh's box, carried into the world by its eight corners
+    Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+    for (const Vec3& v : pl.mesh->positions) {
+        lo = {std::min(lo.x, v.x), std::min(lo.y, v.y), std::min(lo.z, v.z)};
+        hi = {std::max(hi.x, v.x), std::max(hi.y, v.y), std::max(hi.z, v.z)};
+    }
+    pl.lo = {1e30f, 1e30f, 1e30f};
+    pl.hi = {-1e30f, -1e30f, -1e30f};
+    for (int k = 0; k < 8; ++k) {
+        Vec3 c{k & 1 ? hi.x : lo.x, k & 2 ? hi.y : lo.y, k & 4 ? hi.z : lo.z};
+        Vec3 w = pl.origin + mul(pl.m, c);
+        pl.lo = {std::min(pl.lo.x, w.x), std::min(pl.lo.y, w.y), std::min(pl.lo.z, w.z)};
+        pl.hi = {std::max(pl.hi.x, w.x), std::max(pl.hi.y, w.y), std::max(pl.hi.z, w.z)};
+    }
+}
+
+namespace {
+
+bool segmentMeetsBox(Vec3 a, Vec3 b, Vec3 lo, Vec3 hi) {
+    float t0 = 0, t1 = 1;
+    const float pa[3] = {a.x, a.y, a.z}, pb[3] = {b.x, b.y, b.z};
+    const float mn[3] = {lo.x - 1, lo.y - 1, lo.z - 1}, mx[3] = {hi.x + 1, hi.y + 1, hi.z + 1};
+    for (int k = 0; k < 3; ++k) {
+        float d = pb[k] - pa[k];
+        if (std::fabs(d) < 1e-12f) {
+            if (pa[k] < mn[k] || pa[k] > mx[k]) return false;
+            continue;
+        }
+        float u = (mn[k] - pa[k]) / d, v = (mx[k] - pa[k]) / d;
+        if (u > v) std::swap(u, v);
+        t0 = std::max(t0, u);
+        t1 = std::min(t1, v);
+        if (t0 > t1) return false;
+    }
+    return true;
+}
+
+// Where the segment a..b first meets an upright cylinder, or 1.
+float cylinder(Vec3 a, Vec3 b, Vec3 c, float r, float h, Vec3& normal) {
+    Vec3 d = b - a, o = a - c;
+    float best = 1;
+    // the side
+    float A = d.x * d.x + d.y * d.y, B = 2 * (o.x * d.x + o.y * d.y), C = o.x * o.x + o.y * o.y - r * r;
+    if (A > 1e-12f) {
+        float disc = B * B - 4 * A * C;
+        if (disc >= 0) {
+            float t = (-B - std::sqrt(disc)) / (2 * A);
+            float z = o.z + d.z * t;
+            if (t >= 0 && t < best && std::fabs(z) <= h) {
+                best = t;
+                Vec3 p = o + d * t;
+                normal = Vec3{p.x, p.y, 0} * (1 / r);
+            }
+        }
+    }
+    // the caps
+    for (float cap : {h, -h}) {
+        if (std::fabs(d.z) < 1e-12f) break;
+        float t = (cap - o.z) / d.z;
+        if (t < 0 || t >= best) continue;
+        Vec3 p = o + d * t;
+        if (p.x * p.x + p.y * p.y > r * r) continue;
+        if ((cap > 0) != (d.z < 0)) continue;   // a cap is met from outside only
+        best = t;
+        normal = {0, 0, cap > 0 ? 1.0f : -1.0f};
+    }
+    return best;
+}
+
+}  // namespace
+
+void Collision::meshHits(Vec3 a, Vec3 b, const Object* ignore, bool worldOnly, std::vector<TraceHit>* all,
+                         TraceHit& best) {
+    for (Placed& pl : placed_) {
+        if (pl.actor == ignore || pl.actor->deleted || (worldOnly && !pl.world)) continue;
+        if (!pl.fixed) update(pl);
+        if (!pl.invertible || !segmentMeetsBox(a, b, pl.lo, pl.hi)) continue;
+        Hit h = pl.mesh->lineCheck(mul(pl.inv, a - pl.origin), mul(pl.inv, b - pl.origin));
+        if (!h || (!all && h.time >= best.time)) continue;
+        TraceHit t;
+        t.time = h.time;
+        t.location = lerp(a, b, h.time);
+        Vec3 n = mulT(pl.inv, h.normal);
+        float len = length(n);
+        t.normal = len > 0 ? n * (1 / len) : n;
+        t.actor = pl.actor;
+        if (all) all->push_back(t);
+        if (t.time < best.time) best = t;
+    }
+}
+
+TraceHit Collision::lineCheck(Vec3 a, Vec3 b, const Object* ignore, bool actors, bool worldOnly) {
     TraceHit best;
     static_cast<Hit&>(best) = bsp.lineCheck(a, b);
     for (size_t i = 0; i < terrains.size(); ++i) {
@@ -186,23 +289,181 @@ TraceHit Collision::lineCheck(Vec3 a, Vec3 b, const Object* ignore) {
         static_cast<Hit&>(best) = h;
         best.actor = terrainActors[i];
     }
-    for (const Placed& pl : placed_) {
-        if (pl.actor == ignore || pl.actor->deleted) continue;
-        Transform t = transform(pl.actor);
-        float inv[3][3];
-        if (!invert(t.m, inv)) continue;
-        Hit h = pl.mesh->lineCheck(mul(inv, a - t.origin), mul(inv, b - t.origin));
-        if (!h || h.time >= best.time) continue;
-        best.time = h.time;
-        best.location = lerp(a, b, h.time);
-        Vec3 n = mulT(inv, h.normal);
-        float len = length(n);
-        best.normal = len > 0 ? n * (1 / len) : n;
-        best.node = -1;
-        best.startSolid = false;
-        best.actor = pl.actor;
+    meshHits(a, b, ignore, worldOnly, nullptr, best);
+    if (actors) {
+        for (Object* o : world.actors) {
+            if (o == ignore || o->deleted || o == world.info) continue;
+            if (!world.flag(o, "bCollideActors") || !world.flag(o, "bBlockZeroExtentTraces")) continue;
+            if (world.var(o, "DrawType").i() == DT_StaticMesh && !world.flag(o, "bUseCylinderCollision")) continue;
+            Vec3 c, n;
+            world.vm.unvector(world.var(o, "Location"), c.x, c.y, c.z);
+            float t = cylinder(a, b, c, world.var(o, "CollisionRadius").f(), world.var(o, "CollisionHeight").f(), n);
+            if (t >= best.time) continue;
+            best.time = t;
+            best.location = lerp(a, b, t);
+            best.normal = n;
+            best.node = -1;
+            best.startSolid = false;
+            best.actor = o;
+        }
     }
     return best;
+}
+
+std::vector<TraceHit> Collision::multiLineCheck(Vec3 a, Vec3 b, const Object* ignore) {
+    Hit level = bsp.lineCheck(a, b);
+    std::vector<TraceHit> all;
+    TraceHit best;
+    best.time = level.time;
+    meshHits(a, b, ignore, false, &all, best);
+    for (size_t i = 0; i < terrains.size(); ++i) {
+        Hit h = terrains[i]->lineCheck(a, b);
+        if (!h) continue;
+        TraceHit t;
+        static_cast<Hit&>(t) = h;
+        t.actor = terrainActors[i];
+        all.push_back(t);
+    }
+    for (Object* o : world.actors) {
+        if (o == ignore || o->deleted || o == world.info) continue;
+        if (!world.flag(o, "bCollideActors")) continue;
+        if (world.var(o, "DrawType").i() == DT_StaticMesh && !world.flag(o, "bUseCylinderCollision")) continue;
+        Vec3 c, n;
+        world.vm.unvector(world.var(o, "Location"), c.x, c.y, c.z);
+        float t = cylinder(a, b, c, world.var(o, "CollisionRadius").f(), world.var(o, "CollisionHeight").f(), n);
+        if (t >= 1) continue;
+        TraceHit h;
+        h.time = t;
+        h.location = lerp(a, b, t);
+        h.normal = n;
+        h.actor = o;
+        all.push_back(h);
+    }
+    std::vector<TraceHit> out;
+    for (const TraceHit& h : all)
+        if (h.time <= level.time) out.push_back(h);
+    std::sort(out.begin(), out.end(), [](const TraceHit& x, const TraceHit& y) { return x.time < y.time; });
+    // The level's own geometry ends the list, as the LevelInfo: the camera's
+    // script asks a hit whether it IsA('LevelInfo').
+    if (level) {
+        TraceHit h;
+        static_cast<Hit&>(h) = level;
+        h.actor = world.info;
+        out.push_back(h);
+    }
+    return out;
+}
+
+void Collision::place(Object* a, Vec3 p, bool events) {
+    VM& vm = world.vm;
+    world.var(a, "Location") = vm.vector(p.x, p.y, p.z);
+    BspModel::Region r = bsp.regionAt(p);
+    Object* zone = world.info;
+    if (r.zone >= 0 && size_t(r.zone) < bsp.zoneActors.size()) {
+        auto it = world.actorAt.find(bsp.zoneActors[size_t(r.zone)]);
+        if (it != world.actorAt.end()) zone = it->second;
+    }
+    Value& region = world.var(a, "Region");
+    StructVal& sv = region.st();
+    Prop* zf = sv.type->field(Name("Zone"));
+    Prop* lf = sv.type->field(Name("iLeaf"));
+    Prop* nf = sv.type->field(Name("ZoneNumber"));
+    Object* old = sv.f[size_t(zf->slot)].o();
+    sv.f[size_t(lf->slot)] = Value::Int(r.leaf);
+    sv.f[size_t(nf->slot)] = Value::Int(r.zone);
+    if (old == zone) return;
+    sv.f[size_t(zf->slot)] = Value::Obj(zone);
+    if (!events) return;
+    if (old) vm.event(old, "ActorLeaving", {Value::Obj(a)});
+    vm.event(a, "ZoneChange", {Value::Obj(zone)});
+    vm.event(zone, "ActorEntered", {Value::Obj(a)});
+}
+
+// ================================================================ natives
+namespace {
+
+Collision& collisionOf(NativeCall& c) {
+    World* w = World::of(c.vm);
+    if (!w || !w->collision) throw c.vm.error("native " + c.fn->qualname() + " needs a level's collision");
+    return *w->collision;
+}
+
+Vec3 vecArg(NativeCall& c, size_t k) {
+    Vec3 v;
+    c.vm.unvector(c.get(k), v.x, v.y, v.z);
+    return v;
+}
+
+Vec3 locationOf(World& w, Object* a) {
+    Vec3 v;
+    w.vm.unvector(w.var(a, "Location"), v.x, v.y, v.z);
+    return v;
+}
+
+bool hasExtent(NativeCall& c, size_t k) {
+    if (!c.has(k)) return false;
+    Vec3 e = vecArg(c, k);
+    return e.x != 0 || e.y != 0 || e.z != 0;
+}
+
+}  // namespace
+
+void registerCollisionNatives(VM& vm) {
+    auto& n = vm.natives;
+    // Trace(out HitLocation, out HitNormal, End, optional Start, optional
+    // bTraceActors, optional Extent, out optional Material, optional flags).
+    // What it returns for the level's own geometry is the LevelInfo.
+    n["actor.trace"] = [](NativeCall& c) {
+        Collision& col = collisionOf(c);
+        World& w = col.world;
+        Vec3 end = vecArg(c, 2);
+        Vec3 start = c.has(3) ? vecArg(c, 3) : locationOf(w, c.self);
+        // A box is traced as a line until extents are done.
+        if (hasExtent(c, 5)) c.vm.missingCalls["Actor.Trace with an extent, traced as a line"]++;
+        TraceHit h = col.lineCheck(start, end, c.self, c.b(4));
+        if (!h) {
+            c.out(0, c.vm.vector(0, 0, 0));
+            c.out(1, c.vm.vector(0, 0, 0));
+            return Value::Obj(nullptr);
+        }
+        c.out(0, c.vm.vector(h.location.x, h.location.y, h.location.z));
+        c.out(1, c.vm.vector(h.normal.x, h.normal.y, h.normal.z));
+        return Value::Obj(h.actor ? h.actor : w.info);
+    };
+    // FastTrace(End, optional Start): whether nothing of the world's geometry
+    // is in the way.
+    n["actor.fasttrace"] = [](NativeCall& c) {
+        Collision& col = collisionOf(c);
+        Vec3 start = c.has(1) ? vecArg(c, 1) : locationOf(col.world, c.self);
+        return Value::Bool(!col.lineCheck(start, vecArg(c, 0), c.self, false, true));
+    };
+    // TraceActors(BaseClass, out Actor, out HitLoc, out HitNorm, End, optional
+    // Start, optional Extent, optional flags): every actor of the class along
+    // the line up to the level's geometry.
+    n["actor.traceactors"] = [](NativeCall& c) {
+        Collision& col = collisionOf(c);
+        Object* base = c.o(0);
+        if (!base || !base->isClass()) return Value();
+        Vec3 start = c.has(5) ? vecArg(c, 5) : locationOf(col.world, c.self);
+        if (hasExtent(c, 6)) c.vm.missingCalls["Actor.TraceActors with an extent, traced as a line"]++;
+        for (const TraceHit& h : col.multiLineCheck(start, vecArg(c, 4), c.self)) {
+            if (h.actor && h.actor->isA(static_cast<Class*>(base)))
+                c.yield({Value::Obj(h.actor), c.vm.vector(h.location.x, h.location.y, h.location.z),
+                         c.vm.vector(h.normal.x, h.normal.y, h.normal.z)});
+        }
+        return Value();
+    };
+    // SetLocation moves the actor and updates its zone. For an actor that
+    // collides the engine also refuses a place it would not fit, which needs
+    // box checks; until then it is moved regardless, and counted.
+    n["actor.setlocation"] = [](NativeCall& c) {
+        Collision& col = collisionOf(c);
+        World& w = col.world;
+        if (w.flag(c.self, "bCollideActors") || w.flag(c.self, "bCollideWorld"))
+            c.vm.missingCalls["Actor.SetLocation of a colliding actor, not tested for room"]++;
+        col.place(c.self, vecArg(c, 0));
+        return Value::Bool(true);
+    };
 }
 
 }  // namespace ffa

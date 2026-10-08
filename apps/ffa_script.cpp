@@ -14,6 +14,7 @@
 // default block decodes, and the state tail and cast table are tested
 // against what the bytecode itself says.
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -447,7 +448,10 @@ int start(const std::string& dir, const std::string& map, float seconds) {
     VM vm(lk);
     vm.sink = [](const std::string&, const std::string&) {};
     registerWorldNatives(vm);
+    registerCollisionNatives(vm);
     World w(vm, pkg, lv);
+    Collision col(w, pkg, lv.model, dir + "/..");
+    w.collision = &col;
     size_t loaded = w.actors.size();
     // The game: a Game= option of the URL, else the engine's default.
     std::string gameName = iniValue(dir + "/Default.ini", "Engine.Engine", "DefaultGame");
@@ -501,6 +505,20 @@ int start(const std::string& dir, const std::string& map, float seconds) {
                         pawn->state ? pawn->state->name.str().c_str() : "none");
         }
         std::printf("\n  view target       %s\n", name(w.obj(pc, "ViewTarget")).c_str());
+        // KnowWonder's camera follows the pawn as an actor of its own.
+        for (Object* a : w.actors) {
+            if (a->deleted || !a->cls->name.str().ends_with("Cam") || !pawn) continue;
+            float x, y, z, px, py, pz;
+            vm.unvector(w.var(a, "Location"), x, y, z);
+            vm.unvector(w.var(pawn, "Location"), px, py, pz);
+            int32_t pitch, yaw, roll;
+            vm.unrotator(w.var(a, "Rotation"), pitch, yaw, roll);
+            std::printf("  camera            %s (%s) at (%.0f, %.0f, %.0f), %.0f from the pawn, %.0f above; "
+                        "rotation (%d, %d, %d), state %s\n",
+                        a->path().c_str(), a->cls->name.str().c_str(), x, y, z,
+                        std::sqrt((x - px) * (x - px) + (y - py) * (y - py) + (z - pz) * (z - pz)), z - pz, pitch,
+                        yaw, roll, a->state ? a->state->name.str().c_str() : "none");
+        }
         std::printf("  HUD               %s\n", name(w.obj(pc, "myHUD")).c_str());
     } else {
         std::printf("\n");

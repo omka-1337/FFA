@@ -171,8 +171,11 @@ Engine:
 - [x] Line traces through the BSP, the terrains and the static meshes, read
   to the end of every record in the engine. Every hit from a coin or path node
   lies on a level polygon, and path nodes stand at their collision height.
+- [x] Trace, FastTrace, TraceActors and SetLocation with its zone change, on
+  that collision, with actors' cylinders.
 - [ ] Traces with an extent, a swept box, on the BSP's hulls and the meshes'
-  collision models; and actors' cylinders.
+  collision models, and SetLocation testing that an actor fits: 650 and 45
+  uses in twenty seconds of every level.
 - [ ] Config and localisation, probe masks, replication, garbage collection.
 
 Open questions, written up in the format document with the measurements so

@@ -1,5 +1,7 @@
 #include "world/World.h"
 
+#include "world/Collision.h"
+
 #include <cmath>
 #include <stdexcept>
 
@@ -19,6 +21,7 @@ World::World(VM& vm, int pkg, const LevelRecord& level) : vm(vm), linker(vm.link
         }
         actors.push_back(linker.instanceAt(pkg, idx));
         exportOf[actors.back()] = idx;
+        actorAt[idx] = actors.back();
     }
     if (actors.empty()) throw std::runtime_error("the level lists no actors");
     info = actors[0];
@@ -79,6 +82,12 @@ Object* World::spawn(Class* c, Object* spawner, Object* owner, Name tag, const V
         if (rotation) var(a, "Rotation") = *rotation;
     }
     actors.push_back(a);
+    // its zone, from where it stands
+    if (collision) {
+        Vec3 at;
+        vm.unvector(var(a, "Location"), at.x, at.y, at.z);
+        collision->place(a, at, false);
+    }
     if (owner) setOwner(a, owner);
     if (!begunPlay) return a;
     for (const char* ev : {"Spawned", "PreBeginPlay", "BeginPlay", "PostBeginPlay", "PostNetBeginPlay",
