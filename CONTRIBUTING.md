@@ -157,7 +157,10 @@ Engine:
 - [x] LabelTableOffset in a state's tail: the label table's entries, one byte
   past its token, in all 752 states with one, and 0xFFFF in the other 216.
 - [ ] Engine natives: Actor, Level, spawning, timers, the tick.
-- [ ] Loading a level: its actors as objects, with their state frames.
+- [x] Loading a level: all 22606 live actors of the 29 levels as objects,
+  agreeing with tools/umap.py on every one.
+- [ ] Starting a level: the start up sequence, PreBeginPlay, BeginPlay,
+  PostBeginPlay, SetInitialState, and the natives it calls.
 - [ ] Collision queries, a line trace and a swept box, on the static mesh
   triangle trees and collision models and on the BSP's leaves and hulls, all
   decoded. Checked against where the game's own actors stand.

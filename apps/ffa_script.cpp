@@ -3,6 +3,7 @@
 //   ffa-script check <System dir>                 load and compile everything, report
 //   ffa-script call  <System dir> Class.Function [args...]
 //   ffa-script smoke <System dir>                 call every static function once
+//   ffa-script level <System dir> <map> [dump]    load a level's live actors
 //
 // `check` is the corpus-wide proof the VM rests on, in the manner of the
 // Python readers in tools/: every class loads, every function and state compiles with
@@ -16,6 +17,7 @@
 #include <set>
 
 #include "script/VM.h"
+#include "world/Level.h"
 
 using namespace ffa;
 
@@ -25,7 +27,8 @@ int usage() {
     std::fprintf(stderr,
                  "usage: ffa-script check <System dir>\n"
                  "       ffa-script call <System dir> Class.Function [args...]\n"
-                 "       ffa-script smoke <System dir>\n");
+                 "       ffa-script smoke <System dir>\n"
+                 "       ffa-script level <System dir> <map.unr> [dump.tsv]\n");
     return 2;
 }
 
@@ -336,12 +339,72 @@ int smoke(const std::string& dir) {
 
 }  // namespace
 
+// Load a level's live actors with their properties, and report. With a dump
+// file, write each actor's name, class, Location and Tag, to compare with what
+// tools/umap.py reads from the same map.
+int level(const std::string& dir, const std::string& map, const char* dump) {
+    std::vector<std::string> paths = Linker::packageFiles(dir);
+    paths.push_back(map);
+    Linker lk(paths);
+    std::string stem = map.substr(map.find_last_of("/\\") + 1);
+    stem = stem.substr(0, stem.find_last_of('.'));
+    int pkg = lk.packageIndex(stem);
+    if (pkg < 0) throw std::runtime_error("the level " + stem + " did not load");
+    const Package& p = *lk.packages[size_t(pkg)];
+    LevelRecord lv = readLevel(p);
+    size_t before = lk.problems.size();
+    std::vector<Object*> actors = loadActors(lk, pkg, lv);
+    std::map<std::string, size_t> byClass;
+    size_t noClass = 0;
+    for (Object* a : actors) {
+        if (a->cls) byClass[a->cls->name.str()]++;
+        else ++noClass;
+    }
+    std::printf("level               %s, URL %s:%s port %d\n", p.file.c_str(), lv.protocol.c_str(),
+                lv.map.c_str(), lv.port);
+    std::printf("actors              %zu listed, %zu loaded, %zu without a class\n", lv.actors.size(),
+                actors.size(), noClass);
+    std::printf("first actor         %s\n", actors.empty() ? "-" : actors[0]->path().c_str());
+    std::vector<std::pair<size_t, std::string>> top;
+    for (auto& [c, n] : byClass) top.emplace_back(n, c);
+    std::sort(top.rbegin(), top.rend());
+    std::printf("classes             %zu, most common:", byClass.size());
+    for (size_t i = 0; i < top.size() && i < 6; ++i) std::printf(" %s %zu", top[i].second.c_str(), top[i].first);
+    std::printf("\nproperty problems   %zu\n", lk.problems.size() - before);
+    for (size_t i = before; i < lk.problems.size() && i < before + 10; ++i)
+        std::printf("  %s: %s\n", lk.problems[i].first.c_str(), lk.problems[i].second.c_str());
+    if (dump) {
+        FILE* out = std::fopen(dump, "w");
+        if (!out) throw std::runtime_error(std::string("cannot write ") + dump);
+        for (Object* a : actors) {
+            float x = 0, y = 0, z = 0;
+            std::string tag;
+            if (a->cls) {
+                if (Prop* lp = a->cls->findProp(Name("Location"))) {
+                    const Value& v = a->props[size_t(lp->slot)];
+                    if (v.isStruct() && v.st().f.size() == 3) {
+                        x = v.st().f[0].f();
+                        y = v.st().f[1].f();
+                        z = v.st().f[2].f();
+                    }
+                }
+                if (Prop* tp = a->cls->findProp(Name("Tag"))) tag = a->props[size_t(tp->slot)].n().str();
+            }
+            std::fprintf(out, "%s\t%s\t%.4f\t%.4f\t%.4f\t%s\n", a->name.str().c_str(),
+                         a->cls ? a->cls->name.str().c_str() : "-", x, y, z, tag.c_str());
+        }
+        std::fclose(out);
+    }
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) return usage();
     std::string cmd = argv[1], dir = argv[2];
     try {
         if (cmd == "check") return check(dir);
         if (cmd == "smoke") return smoke(dir);
+        if (cmd == "level" && argc >= 4) return level(dir, argv[3], argc >= 5 ? argv[4] : nullptr);
         if (cmd == "call" && argc >= 4)
             return call(dir, argv[3], std::vector<std::string>(argv + 4, argv + argc));
     } catch (const std::exception& ex) {

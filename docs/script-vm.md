@@ -150,3 +150,22 @@ recursion deeper than 250 calls, rather than hang.
 Probe masks and `ignores`; singular functions are honoured but not tested;
 replication; config and localisation; garbage collection; and every native
 outside Core.
+
+## Loading a level
+
+`ffa-script level <System> <map.unr>` opens the game's script packages and the
+map together, reads the Level record (`src/world/Level.cpp`, the layout in
+docs/package-format.md) and builds every actor it lists as an object, its
+properties being its class's defaults with its own block applied. Actors the
+package keeps but the Level does not list are deleted ones and are not loaded.
+
+**Measured.** All 29 levels of Shrek 2 load, 22606 actors, every one with its
+class and no property that fails to decode. Read by the engine and by
+tools/umap.py, each actor's name, class, Location and Tag agree, all 22606:
+two readers written apart, one in each language, reading the same thing.
+
+Every live actor carries a state frame, and in all of them both its node and
+its state node are the actor's own class, with no code position: the level
+was saved before anything ran. An actor's first state comes from the start up
+sequence, SetInitialState, not from the file.
+

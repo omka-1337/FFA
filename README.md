@@ -52,6 +52,7 @@ script has known results, and reads each one back with the Python readers in
 build/ffa-script check $SYS                       # load and compile everything, report
 build/ffa-script call  $SYS GameInfo.ParseOption '?Name=Bob?Class=X' Name
 build/ffa-script smoke $SYS                       # call every static function once
+build/ffa-script level $SYS ../Maps/1_Shreks_Swamp.unr   # load a level's live actors
 ```
 
 `$SYS` is a game's `System` directory, or that of Epic's freely available

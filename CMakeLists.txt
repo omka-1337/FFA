@@ -23,6 +23,7 @@ add_library(ffa_script
   src/script/Linker.cpp
   src/script/VM.cpp
   src/script/NativesCore.cpp
+  src/world/Level.cpp
 )
 target_include_directories(ffa_script PUBLIC src)
 
