@@ -117,7 +117,7 @@ whose records carry native data after their properties.
 - [ ] **Lip sync**, version 2, after 2681 of the sounds, nearly all the
   dialogue: curves of floats over time that move the characters' mouths.
   Versions 0 and 1 are read.
-- [ ] **Font** (120). The menus' and HUD's text.
+- [x] **Font** (120). Both layouts, by package version, drawn as text.
 - [ ] **Lighting**: BSP lightmaps, the rest of a level Model after Linked, and
   `StaticMeshInstance` (9260), each placed mesh's baked vertex light.
 - [ ] **Terrain**: the native part of `TerrainInfo` after its properties, and

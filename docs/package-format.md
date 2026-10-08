@@ -1214,6 +1214,53 @@ three fields is floats starting two bytes out of alignment, with channels that
 ramp smoothly over the frames, and two further i32s whose meaning is unknown,
 the second of which is not the body's size.
 
+## Fonts
+
+A Font is a set of glyph rectangles over texture pages, after an empty property
+block, in one of two layouts. Which one is decided by the package version, and
+Shrek 2 ships both: its own fonts are in version 129 packages, and GUIFONTS.utx
+is 122, but UT2003Fonts.utx is 120, WarfareFonts.utx 121 and UWindowFonts.utx
+99, brought over from Epic's earlier games.
+
+Version 122 and later:
+
+```
+index     character count, 256 in every font
+per char  i32 StartU, StartV, USize, VSize, u8 page
+index     page count, then Texture references
+i32       0 or 1
+index     character remap count, then u16 pairs
+i32       0
+```
+
+Version 121 and earlier:
+
+```
+index     page count
+per page  index Texture, index character count, i32 x4 per character
+i32       characters per page: 32, 128 or 256
+i32       0, 1 or 2; not there in version 99
+index     character remap count, then u16 pairs
+i32       0
+```
+
+All 120 fonts read to the exact end of their records with the layout their
+version picks, every page is a Texture, and every glyph's rectangle lies inside
+its page. The remap is empty in all of them, so a character's code is its
+glyph's index. Version 99 was found by its records overrunning by exactly the
+four bytes of the i32 after the pages. Drawn, a line of text comes out
+readable in both layouts, which the rectangles alone could not show:
+`ufont.py <package> <font> <text> <out.png>`.
+
+**One font points at the wrong pages.** SHHugeInkFont, in SH_Fonts.utx and in
+its copy in SHGame.u, lists four pages, but the third and fourth are PageA
+again, while its PageC and PageD sit in the package unreferenced. The glyphs on
+those two pages are codes 164 and up, the accented letters, so as stored they
+draw fragments of PageA. Putting PageC and PageD in those slots brings some of
+them right, Ö, ß and ü, and leaves others blank, so the slots are not simply
+swapped either. The English game has no use for those letters, which is likely
+why it shipped like this. The engine should draw what is stored.
+
 ## A warning about parsers
 
 A desynchronised parse will happily read garbage as opcodes and walk off the end

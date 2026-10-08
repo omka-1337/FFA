@@ -5,6 +5,8 @@
     ffa list      PKG [-c CLASS]             its exports
     ffa extract   PKG [-o DIR] [--max N]     its textures, as PNG
     ffa sounds    PKG [-o DIR]               its sounds, as .wav and .bik files
+    ffa fonts     PKG                        its fonts
+    ffa font      PKG FONT TEXT [-o FILE]    a line of text in one of them, as PNG
     ffa decompile SYSTEM PKG CLASS           one class back to UnrealScript
     ffa decompile SYSTEM PKG --all -o DIR    every class of a package
     ffa defaults  SYSTEM PKG CLASS           a class's defaultproperties
@@ -105,6 +107,18 @@ def sounds(args):
     usound.main([args.package, '-o', os.path.join(args.out, pkg)])
 
 
+def fonts(args):
+    import ufont
+    ufont.main([args.package])
+
+
+def font(args):
+    import ufont
+    out = args.out or os.path.join('out', args.font + '.png')
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    ufont.main([args.package, args.font, args.text, out])
+
+
 def decompile(args):
     import udecompile
     if args.all:
@@ -138,6 +152,16 @@ def gallery(args):
     ugallery.main([args.animations, args.out])
 
 
+def font_total(game):
+    import ufont
+    n = 0
+    for d in ('System', 'Textures'):
+        for f in sorted(glob.glob(os.path.join(game, d, '*'))):
+            if f.lower().endswith(('.u', '.utx')):
+                n += sum(1 for _ in ufont.fonts(f))
+    print('%d fonts read to the exact end of their records' % n)
+
+
 def check(args):
     """The proof each reader rests on, against a whole game."""
     cap_memory(args.mem)
@@ -153,7 +177,7 @@ def check(args):
             print('  failed: %s' % ex)
         sys.stdout.flush()
 
-    import uscript, udefaults, umap, umesh, ubsp, uskel, uanim, umaterial, usound
+    import uscript, udefaults, umap, umesh, ubsp, uskel, uanim, umaterial, usound, ufont
     section('script: functions to the exact end of their records', lambda: uscript.main(u))
     section('class defaults', lambda: udefaults.main([sysdir]))
     section('levels: objects whose properties parse', lambda: umap.main([maps]))
@@ -165,6 +189,7 @@ def check(args):
     section('BSP solid and empty under actors', lambda: ubsp.main(['--solid', maps]))
     section('skeletal meshes', lambda: uskel.main([os.path.join(g, 'Animations')]))
     section('animations', lambda: uanim.main([os.path.join(g, 'Animations')]))
+    section('fonts', lambda: font_total(g))
     section('sounds', lambda: usound.main([os.path.join(g, d) for d in ('Sounds', 'System', 'Animations')]))
 
 
@@ -192,6 +217,17 @@ def main():
     p.add_argument('package')
     p.add_argument('-o', '--out', default='out')
     p.set_defaults(run=sounds)
+
+    p = sub.add_parser('fonts', help="a package's fonts")
+    p.add_argument('package')
+    p.set_defaults(run=fonts)
+
+    p = sub.add_parser('font', help='a line of text in a font, as PNG')
+    p.add_argument('package')
+    p.add_argument('font')
+    p.add_argument('text')
+    p.add_argument('-o', '--out', help='PNG file; out/<font>.png by default')
+    p.set_defaults(run=font)
 
     p = sub.add_parser('decompile', help='classes back to UnrealScript')
     p.add_argument('system', help="the game's System directory")
