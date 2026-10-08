@@ -5,8 +5,12 @@ decompiled/
 # Extracted game data used as a test corpus.
 work/
 
-__pycache__/
-*.pyc
-
 # Viewer output carries the game's level geometry.
 out/
+
+# Build trees.
+build/
+build-*/
+
+__pycache__/
+*.pyc

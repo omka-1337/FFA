@@ -102,7 +102,7 @@ licence comes with it.
 ## Picking something up
 
 Open work, roughly in order of how much it unblocks. The aim is a format
-understood well enough for FFA-Engine to run the original data, so what a
+understood well enough for the engine to run the original data, so what a
 running game needs comes first:
 
 - Collision queries. The data is decoded: the static mesh triangle tree and

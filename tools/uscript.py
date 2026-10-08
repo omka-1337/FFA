@@ -280,6 +280,30 @@ class Script:
         return stmts, info
 
 
+def struct_code(script, e):
+    """Parse the bytecode of a State, whose tail length is not known in advance.
+
+    A State shares the struct header of a Function, and its code runs until the
+    tokens' memory sizes reach the declared ScriptSize. Returns (statements,
+    info): info.end is the disk offset the code ends at, info.sized whether the
+    walk met ScriptSize exactly. What follows the code is the state's tail.
+    """
+    b = script.b
+    r = R(b, e['off'])
+    for _ in range(7):
+        r.idx()
+    r.u32(); r.u32()            # Line, TextPos
+    declared = r.u32()
+    script.limit = e['off'] + e['size']
+    script.budget = script.MAX_NODES
+    stmts, mem = [], 0
+    while mem < declared:
+        n = script.token(r, mem)
+        stmts.append(n)
+        mem += n.mem_size
+    return stmts, dict(declared=declared, mem=mem, end=r.p, sized=(mem == declared))
+
+
 def build_native_table(packages):
     """native index -> declaration, gathered from every package.
 
