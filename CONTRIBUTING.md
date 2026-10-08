@@ -123,8 +123,9 @@ whose records carry native data after their properties.
 - [x] **BSP lightmaps** and their DXT1 textures. Every BSP Model reads to its
   end. Left over: one u32 per lightmap, and three levels whose lightmap
   texture was never baked.
-- [ ] **Terrain**: the native part of `TerrainInfo` after its properties, and
-  the rest of `TerrainSector` beyond its box.
+- [x] The native part of `TerrainInfo`: the engine's copy of the grid, its
+  normals, frames and baked light.
+- [ ] The rest of `TerrainSector` beyond its box.
 - [ ] `KMeshProps` (320), Karma physics; `ConvexVolume` (156), KnowWonder's
   volumes; `VertMesh` (4), vertex animated meshes.
 - [ ] `Polys` (3039), the editor's brush polygons; probably not needed to run.

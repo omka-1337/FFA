@@ -162,6 +162,25 @@ def font_total(game):
     print('%d fonts read to the exact end of their records' % n)
 
 
+def terrain_total(game):
+    import uterrain
+    from ulevel import MeshLibrary
+    lib = MeshLibrary([os.path.join(game, d) for d in GAME_DIRS])
+    n = read = 0
+    worst_v = worst_n = 0.0
+    for f in sorted(glob.glob(os.path.join(game, 'Maps', '*.unr'))):
+        pkg = Package(f)
+        for t in uterrain.terrains(pkg, lib.files):
+            n += 1
+            if t.native is None:
+                continue
+            read += 1
+            dv, dn = uterrain.native_check(pkg, t)
+            worst_v, worst_n = max(worst_v, dv), max(worst_n, dn)
+    print('%d of %d terrains read to their end; stored vertices within %.4f of the '
+          'formula, stored normals within %.4f of the triangles' % (read, n, worst_v, worst_n))
+
+
 def check(args):
     """The proof each reader rests on, against a whole game."""
     cap_memory(args.mem)
@@ -191,6 +210,7 @@ def check(args):
     section('skeletal meshes', lambda: uskel.main([os.path.join(g, 'Animations')]))
     section('animations', lambda: uanim.main([os.path.join(g, 'Animations')]))
     section('fonts', lambda: font_total(g))
+    section('terrain', lambda: terrain_total(g))
     section('static mesh lighting', lambda: __import__('ulight').survey(
         sorted(glob.glob(os.path.join(maps, '*.unr')))))
     section('sounds', lambda: usound.main([os.path.join(g, d) for d in ('Sounds', 'System', 'Animations')]))

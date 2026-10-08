@@ -951,6 +951,43 @@ A TerrainInfo's Rotation is not part of the transform. Shrek's swamp has a
 terrain turned 2776 units, about 15 degrees, and its sector boxes still agree to
 0.0004 units with the rotation left out.
 
+### The engine's copy
+
+After its properties a TerrainInfo carries the engine's own copy of the grid,
+read to the exact end of all 22 terrains:
+
+```
+index       sector count, then TerrainSector references
+index       vertex count, then FVector each: the grid in world space
+i32 x2      SectorsX, SectorsY
+index       count, one per vertex, then two FVector normals each: the two
+            triangles of the quad that vertex is the corner of; the last row
+            and column are unused
+FCoords x2  ToWorld and ToHeightmap, an origin and three axes each
+i32 x2      HeightmapX, HeightmapY
+index       vertex count, then u8 R, G, B, A per vertex: the baked light
+```
+
+It is a second proof of the transform, independent of the sector boxes: the
+stored vertices agree with the formula at every vertex of every terrain, within
+0.0007 units, and the frames say the same thing in other words, ToWorld's axes
+being TerrainScale X and Y and Z / 256 and ToHeightmap's origin Location minus
+half the grid.
+
+**The normals settle the quad split, and showed it had been wrong.** Read the
+obvious way, the edge turn bit cuts a quad from (x, y) to (x+1, y+1) when set.
+The stored normals agree with the opposite: on every quad of every terrain,
+exactly, they are the normals of triangles cut along that diagonal when the bit
+is clear and along the other one when it is set, while the first reading misses
+by up to 1.3. The viewer drew every terrain with its quads split the wrong way
+until this was read.
+
+The light is a colour per vertex, alpha 255 throughout, and its channel order is
+R G B, settled as for static meshes by the sun: on all five levels with a
+coloured Sunlight the light's hue read as R G B is the sun's, Castle Siege's
+170 exactly. Drawn like the rest, the texture times the light doubled plus the
+zone's ambient.
+
 ### Layers
 
 A terrain is painted with up to 32 layers, drawn in order, each blended over

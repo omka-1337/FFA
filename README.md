@@ -176,8 +176,10 @@ UnrealEngine2 Runtime (version 126):
 - **Level.** All 29 Level records, to their exact end: the live actor list, the
   URL and the level's Model. Actors the list leaves out, 8572 of them, are
   deleted ones the editor saved anyway, all marked bDeleteMe.
-- **Terrain.** All 22 terrains, with the heightmap to world transform proven
-  against every one of the engine's 1360 stored sector bounding boxes.
+- **Terrain.** All 22 terrains read to the end of their records, with the
+  heightmap to world transform proven twice, against the engine's 1360 stored
+  sector boxes and against its stored copy of every vertex, the quad split
+  settled by its stored normals, and the baked light of every vertex.
 - **Skeletal meshes.** All 141, with four LOD models each, every index in range,
   standing upright in their reference pose, and all 1031 placed in levels.
   Characters stand on the ground; props with no mesh origin float by about

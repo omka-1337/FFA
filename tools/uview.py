@@ -207,10 +207,11 @@ def build_bsp(pkg, path=None, textures=None, model=None, sky_zone=None, ambient=
     return pos, col, idx, mats, uv, groups, uv2, amb
 
 
-def build_terrain(pkg, files, textures=None, path=None):
+def build_terrain(pkg, files, textures=None, path=None, zone_of=None, ambient=None):
     """Terrain grids, wound so each triangle faces up, with their texture
     layers: per layer a texture, the u and v rows of its matrix, and a weight
-    per vertex. Coloured by height as well, for terrains without layers."""
+    per vertex. Coloured by height as well, for terrains without layers, and
+    with the baked light of each vertex and its zone's ambient."""
     out = []
     for t in terrains(pkg, files):
         V = [conv(v) for v in t.vertices()]
@@ -238,8 +239,14 @@ def build_terrain(pkg, files, textures=None, path=None):
                 w = t.weights(apx, aw, ah)
             layers.append(dict(tex=tid, u=lay['u'], v=lay['v']))
             weights += w
+        lit, amb = [], []
+        if t.native:
+            lit = [c for col in t.native['light'] for c in col[:3]]
+            for v in t.vertices():
+                amb += ambient[zone_of(v)] if ambient and zone_of else [0, 0, 0]
         out.append(dict(pos=b64('f', pos), col=b64('B', col), idx=b64('I', idx),
-                        layers=layers, weights=b64('B', weights), tris=len(idx) // 3))
+                        layers=layers, weights=b64('B', weights), tris=len(idx) // 3,
+                        lit=b64('B', lit), amb=b64('B', amb)))
     return out
 
 
@@ -464,20 +471,23 @@ for(const sc of [scene, skyScene]){
 // back and scaled to Unreal units. Lit like the Lambert materials around it.
 function terrainMaterial(layers){
   const n=layers.length, U=[], uni={};
-  let vs='attribute vec4 w0; attribute vec4 w1; varying vec4 vw0; varying vec4 vw1; varying vec3 vn;\\n';
-  let fs='varying vec4 vw0; varying vec4 vw1; varying vec3 vn;\\n';
+  let vs='attribute vec4 w0; attribute vec4 w1; attribute vec3 lit; attribute vec3 amb; varying vec4 vw0; varying vec4 vw1; varying vec3 vn; varying vec3 vLit;\\n';
+  let fs='uniform float K; uniform float on; varying vec4 vw0; varying vec4 vw1; varying vec3 vn; varying vec3 vLit;\\n';
+  uni.K=LIGHT.K; uni.on=LIGHT.on;
   for(let i=0;i<n;i++){ vs+='uniform vec4 U'+i+'; uniform vec4 V'+i+'; varying vec2 t'+i+';\\n';
     fs+='uniform sampler2D T'+i+'; varying vec2 t'+i+';\\n';
     uni['U'+i]={value:new THREE.Vector4(...layers[i].u)}; uni['V'+i]={value:new THREE.Vector4(...layers[i].v)};
     uni['T'+i]={value:TEX[layers[i].tex].tx}; }
   vs+='void main(){ vec4 p=vec4(position.x*100.0, position.z*100.0, position.y*100.0, 1.0);\\n';
   for(let i=0;i<n;i++) vs+=' t'+i+'=vec2(dot(p,U'+i+'), dot(p,V'+i+'));\\n';
-  vs+=' vw0=w0; vw1=w1; vn=normal; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }';
+  vs+=' vw0=w0; vw1=w1; vn=normal; vLit=lit*K+amb; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }';
+  vs='uniform float K;\\n'+vs;
   const W=['vw0.x','vw0.y','vw0.z','vw0.w','vw1.x','vw1.y','vw1.z','vw1.w'];
   fs+='void main(){ vec3 c=vec3(0.0);\\n';
   for(let i=0;i<n;i++) fs+=' c=mix(c, texture2D(T'+i+', t'+i+').rgb, '+W[i]+');\\n';
   fs+=' vec3 nn=normalize(vn); float hemi=0.5*nn.y+0.5;\\n'+
       ' vec3 light=mix(vec3(0.25,0.25,0.31), vec3(1.0), hemi)*0.75 + max(dot(nn, normalize(vec3(0.4,1.0,0.3))),0.0)*0.6;\\n'+
+      ' if(on>0.5) light=vLit;\\n'+
       ' gl_FragColor=vec4(c*light,1.0); }';
   return new THREE.ShaderMaterial({uniforms:uni, vertexShader:vs, fragmentShader:fs});
 }
@@ -493,6 +503,9 @@ for (const t of %(terrain)s){
     const w0=new Float32Array(nv*4), w1=new Float32Array(nv*4);
     for(let i=0;i<L.length;i++) for(let v=0;v<nv;v++) (i<4?w0:w1)[v*4+(i%%4)]=w[i*nv+v]/255;
     tg.setAttribute('w0',new THREE.BufferAttribute(w0,4)); tg.setAttribute('w1',new THREE.BufferAttribute(w1,4));
+    const lt=dec(t.lit,Uint8Array), am=dec(t.amb,Uint8Array);
+    tg.setAttribute('lit',new THREE.BufferAttribute(lt.length?lt:new Uint8Array(nv*3).fill(128),3,true));
+    tg.setAttribute('amb',new THREE.BufferAttribute(am.length?am:new Uint8Array(nv*3),3,true));
     mat=terrainMaterial(L);
   }
   terrain.add(new THREE.Mesh(tg,mat));
@@ -631,7 +644,7 @@ def main(argv):
     pos, col, idx, mats, bsp_uv, bsp_groups, bsp_uv2, bsp_amb = build_bsp(
         pkg, src, textures, model, sky_zone, ambient)
     uniq, inst, lit = build_meshes(pkg, src, lib, defaults, textures, in_sky, zone_of, ambient)
-    terr = build_terrain(pkg, lib.files, textures, src)
+    terr = build_terrain(pkg, lib.files, textures, src, zone_of, ambient)
     suniq, sinst = build_skeletal(pkg, src, lib, defaults, textures, in_sky)
 
     def instances_json(uniq, inst):
@@ -663,7 +676,8 @@ def main(argv):
                        uv2=b64('f', bsp_uv2), amb=b64('B', bsp_amb),
                        lightmaps=json.dumps(light_map_images(model)), lit=lit_json,
                        meshes=mesh_json,
-                       terrain=json.dumps([{k: t[k] for k in ('pos', 'col', 'idx', 'layers', 'weights')} for t in terr]),
+                       terrain=json.dumps([{k: t[k] for k in ('pos', 'col', 'idx', 'layers', 'weights', 'lit', 'amb')}
+                                           for t in terr]),
                        skeletal=skel_json,
                        sky=json.dumps(conv(sky) if sky else None),
                        textures=json.dumps(textures.items))

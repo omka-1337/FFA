@@ -40,6 +40,26 @@ horizontally, which fixes the centring at USize / 2, and to 0.0007 vertically.
 The vertical match needs a zero of 32767: with 32768 every sector came out lower
 by exactly one height step, which is what an off by one looks like and not what
 noise looks like.
+
+The native payload after the properties holds the engine's own copy of the
+grid, read to the end of all 22 terrains:
+
+    index       sector count, then TerrainSector references
+    index       vertex count, then FVector each: the grid in world space
+    i32 x2      SectorsX, SectorsY
+    index       count (one per vertex), then two FVector normals each, the
+                two triangles of the quad whose corner the vertex is; the last
+                row and column are unused
+    FCoords x2  ToWorld and ToHeightmap: origin, then three axes
+    i32 x2      HeightmapX, HeightmapY
+    index       vertex count, then the baked light: u8 R, G, B, A per vertex
+
+The stored vertices agree with the formula above at every vertex, a second
+proof independent of the sector boxes. The stored normals settle the split of
+each quad, which the bitmap alone could not: without the edge turn bit a quad
+is cut from (x, y) to (x+1, y+1), with it along the other diagonal. The light's
+channel order is R G B, decided like a static mesh's by the sun: on all five
+levels with a coloured sun, the light's hue as R G B is the sun's.
 """
 import sys, os, struct
 
@@ -102,6 +122,7 @@ class Terrain:
         self.visible = bits(d.get('QuadVisibilityBitmap'))
         self.edge_turn = bits(d.get('EdgeTurnBitmap'))
         self.layers = read_layers(pkg, e)
+        self.native = read_native(pkg, e)
 
     def _bit(self, words, x, y, default):
         if not words:
@@ -131,7 +152,9 @@ class Terrain:
 
     def triangles(self):
         """Index triples into the vertex grid, two per visible quad, split along
-        the diagonal the edge turn bitmap selects."""
+        the diagonal the edge turn bitmap selects: (x, y) to (x+1, y+1) without
+        the bit, the other one with it. The engine's stored face normals are
+        those of exactly these triangles."""
         out = []
         for y in range(self.Y - 1):
             for x in range(self.X - 1):
@@ -140,9 +163,9 @@ class Terrain:
                 a, b = y * self.X + x, y * self.X + x + 1
                 c, d = (y + 1) * self.X + x, (y + 1) * self.X + x + 1
                 if self._bit(self.edge_turn, x, y, False):
-                    out += [(a, b, d), (a, d, c)]
-                else:
                     out += [(a, b, c), (b, d, c)]
+                else:
+                    out += [(a, b, d), (a, d, c)]
         return out
 
     def vertices(self):
@@ -158,6 +181,63 @@ class Terrain:
             for x in range(self.X):
                 out.append(alpha[(ay * aw + x * aw // self.X) * 4 + 3])
         return out
+
+
+def read_native(pkg, e):
+    """The payload after a TerrainInfo's properties, as a dict, or None when it
+    does not read to the end of the record."""
+    _, at = properties_upto(pkg, e)
+    b, end = pkg.b, e['off'] + e['size']
+    r = R(b, at)
+    try:
+        sectors = [r.idx() for _ in range(r.idx())]
+        n = r.idx()
+        verts = [struct.unpack_from('<3f', b, r.p + 12 * i) for i in range(n)]
+        r.p += 12 * n
+        sx, sy = r.i32(), r.i32()
+        n = r.idx()
+        normals = [struct.unpack_from('<6f', b, r.p + 24 * i) for i in range(n)]
+        r.p += 24 * n
+        to_world = struct.unpack_from('<12f', b, r.p)
+        to_heightmap = struct.unpack_from('<12f', b, r.p + 48)
+        r.p += 96
+        hx, hy = r.i32(), r.i32()
+        n = r.idx()
+        light = [tuple(b[r.p + 4 * i:r.p + 4 * i + 4]) for i in range(n)]
+        r.p += 4 * n
+    except (struct.error, IndexError):
+        return None
+    if r.p != end:
+        return None
+    return dict(sectors=sectors, vertices=verts, sectors_x=sx, sectors_y=sy,
+                normals=normals, to_world=to_world, to_heightmap=to_heightmap,
+                heightmap=(hx, hy), light=light)
+
+
+def native_check(pkg, t):
+    """(worst vertex difference from the formula, worst normal difference from
+    the triangles) for one terrain with its native payload read."""
+    nat = t.native
+    V = t.vertices()
+    dv = max(max(abs(p[i] - q[i]) for i in range(3)) for p, q in zip(V, nat['vertices']))
+
+    def normal(a, b, c):
+        u = [V[b][i] - V[a][i] for i in range(3)]
+        v = [V[c][i] - V[a][i] for i in range(3)]
+        n = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+        L = sum(x * x for x in n) ** 0.5 or 1.0
+        return [x / L for x in n]
+    dn = 0.0
+    for y in range(t.Y - 1):
+        for x in range(t.X - 1):
+            a = y * t.X + x
+            b, c, d = a + 1, a + t.X, a + t.X + 1
+            if t._bit(t.edge_turn, x, y, False):
+                pair = normal(a, b, c) + normal(b, d, c)
+            else:
+                pair = normal(a, b, d) + normal(a, d, c)
+            dn = max(dn, max(abs(p - q) for p, q in zip(pair, nat['normals'][a])))
+    return dv, dn
 
 
 def read_layers(pkg, e):
@@ -261,6 +341,13 @@ def main(argv):
     n, xy, z = sector_check(p, T)
     print('%d sectors checked against their stored boxes: worst %.4f horizontally, '
           '%.4f vertically' % (n, xy, z))
+    for t in T.values():
+        if t.native is None:
+            print('%s: native payload not read to its end' % t.name)
+            continue
+        dv, dn = native_check(p, t)
+        print('%s: payload read to its end; stored vertices within %.4f of the formula, '
+              'stored normals within %.4f of the triangles' % (t.name, dv, dn))
 
 
 if __name__ == '__main__':
