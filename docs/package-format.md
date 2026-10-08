@@ -986,7 +986,8 @@ The light is a colour per vertex, alpha 255 throughout, and its channel order is
 R G B, settled as for static meshes by the sun: on all five levels with a
 coloured Sunlight the light's hue read as R G B is the sun's, Castle Siege's
 170 exactly. Drawn like the rest, the texture times the light doubled plus the
-zone's ambient.
+zone's ambient, the terrains look as they do in the game, by the memory of
+someone who knows it well.
 
 ### Layers
 
