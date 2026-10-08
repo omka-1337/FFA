@@ -186,6 +186,16 @@ engine does when a map loads, in `src/world/World.cpp`:
    PostBeginPlay and PostNetBeginPlay, then SetInitialState, then clear
    bStartup.
 
+5. Log the local player in: the game's Login, with the URL's portal and
+   options, returns a PlayerController; a Player object becomes its Player,
+   standing for the engine's Viewport, whose class has no script; then the
+   game's PostLogin.
+
+KnowWonder's Login does not spawn the player's pawn. The pawn is placed in the
+level: Login looks for the KWPawn with bIsMainPlayer, spawns its
+DefaultPlayerControllerClass and has it possess the pawn. PostLogin gives the
+controller its HUD.
+
 From step 3 a spawned actor takes Spawned, PreBeginPlay, BeginPlay,
 PostBeginPlay, PostNetBeginPlay and SetInitialState in its Spawn, and
 Actor.SetInitialState marks it bScriptInitialized; the passes of step 4 skip
@@ -213,6 +223,19 @@ class's code reaches its own. And with no game, every actor not
 bGameRelevant destroyed itself in Actor.PreBeginPlay, asking a mutator that
 did not exist, and script retried what it could not spawn: 6780 Spawn and 1644
 Destroy calls on the swamp alone, where with the game there are 131 and 2.
+
+Every level but Entry, which has no actors to play, logs its player in, with
+no script error, and each controller is in PlayerWalking with its pawn as view
+target:
+
+| Levels | Controller | Pawn |
+|---|---|---|
+| 1, 2, 4_FGM_Office, 6 (all three), the beanstalk bonuses, the books, Credits | ShrekController | Shrek |
+| 3_The_Hunt, all four parts; 5_FGM_Donkey | DonkeyController | Donkey |
+| 4_FGM_PIB, 7_Prison_Donkey, 8_Prison_PIB | ShrekController | PIB |
+| 9_Prison_Shrek, 11_FGM_Battle | ShrekController | ShrekHuman |
+| 10_Castle_Siege | ShrekController | Mongo |
+| SH2_Preamble | KWHeroController | DummyPlayer |
 
 The natives still missing on the way are animation (AnimBlendParams, HasAnim,
 LinkSkelAnim), attachment (AttachToBone, SetRelativeLocation and Rotation),

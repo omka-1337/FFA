@@ -455,9 +455,27 @@ int start(const std::string& dir, const std::string& map) {
     std::printf("game                %s%s, the level's DefaultGameType %s\n", gameName.c_str(),
                 gameClass ? "" : " (not found)", dgt.empty() ? "empty" : dgt.c_str());
     w.beginPlay(gameClass, options);
+    Object* pc = w.login(widen(lv.portal), options);
     for (const char* ev : {"InitGame", "PreBeginPlay", "BeginPlay", "PostBeginPlay", "PostNetBeginPlay",
-                           "SetInitialState"})
+                           "SetInitialState", "Login", "PostLogin"})
         std::printf("%-19s %zu ran, %zu failed\n", ev, w.sent[ev], w.failed[ev]);
+    auto name = [](Object* o) { return o ? o->path() + " (" + o->cls->name.str() + ")" : std::string("none"); };
+    std::printf("player controller   %s", name(pc).c_str());
+    if (pc) {
+        Object* pawn = w.obj(pc, "Pawn");
+        std::printf(", state %s\n", pc->state ? pc->state->name.str().c_str() : "none");
+        std::printf("  pawn              %s", name(pawn).c_str());
+        if (pawn) {
+            float x, y, z;
+            vm.unvector(w.var(pawn, "Location"), x, y, z);
+            std::printf(" at (%.0f, %.0f, %.0f), state %s", x, y, z,
+                        pawn->state ? pawn->state->name.str().c_str() : "none");
+        }
+        std::printf("\n  view target       %s\n", name(w.obj(pc, "ViewTarget")).c_str());
+        std::printf("  HUD               %s\n", name(w.obj(pc, "myHUD")).c_str());
+    } else {
+        std::printf("\n");
+    }
     size_t live = 0, spawnedLive = 0;
     std::map<std::string, size_t> states, spawned;
     for (size_t i = 0; i < w.actors.size(); ++i) {

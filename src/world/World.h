@@ -50,6 +50,12 @@ public:
     // PostNetBeginPlay, SetInitialState.
     void beginPlay(Class* gameClass, const String& options);
 
+    // The local player joins, as the engine has it once play has begun: the
+    // game's Login gives a PlayerController, which gets a Player, and then
+    // PostLogin. Null when Login gives none.
+    Object* login(const String& portal, const String& options);
+    Object* player = nullptr;       // the local Player
+
     // An actor variable by name, as the engine's own code reaches it.
     Value& var(Object* a, const char* name);
     bool flag(Object* a, const char* name) { return var(a, name).b(); }

@@ -161,8 +161,8 @@ Engine:
   agreeing with tools/umap.py on every one.
 - [x] Starting a level: the game spawned and InitGame'd, the start up events
   to every actor, Spawn and Destroy. All 29 levels start with no script error.
-- [ ] The player: GameInfo.Login and PostLogin, which spawn the controller and
-  Shrek, as the engine does once the level has begun.
+- [x] The player: GameInfo.Login and PostLogin. On every level but Entry the
+  placed main pawn is possessed by a new controller, which walks and has a HUD.
 - [ ] The natives the start up still calls without having them: animation,
   attachment to bones, projectors, emitters, and SetLocation and Move, which
   need collision.

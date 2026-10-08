@@ -149,6 +149,32 @@ void World::beginPlay(Class* gameClass, const String& options) {
     var(info, "bStartup") = Value::Bool(false);
 }
 
+Object* World::login(const String& portal, const String& options) {
+    if (!game) return nullptr;
+    Object* pc = nullptr;
+    try {
+        pc = vm.event(game, "Login", {Value::Str(portal), Value::Str(options), Value::Str(String())}).o();
+        sent["Login"]++;
+    } catch (const std::exception& ex) {
+        failed["Login"]++;
+        failures[std::string("Login: ") + ex.what()]++;
+    }
+    if (!pc) return nullptr;
+    // The engine's local player is a Viewport, a Player of its own whose class
+    // has no script; a Player stands for it.
+    player = vm.spawn(vm.findClass("Player"), Name("Player"), outer_);
+    var(player, "Actor") = Value::Obj(pc);
+    var(pc, "Player") = Value::Obj(player);
+    try {
+        vm.event(game, "PostLogin", {Value::Obj(pc)});
+        sent["PostLogin"]++;
+    } catch (const std::exception& ex) {
+        failed["PostLogin"]++;
+        failures[std::string("PostLogin: ") + ex.what()]++;
+    }
+    return pc;
+}
+
 // ================================================================ natives
 namespace {
 
