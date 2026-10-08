@@ -36,11 +36,11 @@ Kind kindFor(const std::string& cls) {
     return it == k.end() ? Kind::Unknown : it->second;
 }
 
-// Structs the engine writes as raw memory rather than a nested tagged list,
-// established for defaults in docs/package-format.md.
+// Structs the engine writes as raw memory rather than a nested tagged list:
+// Vector, Rotator and Color, measured over every struct value in Shrek 2's
+// defaults and levels. Plane, Range and Scale are tagged lists like the rest.
 bool atomic(Name n) {
-    static const std::unordered_set<std::string> a = {"vector", "plane", "rotator",
-                                                       "color", "range", "scale"};
+    static const std::unordered_set<std::string> a = {"vector", "rotator", "color"};
     return a.count(lower(n.str())) > 0;
 }
 
@@ -611,8 +611,25 @@ bool Linker::locateDefaults(Class* c, std::vector<TagEntry>& out) {
     const Package& p = *packages[size_t(c->pkg)];
     const Export& e = p.exp(c->idx);
     size_t start = size_t(e.off), end = size_t(e.off + e.size);
-    std::unordered_set<Name> known;
-    for (Prop* pr : c->layout()) known.insert(pr->name);
+    // An entry counts when its name is a variable of the class and its tag
+    // type is one that variable is written with; names alone let a start a
+    // few bytes early read stray bytes as a tag with a real name.
+    auto fits = [](int type, Kind k) {
+        switch (type) {
+        case T_Byte: return k == Kind::Byte;
+        case T_Int: return k == Kind::Int;
+        case T_Bool: return k == Kind::Bool;
+        case T_Float: return k == Kind::Float;
+        case T_Object: return k == Kind::Object || k == Kind::Class;
+        case T_Name: return k == Kind::Name;
+        case T_Delegate: return k == Kind::Delegate;
+        case T_Class: return k == Kind::Class;
+        case T_Array: return k == Kind::Array;
+        case T_Struct: case T_Vector: case T_Rotator: return k == Kind::Struct;
+        case T_Str: return k == Kind::Str;
+        default: return false;
+        }
+    };
     std::vector<TagEntry> entries;
     long best = -1;
     double bestScore = -1;
@@ -621,7 +638,10 @@ bool Linker::locateDefaults(Class* c, std::vector<TagEntry>& out) {
         size_t pos = 0;
         if (!parseTagged(p, s, end, entries, pos) || pos != end) continue;
         size_t hits = 0;
-        for (const TagEntry& t : entries) hits += known.count(p.name(t.name));
+        for (const TagEntry& t : entries) {
+            const Prop* pr = c->findProp(p.name(t.name));
+            hits += pr && fits(t.type, pr->kind);
+        }
         double score = entries.empty() ? 1.0 : double(hits) / double(entries.size());
         if (score > bestScore || (score == bestScore && entries.size() > bestN)) {
             best = long(s);
@@ -687,8 +707,15 @@ Value Linker::decode(int pkg, const Prop* pr, const TagEntry& t) {
     case T_Object:
     case T_Class: return Value::Obj(objectRef(pkg, r.idx()));
     case T_Name: return Value::Nm(p.name(r.idx()));
-    case T_Str:
-    case T_String: return Value::Str(readString(pkg, r));
+    case T_Str: return Value::Str(readString(pkg, r));
+    case T_Delegate: {
+        // An object and a function name. Code 7 was UE1's string; in these
+        // packages every value with it is a DelegateProperty's.
+        Delegate d;
+        d.obj = objectRef(pkg, r.idx());
+        d.func = p.name(r.idx());
+        return Value::Dlg(d);
+    }
     case T_Struct: {
         StructType* st = pr->kind == Kind::Struct ? pr->structType() : nullptr;
         if (!st && t.structName >= 0) st = findStruct(p.names[size_t(t.structName)]);

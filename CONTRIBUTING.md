@@ -146,10 +146,9 @@ Engine:
   of Shrek 2 and compiles 7961 of 8145 functions and all 968 states, whose
   tails are 22 bytes in every one. The first run crashed, and the cause was the
   readers': the field record layout, now fixed in both.
-- [ ] Which structs are stored raw. Range, Plane and Scale are tagged in Shrek
-  2, not raw as the readers assume: `Range reads 8 bytes of 13`, and 1858
-  default objects report it. Measure every struct property's size against
-  both readings.
+- [x] Which structs are stored raw: Vector, Rotator and Color only. With tag
+  type 7 read as a delegate and the defaults block chosen by tag types as well
+  as names, all 2002 default objects build without a problem.
 - [ ] The functions the VM does not load: 121 with a LocalVariable that names
   no variable, 6 InstanceVariable, 3 StateVariable, the 39 known misaligned
   ones, and about 15 jumps that land inside a statement.

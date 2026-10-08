@@ -26,9 +26,20 @@ from upkg import Package, R
 from uclass import Reader
 
 # Property type codes as they appear in a tag's info byte.
-T_BYTE, T_INT, T_BOOL, T_FLOAT, T_OBJECT, T_NAME, T_STRING = 1, 2, 3, 4, 5, 6, 7
+T_BYTE, T_INT, T_BOOL, T_FLOAT, T_OBJECT, T_NAME, T_DELEGATE = 1, 2, 3, 4, 5, 6, 7
 T_CLASS, T_ARRAY, T_STRUCT, T_VECTOR, T_ROTATOR, T_STR = 8, 9, 10, 11, 12, 13
 T_MAP, T_FIXEDARRAY = 14, 15
+
+# The property classes a tag type is written for. A ClassProperty is an
+# ObjectProperty underneath and is tagged as an object, 590 times in the game.
+TAG_CLASSES = {
+    T_BYTE: ('ByteProperty',), T_INT: ('IntProperty',), T_BOOL: ('BoolProperty',),
+    T_FLOAT: ('FloatProperty',), T_OBJECT: ('ObjectProperty', 'ClassProperty'),
+    T_NAME: ('NameProperty',), T_DELEGATE: ('DelegateProperty',),
+    8: ('ClassProperty',), 9: ('ArrayProperty',), 10: ('StructProperty',),
+    11: ('StructProperty',), 12: ('StructProperty',), 13: ('StrProperty',),
+    14: ('MapProperty',), 15: ('FixedArrayProperty',),
+}
 
 # Fixed widths encoded in the size bits; 5, 6 and 7 mean the size follows.
 SIZE_BITS = {0: 1, 1: 2, 2: 4, 3: 12, 4: 16}
@@ -101,8 +112,10 @@ class Tagged:
                 return None
 
     # Structs whose values are plain binary rather than a nested tagged list.
-    ATOMIC = {'Vector': '<3f', 'Plane': '<4f', 'Rotator': '<3i',
-              'Color': '4B', 'Range': '<2f', 'Scale': '<3f'}
+    # Measured over every struct value in the game's defaults and levels: these
+    # three, at 12, 12 and 4 bytes every time. Every other struct, Plane, Range
+    # and Scale among them, is a tagged list of its own that ends on its size.
+    ATOMIC = {'Vector': '<3f', 'Rotator': '<3i', 'Color': '4B'}
 
     def value(self, t, at, size, struct_name):
         """Decode a scalar value. Composite values are left as raw bytes."""
@@ -115,6 +128,10 @@ class Tagged:
             if size >= need:
                 vals = _s.unpack_from(fmt, b, at)
                 return tuple(round(v, 4) if isinstance(v, float) else v for v in vals)
+        if t == T_STRUCT and size:
+            v = Tagged(p).parse(at, at + size, want_values=True)
+            if v and v[1] == at + size:
+                return v[0]
         if t == T_BYTE:
             return b[at]
         if t == T_INT:
@@ -123,6 +140,10 @@ class Tagged:
             return round(_s.unpack_from('<f', b, at)[0], 6)
         if t in (T_OBJECT, T_CLASS):
             return p.refname(R(b, at).idx())
+        if t == T_DELEGATE:
+            r = R(b, at)
+            obj, fn = r.idx(), r.idx()
+            return '%s.%s' % (p.refname(obj), p.names[fn] if 0 <= fn < len(p.names) else '?')
         if t == T_NAME:
             i = R(b, at).idx()
             return p.names[i] if 0 <= i < len(p.names) else '?'
@@ -149,12 +170,13 @@ class Tagged:
             return '%s="%s"' % (name, v)
         if t == T_NAME:
             return "%s='%s'" % (name, v)
+        if isinstance(v, list):
+            inner = [self.render(x) for x in v]
+            return '%s=(%s)' % (name, ','.join(inner))
         if isinstance(v, tuple):
-            labels = {'Vector': ('X', 'Y', 'Z'), 'Scale': ('X', 'Y', 'Z'),
-                      'Plane': ('X', 'Y', 'Z', 'W'),
+            labels = {'Vector': ('X', 'Y', 'Z'),
                       'Rotator': ('Pitch', 'Yaw', 'Roll'),
-                      'Color': ('R', 'G', 'B', 'A'),
-                      'Range': ('Min', 'Max')}.get(
+                      'Color': ('R', 'G', 'B', 'A')}.get(
                           entry['struct'],
                           ('X', 'Y', 'Z') if t == T_VECTOR else ('Pitch', 'Yaw', 'Roll'))
             body = ','.join('%s=%g' % (k, x) for k, x in zip(labels, v))
@@ -253,8 +275,13 @@ class World:
             if not v or v[1] != end:
                 continue
             entries = v[0]
+            # An entry counts when its name is a variable of the class and its
+            # tag type is one that variable's class is written with. Names
+            # alone are not enough: a start a few bytes early can read stray
+            # bytes as a tag with a real name, DecayHFRatio as an array.
             score = 1.0 if not entries else sum(
-                x['name'] in known for x in entries) / len(entries)
+                x['name'] in known and known[x['name']][1]['cls'] in TAG_CLASSES.get(x['type'], ())
+                for x in entries) / len(entries)
             if best is None or (score, len(entries)) > (best[1], best[2]):
                 best = (s, score, len(entries))
         if best is None:
@@ -296,7 +323,7 @@ def main(argv):
             if best is None:
                 stats['no block'] += 1
             elif best[1] == 1.0:
-                stats['all names valid'] += 1
+                stats['every name and tag type valid'] += 1
             else:
                 stats['suspect'] += 1
     print('%s: %s' % (system, dict(stats)))

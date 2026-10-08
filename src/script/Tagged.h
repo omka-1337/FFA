@@ -12,7 +12,7 @@ namespace ffa {
 
 enum TagType : uint8_t {
     T_Byte = 1, T_Int = 2, T_Bool = 3, T_Float = 4, T_Object = 5, T_Name = 6,
-    T_String = 7, T_Class = 8, T_Array = 9, T_Struct = 10, T_Vector = 11,
+    T_Delegate = 7, T_Class = 8, T_Array = 9, T_Struct = 10, T_Vector = 11,
     T_Rotator = 12, T_Str = 13, T_Map = 14, T_FixedArray = 15,
 };
 

@@ -309,7 +309,9 @@ const std::vector<Prop*>& Class::layout() const {
             slots_ += p->dim;
             layout_.push_back(p);
         }
-        for (Prop* p : layout_) propMap_.emplace(p->name, p);
+        // A subclass may declare a variable its parent already has, AppleTree's
+        // array<name> ThrowAnimName over KWPawn's name: the subclass's wins.
+        for (Prop* p : layout_) propMap_[p->name] = p;
     }
     return layout_;
 }

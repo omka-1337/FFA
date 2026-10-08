@@ -245,12 +245,20 @@ index  struct name               only when the type is StructProperty
 bytes  value                     `size` bytes, absent for BoolProperty
 ```
 
-Type codes: 1 Byte, 2 Int, 3 Bool, 4 Float, 5 Object, 6 Name, 7 String,
+Type codes: 1 Byte, 2 Int, 3 Bool, 4 Float, 5 Object, 6 Name, 7 Delegate,
 8 Class, 9 Array, 10 Struct, 11 Vector, 12 Rotator, 13 Str, 14 Map,
-15 FixedArray.
+15 FixedArray. Code 7 is UE1's string, and was first read as one here; in these
+packages it holds a delegate, an object reference and a function name, 3 or 4
+bytes, on 75 DelegateProperty values such as a GUI button's OnClick.
 
-Structs named Vector, Plane, Rotator, Color, Range and Scale hold plain binary
-rather than a nested tagged list. An array holds a compact count and then its
+Three structs hold plain binary: Vector and Rotator, 12 bytes, and Color, 4.
+Every other struct is a nested tagged list that ends on its size, Plane, Range
+and Scale included. This was measured over every struct value in the game's
+defaults and levels, 51835 Vectors, 12417 Rotators and 362 Colors at their
+binary sizes, and everything else parsing as a tagged list to its end. An
+earlier list here took Plane, Range and Scale as binary too; the sizes do not
+agree, Range at 13 bytes against 8 and Scale at 25 against 17, and the engine's
+first run against the game reported it on 1858 default objects. An array holds a compact count and then its
 elements: an object reference is a compact index, and a struct is a tagged
 list of its own, ending in None. A byte value whose property refers to an enum
 is rendered by name, which needs the Enum record:
@@ -285,6 +293,22 @@ into a complete one: restricted to a single package the check validated 162 of
 Verified on every class of two package versions: 2002 of 2002 in Shrek 2 PC
 (version 129) and 607 of 607 in the UnrealEngine2 Runtime (version 126), with
 every property name resolving.
+
+**Names are not enough; the tag types have to agree too.** An entry counts
+towards a candidate only when its name is a variable of the class and its tag
+type is one that variable is written with. Six classes needed it. In each, a
+start a few bytes early read stray bytes as one extra entry with a real name,
+EFFECT_DOME_SAINTPAULS's an array called DecayHFRatio, which is a float, and
+since every name still resolved, the tie went to the longer list. GUITabControl
+was worse: its whole block came out as one such entry. With the types checked,
+the six bogus entries were all first in their lists, and all six classes now
+start where they should. A ClassProperty is tagged as an object, 590 times,
+since underneath it is one.
+
+The variables of a class include those its parents declare, and a subclass may
+declare one again: AppleTree has an array of names called ThrowAnimName over
+KWPawn's single name. The subclass's declaration is the one its defaults are
+written for.
 
 ## Levels
 
