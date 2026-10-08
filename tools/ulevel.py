@@ -23,8 +23,12 @@ PF_PORTAL = 0x04000000
 
 
 def level_model(pkg):
-    """The Model that no Brush property refers to."""
+    """The level's Model, as its Level record names it; in a package without
+    one, the Model that no Brush property refers to."""
     mp = Map(pkg)
+    level = mp.level()
+    if level and level.model > 0:
+        return Model(pkg, pkg.exports[level.model - 1])
     referenced = set()
     for e, d in mp.actors(values=True):
         if 'Brush' in d:
@@ -274,7 +278,7 @@ def static_mesh_instances(pkg, path, lib, defaults=None):
     and lets the class decide whether the actor is drawn as a static mesh at
     all. Without it, only actors carrying their own StaticMesh are placed."""
     mp = Map(pkg)
-    for e, d in mp.actors(values=True):
+    for e, d in mp.actors(values=True, live=True):
         if defaults is not None:
             d = defaults.merged(pkg.classof(e), d)
             if defaults.drawtype(d) != 'DT_StaticMesh':
@@ -319,7 +323,7 @@ def skeletal_instances(pkg, path, lib, defaults):
     from uskel import SkeletalMesh
     if not hasattr(lib, 'skeletal'):
         lib.skeletal = {}
-    for e, d in Map(pkg).actors(values=True):
+    for e, d in Map(pkg).actors(values=True, live=True):
         d = defaults.merged(pkg.classof(e), d)
         if defaults.drawtype(d) != 'DT_Mesh':
             continue

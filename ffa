@@ -150,6 +150,7 @@ def check(args):
     section('script: functions to the exact end of their records', lambda: uscript.main(u))
     section('class defaults', lambda: udefaults.main([sysdir]))
     section('levels: objects whose properties parse', lambda: umap.main([maps]))
+    section('Level records and their live actors', lambda: umap.main(['--levels', maps]))
     section('static meshes', lambda: umesh.main([os.path.join(g, 'StaticMeshes')]))
     section('materials', lambda: umaterial.survey(g))
     section('BSP', lambda: ubsp.main([maps]))

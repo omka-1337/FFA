@@ -321,7 +321,7 @@ def zone_check(paths):
             m = level_model(pkg)
         except ValueError:
             continue
-        for e, d in Map(pkg).actors(values=True):
+        for e, d in Map(pkg).actors(values=True, live=True):
             reg, loc = d.get('Region'), d.get('Location', {}).get('value')
             if not reg or not loc:
                 continue
@@ -351,7 +351,7 @@ def solid_check(paths):
             m = level_model(pkg)
         except ValueError:
             continue
-        for e, d in Map(pkg).actors(values=True):
+        for e, d in Map(pkg).actors(values=True, live=True):
             loc, cls = d.get('Location', {}).get('value'), pkg.classof(e)
             if not loc or 'Volume' in cls or cls in ('Brush', 'LevelInfo'):
                 continue

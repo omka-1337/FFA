@@ -99,29 +99,58 @@ licence comes with it.
 - **Dependencies.** Standard library only.
 - **Commits.** A single subject line, no body, no trailers.
 
-## Picking something up
+## TODO
 
-Open work, roughly in order of how much it unblocks. The aim is a format
+What is left, roughly in order of how much it unblocks. The aim is a format
 understood well enough for the engine to run the original data, so what a
-running game needs comes first:
+running game needs comes first. Say which one you are taking before you start,
+so two people do not decode the same record twice, and tick it off in the
+commit that finishes it.
 
-- Collision queries. The data is decoded: the static mesh triangle tree and
-  collision models, and the BSP with its leaves and hulls. What is left is the
-  queries an engine runs on it, a line trace and a swept box, written as
-  reference code and checked against where the game's own actors stand.
-- Control flow structuring in the decompiler, turning labels and gotos into
-  `if`, `while` and `for`. No binary work at all, pure analysis of data
-  already parsed, and the way into reading the game's logic.
-- Sound and music, the `.uax` and `.umx` packages. Not started.
-- BSP lightmaps, the rest of the level Model after Linked.
-- Which side of a mesh faces out, so that only textures marked bTwoSided are
-  drawn from both sides, as the game does.
-- PrePivot on skeletal meshes, and the props that float: both written up as
-  open questions in the format document, with the measurements so far.
-- `TerrainSector` and `StaticMeshInstance` payloads.
-- Breadth: run the tools against other UE2 games and report where they break.
-  Harry Potter: Prisoner of Azkaban is the same engine build as Shrek 2;
-  UT2003 and UT2004 are different package versions.
+Formats not read yet, from a census of every export in the game: the classes
+whose records carry native data after their properties.
 
-Say which one you are taking before you start, so two people do not decode the
-same record twice.
+- [x] **Level** (29). The live actor list, the URL and the level's Model, to
+  the end of every record.
+- [ ] **Sound** (3769, 160 MB in `.uax`, `.u`, `.ukx`). Every sound and line
+  of dialogue, the largest part of the game's data.
+- [ ] **Font** (120). The menus' and HUD's text.
+- [ ] **Lighting**: BSP lightmaps, the rest of a level Model after Linked, and
+  `StaticMeshInstance` (9260), each placed mesh's baked vertex light.
+- [ ] **Terrain**: the native part of `TerrainInfo` after its properties, and
+  the rest of `TerrainSector` beyond its box.
+- [ ] `KMeshProps` (320), Karma physics; `ConvexVolume` (156), KnowWonder's
+  volumes; `VertMesh` (4), vertex animated meshes.
+- [ ] `Polys` (3039), the editor's brush polygons; probably not needed to run.
+- [ ] Text: localisation `.int` (196) and config `.ini` files.
+- [ ] Script: the 39 functions that still fail end alignment, 33 of them in
+  GUI.u, and the class header fields between the struct and the defaults.
+
+Not formats of our own: music is plain Ogg Vorbis, and the cutscenes are Bink
+video, which FFmpeg decodes.
+
+Engine:
+
+- [ ] Run the VM on a real corpus: `ffa-script check` is built for it.
+- [ ] Engine natives: Actor, Level, spawning, timers, the tick.
+- [ ] Loading a level: its actors as objects, with their state frames.
+- [ ] Collision queries, a line trace and a swept box, on the static mesh
+  triangle trees and collision models and on the BSP's leaves and hulls, all
+  decoded. Checked against where the game's own actors stand.
+- [ ] Config and localisation, probe masks, replication, garbage collection.
+
+Open questions, written up in the format document with the measurements so
+far:
+
+- [ ] PrePivot on skeletal meshes, and the props that float.
+- [ ] Which of a static mesh's two collision forms the engine uses for what.
+- [ ] Which side of a mesh faces out, so that only bTwoSided textures are drawn
+  from both sides.
+
+Tools:
+
+- [ ] Control flow in the decompiler: `if`, `while` and `for` in place of
+  labels and gotos. Only for reading the script; the VM runs the jumps.
+- [ ] Breadth: other UE2 games. Harry Potter and the Prisoner of Azkaban is the
+  same engine build as Shrek 2 (a repack is in `roms/`); UT2003 and UT2004 are
+  other package versions.

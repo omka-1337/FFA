@@ -290,6 +290,37 @@ and Polys are the BSP, so level geometry remains a separate decoding problem,
 but actor placement, lights, triggers, path nodes and their properties are all
 readable.
 
+### The Level object
+
+Which of those actors exist is the Level's business. Its record has an empty
+property block, then:
+
+```
+u32 x2    the actor count, twice: the array's count and its capacity
+index     that many actors, LevelInfo first
+FURL      Protocol, Host, Map, Portal as FStrings, an array of option strings,
+          i32 Port, i32 Valid
+index     the level's Model
+f32       a time in seconds
+18 bytes  zero
+```
+
+Read on all 29 maps, it lands on the end of every record: count equals
+capacity, no actor slot is empty, LevelInfo comes first, the 18 bytes are zero,
+and the Model it names is in every map the one found before by elimination, the
+Model no Brush refers to. The URL is `unreal:HP-Test.unr` on port 7777 in 28
+of the 29; only Entry says `Index.unr`. KnowWonder's levels were saved from an
+editor session that began on a Harry Potter test map, which fits a studio that
+made both.
+
+**A package keeps actors its level has deleted.** 8572 actors in the game's maps
+are not on any Level's list, and 8537 of them carry bDeleteMe, most with
+bPendingDelete as well; the 35 others are not actors at all but materials and
+emitter parts. Of the 22584 listed actors, not one carries either flag. The
+deleted ones include nearly all the AutoLadders, 8158 of 8190, and 67 coins, 59
+of them on Shrek's swamp, which the viewer drew until it read the list. Only
+the listed actors are the level.
+
 ## Static meshes
 
 A StaticMesh record is a tagged property block followed by a native payload:
@@ -506,11 +537,13 @@ the answer. A child index of 0 means none, since the root is nobody's child.
 The check is independent of the BSP: every actor stores a `Region`, a tagged
 PointRegion struct of Zone, iLeaf and ZoneNumber, written by the engine when it
 saved the level. `ubsp.py --zones <maps>` walks the tree for every actor's
-location and compares. 22662 of 30795 agree. 7702 of the rest are AutoLadder
-actors, and their stored Region is a copy rather than a lookup: in the Fairy
-Godmother factory 740 of them, standing all over the level, name the same leaf.
-Without them, 22662 of 23093 agree, 98 percent; the remaining few hundred are
-coins, lights and path markers, most likely on or inside a zone boundary.
+location and compares. Over the live actors, 22146 of 22269 agree. Of the 123
+left, 56 are cutscene cameras and 52 brushes, whose location is an editing
+handle, not a place they stand. Counted over every actor in the packages, the
+deleted ones included, the match falls to 22662 of 30795, nearly all of the
+difference AutoLadders: deleted actors keep whatever Region they last had, so
+740 of them in the Fairy Godmother factory, standing all over the level, name
+the same leaf.
 
 The zone table settles the walk independently. Each zone names its ZoneInfo, and
 for all 40 ZoneInfos in the game the zone the table gives it is the zone the
@@ -528,12 +561,11 @@ other, and the outdoor levels are full of them: The Hunt part 1 sends 810 of
 its 852 actors out by the back, into proper leaves and zones. Leaving by the
 front without a leaf never happens.
 
-`ubsp.py --solid <maps>` puts 26097 of 28093 actors in empty space. Of the 1996
-in solid, 1248 are StaticMeshActors whose origin sits inside the wall or floor
-they decorate, 514 AutoLadders, whose Region was already seen to be a copy, 62
-anti portals, 46 lights set into walls, 39 cutscene cameras and 25 movers,
-gates and doors standing closed. What has to be in the open is: not one coin,
-and 5 of 1207 path nodes.
+`ubsp.py --solid <maps>` puts 18113 of 19580 live actors in empty space. Of the
+1467 in solid, 1245 are StaticMeshActors whose origin sits inside the wall or
+floor they decorate, 62 anti portals, 39 cutscene cameras, 38 lights set into
+walls and 25 movers, gates and doors standing closed. What has to be in the
+open is: all 1193 coins, and 1117 of 1122 path nodes.
 
 A node's iCollisionBound points into the leaf hulls: a list of node indices,
 the planes of a convex hull, ending in -1 and followed by the hull's box as six

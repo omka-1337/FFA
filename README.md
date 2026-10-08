@@ -164,7 +164,10 @@ UnrealEngine2 Runtime (version 126):
   verts, every reference in range, read up to the lightmaps: zones, bounds,
   leaves, convex hulls and light lists. A point's zone and whether it is solid
   come from walking the tree, checked against the zone table and against where
-  28093 actors stand.
+  19580 live actors stand.
+- **Level.** All 29 Level records, to their exact end: the live actor list, the
+  URL and the level's Model. Actors the list leaves out, 8572 of them, are
+  deleted ones the editor saved anyway, all marked bDeleteMe.
 - **Terrain.** All 22 terrains, with the heightmap to world transform proven
   against every one of the engine's 1360 stored sector bounding boxes.
 - **Skeletal meshes.** All 141, with four LOD models each, every index in range,

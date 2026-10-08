@@ -228,7 +228,7 @@ def build_meshes(pkg, path, lib, defaults=None, textures=None, in_sky=lambda loc
     kept apart by whether the actor stands in the sky zone."""
     uniq, inst = {}, collections.defaultdict(list)
     skins_of = {}
-    for e, d in Map(pkg).actors(values=True):
+    for e, d in Map(pkg).actors(values=True, live=True):
         skins_of[e['name']] = object_array(pkg, d.get('Skins'))
     for key, mesh, cols, loc, name in static_mesh_instances(pkg, path, lib, defaults):
         skins = tuple(skins_of.get(name, ()))
@@ -490,7 +490,7 @@ def main(argv):
     model = level_model(pkg)
     # The sky is the zone its SkyZoneInfo stands in. The engine draws it as a
     # background, from that point, with the player camera's rotation.
-    sky = next((d['Location']['value'] for e, d in Map(pkg).actors(values=True)
+    sky = next((d['Location']['value'] for e, d in Map(pkg).actors(values=True, live=True)
                 if pkg.classof(e) == 'SkyZoneInfo' and 'Location' in d), None)
     sky_zone = model.zone_at(sky) if sky else None
     in_sky = lambda loc: sky_zone is not None and model.zone_at(loc) == sky_zone
