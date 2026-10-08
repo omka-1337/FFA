@@ -311,7 +311,14 @@ const std::vector<Prop*>& Class::layout() const {
         }
         // A subclass may declare a variable its parent already has, AppleTree's
         // array<name> ThrowAnimName over KWPawn's name: the subclass's wins.
-        for (Prop* p : layout_) propMap_[p->name] = p;
+        // The parent's stays in the layout, and the parent's code still uses it:
+        // BanditBoss's int MaxHealth over KWPawn's float, which KWPawn's
+        // PostBeginPlay sets. So a name finds the subclass's, but either is a
+        // variable of the object.
+        for (Prop* p : layout_) {
+            propMap_[p->name] = p;
+            propSet_.insert(p);
+        }
     }
     return layout_;
 }
@@ -320,6 +327,11 @@ Prop* Class::findProp(Name n) const {
     layout();
     auto it = propMap_.find(n);
     return it == propMap_.end() ? nullptr : it->second;
+}
+
+bool Class::hasProp(const Prop* p) const {
+    layout();
+    return propSet_.count(p) != 0;
 }
 
 Function* Class::findFunction(Name n) const {

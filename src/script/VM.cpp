@@ -233,7 +233,7 @@ Value* VM::slot(Object* o, const Prop* p, const Frame* f, const Ins* at) {
         layoutOf = static_cast<Class*>(o);
         while (layoutOf->super) layoutOf = layoutOf->super;
     }
-    if (!layoutOf || layoutOf->findProp(p->name) != p || size_t(p->slot) >= o->props.size()) {
+    if (!layoutOf || !layoutOf->hasProp(p) || size_t(p->slot) >= o->props.size()) {
         (void)f;
         (void)at;
         throw error(o->path() + " has no variable " + p->name.str());

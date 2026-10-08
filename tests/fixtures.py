@@ -748,6 +748,16 @@ def build_game(core_obj, vector):
     cvirt.sup = virt
     cvirt.code = [('return', add(('final', virt), ('int', 10)))]
 
+    # Child declares a Depth of its own over Base's. Each class's code reaches
+    # its own: 40 from Child's and 3 from Base's, 43 if the two are separate.
+    base.var('Depth', 'int')
+    child.var('Depth', 'int')
+    bdepth = base.func('BaseDepth', ret='int')
+    bdepth.code = [('let', ('inst', 'Depth'), ('int', 3)), ('return', ('inst', 'Depth'))]
+    f = child.func('ShadowTest', ret='int')
+    f.code = [('let', ('inst', 'Depth'), ('int', 40)),
+              ('return', add(('final', bdepth), ('inst', 'Depth')))]
+
     f = base.func('Parse', params=[('Opts', 'string'), ('Key', 'string')], ret='string',
                   locals=[('I', 'int'), ('Rest', 'string')], flags=FUNC_STATIC)
     f.code = [

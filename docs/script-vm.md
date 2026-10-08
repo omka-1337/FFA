@@ -176,10 +176,13 @@ start up events in the engine's order: PreBeginPlay to every actor, then
 BeginPlay to every actor, then PostBeginPlay, then SetInitialState. The order
 is the engine's published behaviour, not something the data says.
 
-**Corpus check.** On Shrek's swamp all 1650 actors take all four events with no
-script error, and 170 of them enter a state, pickups Pickup, triggers
-NormalTrigger, the player start PlayerWaiting. The natives the sequence needs
-and the engine lacks are reported by how often they are called: Actor.Spawn
-6780 times, Actor.Destroy 1644. The Destroy calls come from Actor.PreBeginPlay
+**Corpus check.** Across all 29 levels the 22606 actors take 90423 events with
+no script error. On Shrek's swamp 170 of the 1650 enter a state, pickups
+Pickup, triggers NormalTrigger, the player start PlayerWaiting. The one error
+on the way was the VM's: BanditBoss declares an int MaxHealth over KWPawn's
+float one, and KWPawn's PostBeginPlay sets its own. Both variables live in the
+object, and each class's code reaches its own. The natives the sequence needs
+and the engine lacks are reported by how often they are called: on the swamp
+Actor.Spawn 6780 times, Actor.Destroy 1644. The Destroy calls come from Actor.PreBeginPlay
 finding no GameInfo, which the engine does not spawn yet.
 

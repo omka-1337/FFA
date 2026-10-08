@@ -120,6 +120,7 @@ int main(int argc, char** argv) {
         expect(vm.call(vm.spawn(base), "ArrayTest"), I(675), "dynamic arrays grow, shrink, and read out of range");
         check(logged(vm, "ScriptWarning", "out of bounds (10/6)"), "reading past a dynamic array warns");
         vm.log.clear();
+        expect(vm.call(vm.spawn(child), "ShadowTest"), I(43), "a subclass variable over a parent's of the same name keeps both");
         expect(vm.call(vm.spawn(base), "InsertRemoveTest"), I(9234), "dynamic array Insert and Remove");
         expect(vm.call(vm.spawn(base), "StaticArrayTest"), I(57), "static array, index clamped");
         check(logged(vm, "ScriptWarning", "out of bounds (9/4)"), "a static array index out of range warns");

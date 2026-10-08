@@ -259,6 +259,7 @@ public:
     const std::vector<Prop*>& layout() const;
     int slots() const { layout(); return slots_; }
     Prop* findProp(Name n) const;
+    bool hasProp(const Prop* p) const;   // this class's or an ancestor's, shadowed or not
     Function* findFunction(Name n) const;
     State* findState(Name n) const;
     State* autoState() const;
@@ -270,6 +271,7 @@ private:
     mutable std::vector<Prop*> layout_;
     mutable int slots_ = 0;
     mutable std::unordered_map<Name, Prop*> propMap_;
+    mutable std::unordered_set<const Prop*> propSet_;
     mutable std::unordered_map<Name, Function*> fcache_;
     mutable std::unordered_map<Name, State*> scache_;
 };
