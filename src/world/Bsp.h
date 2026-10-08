@@ -32,6 +32,16 @@ struct BspLeaf {
     int32_t zone = 0, permeating = 0, volumetric = 0;
 };
 
+// The editor's polygons of a brush, from its Polys export, in the brush's own
+// space; a brush's Model is an empty BSP and keeps its shape here. Layout in
+// tools/upolys.py. Throws FormatError when the record does not read to its end.
+struct BrushPolygon {
+    Vec3 normal;
+    std::vector<Vec3> vertices;
+    uint32_t flags = 0;
+};
+std::vector<BrushPolygon> readPolys(const Package& p, int idx);
+
 class BspModel {
 public:
     // The Model export idx of p. Throws FormatError when the record does not
@@ -45,6 +55,7 @@ public:
     std::vector<int32_t> zoneActors;    // per zone, its ZoneInfo export or 0
     std::vector<int32_t> leafHulls;
     std::vector<BspLeaf> leaves;
+    int32_t polys = 0;                  // the Polys export, the editor's polygons
 
     // The leaf and zone a point is in, by the walk from the root: to the
     // front or back child by the side of each plane, until there is none on

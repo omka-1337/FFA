@@ -80,7 +80,7 @@ BspModel::BspModel(const Package& p, int idx) {
         zoneActors.push_back(r.idx());
         skip(r, 8 + 8 + 4);                 // Connectivity, Visibility, LastRenderTime
     }
-    r.idx();                                // Polys
+    polys = r.idx();
     skip(r, size_t(count(r, 25)) * 25);     // node bounds
     for (int32_t i = 0, n = count(r, 4); i < n; ++i) leafHulls.push_back(r.i32());
     for (int32_t i = 0, n = count(r, 1); i < n; ++i) {
@@ -136,6 +136,34 @@ BspModel::BspModel(const Package& p, int idx) {
             if (v < 0 || size_t(v) >= points.size()) throw FormatError("a vertex names a point out of range");
         }
     }
+}
+
+std::vector<BrushPolygon> readPolys(const Package& p, int idx) {
+    const Export& e = p.exp(idx);
+    size_t start = size_t(e.off), end = start + size_t(e.size);
+    std::vector<TagEntry> props;
+    size_t pos = 0;
+    if (!parseTagged(p, start, end, props, pos)) throw FormatError("the Polys has no property block");
+    Reader r(p.data, pos, end);
+    int32_t num = r.i32(), cap = r.i32();
+    if (num != cap || num < 0 || size_t(num) * 50 > end - r.p) throw FormatError("the Polys count is out of range");
+    std::vector<BrushPolygon> out;
+    for (int32_t i = 0; i < num; ++i) {
+        BrushPolygon q;
+        int32_t nv = r.idx();
+        if (nv < 3 || nv > 64) throw FormatError("a polygon's vertex count is out of range");
+        vec(r);                             // Base
+        q.normal = vec(r);
+        vec(r);
+        vec(r);                             // TextureU, TextureV
+        for (int32_t k = 0; k < nv; ++k) q.vertices.push_back(vec(r));
+        q.flags = r.u32();
+        for (int k = 0; k < 5; ++k) r.idx();    // Actor, Material, ItemName, iLink, iBrushPoly
+        r.f32();                            // LightMapScale
+        out.push_back(std::move(q));
+    }
+    if (r.p != end) throw FormatError("the Polys does not end on its record");
+    return out;
 }
 
 BspModel::Region BspModel::regionAt(Vec3 p) const {

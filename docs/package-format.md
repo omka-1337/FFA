@@ -422,6 +422,43 @@ other actor. The bit values are the engine family's; that exactly the editor's
 objects lack the load bits is what confirms them. The engine loads an actor of
 the level only with both load bits.
 
+### Brushes and their polygons
+
+A brush actor's Model is an empty BSP: no points, no nodes, until the editor
+builds it into the level. Its shape is in the Polys export the Model points
+at, the field the BSP reader passes over after the zones. A Polys record is an
+empty property block, then:
+
+```
+i32       Num, the polygon count
+i32       Max, the same again
+each polygon:
+  index     vertex count
+  FVector   Base, Normal, TextureU, TextureV
+  FVector   that many vertices, in the brush's own space
+  u32       PolyFlags
+  index     Actor, Material, ItemName, iLink, iBrushPoly
+  f32       LightMapScale
+```
+
+All 3039 Polys in the game read to the end of their records this way, 31581
+polygons, every normal of unit length (`tools/upolys.py --check`).
+
+**Where a brush is.** A brush's polygons go into the world as Location +
+PostScale R MainScale (v - PrePivot). The check is that the editor's brushes are
+what the level's BSP was built from, so their corners, carried into the world,
+are corners of the BSP: for 76002 of the 87925 corners of the 2170 editor
+brushes they are, to a quarter unit, and for 1350 brushes every corner is. The
+rest are hidden in the solid by the CSG, subtracted away, or the builder
+brush's, which is never added. Leaving PrePivot out drops the count to 9356.
+Where PostScale goes is not tested: putting it before the rotation gives the
+same count, as no brush has a PostScale other than one.
+
+Volumes collide as their brushes. BlockingVolume blocks lines and boxes, being
+bWorldGeometry and inheriting Actor's trace flags; KnowWonder's
+KWBlockingVolume blocks players only, and a trigger switches it. 520 brushes
+in the game's levels collide.
+
 ## Static meshes
 
 A StaticMesh record is a tagged property block followed by a native payload:

@@ -88,10 +88,13 @@ Collision::Collision(World& w, int mapPkg, int32_t model, const std::string& gam
     }
     for (Object* a : w.actors) {
         if (a->deleted || w.var(a, "DrawType").i() != DT_StaticMesh) continue;
-        if (!w.flag(a, "bCollideActors") || !w.flag(a, "bBlockZeroExtentTraces")) continue;
+        if (!w.flag(a, "bCollideActors")) continue;
+        // a line and a box ask different flags
+        bool line = w.flag(a, "bBlockZeroExtentTraces");
+        bool box = w.flag(a, "bBlockNonZeroExtentTraces") && (w.flag(a, "bBlockActors") || w.flag(a, "bBlockPlayers"));
+        if (!line && !box) continue;
         Object* m = w.obj(a, "StaticMesh");
         if (!m) continue;
-        ++meshActors;
         const StaticMeshCollision* c = mesh(m);
         if (!c) {
             ++meshesMissing;
@@ -102,9 +105,219 @@ Collision::Collision(World& w, int mapPkg, int32_t model, const std::string& gam
         pl.mesh = c;
         pl.fixed = w.flag(a, "bStatic");
         pl.world = w.flag(a, "bWorldGeometry");
+        pl.line = line;
+        pl.box = box;
+        if (line) ++meshActors;
         update(pl);
         placed_.push_back(pl);
     }
+    buildStatics();
+    buildBrushes();
+}
+
+void Collision::buildStatics() {
+    std::vector<Triangle> tris;
+    // The BSP's faces. A node's polygon bounds solid when the point a unit
+    // behind its middle is solid and the point a unit in front is not; sheets
+    // and the faces of non solid brushes have open space on both sides.
+    for (size_t i = 0; i < bsp.nodes.size(); ++i) {
+        const BspNode& n = bsp.nodes[i];
+        if (n.numVerts < 3) continue;
+        Vec3 mid{};
+        for (int k = 0; k < n.numVerts; ++k) mid = mid + bsp.points[size_t(bsp.vertPoints[size_t(n.vertPool + k)])];
+        mid = mid * (1.0f / float(n.numVerts));
+        bool behind = bsp.solidAt(mid - n.plane.n), before = bsp.solidAt(mid + n.plane.n);
+        if (behind == before) {
+            ++bspFacesSkipped;
+            continue;
+        }
+        ++bspFaces;
+        Vec3 out = behind ? n.plane.n : -n.plane.n;
+        Vec3 v0 = bsp.points[size_t(bsp.vertPoints[size_t(n.vertPool)])];
+        for (int k = 1; k + 1 < n.numVerts; ++k) {
+            Triangle t;
+            t.v[0] = v0;
+            t.v[1] = bsp.points[size_t(bsp.vertPoints[size_t(n.vertPool + k)])];
+            t.v[2] = bsp.points[size_t(bsp.vertPoints[size_t(n.vertPool + k + 1)])];
+            if (dot(cross(t.v[1] - t.v[0], t.v[2] - t.v[0]), out) < 0) std::swap(t.v[1], t.v[2]);
+            t.oneSided = true;
+            tris.push_back(t);
+        }
+    }
+    for (size_t i = 0; i < terrains.size(); ++i) {
+        const Terrain& tr = *terrains[i];
+        for (int y = 0; y + 1 < tr.Y; ++y)
+            for (int x = 0; x + 1 < tr.X; ++x) {
+                if (!tr.visible(x, y)) continue;
+                int q[2][3];
+                tr.quad(x, y, q);
+                for (auto& k : q) {
+                    Triangle t;
+                    for (int j = 0; j < 3; ++j) t.v[j] = tr.vertices[size_t(k[j])];
+                    t.actor = terrainActors[i];
+                    tris.push_back(t);
+                }
+            }
+    }
+    for (Placed& pl : placed_)
+        if (pl.fixed && pl.box)
+            for (const Triangle& t : worldTriangles(pl)) tris.push_back(t);
+    staticTriangles = tris.size();
+    statics_.build(std::move(tris));
+}
+
+void Collision::buildBrushes() {
+    // Every brush the game loads that collides, its polygons carried into the
+    // world: Location + PostScale R MainScale (v - PrePivot), as the editor's
+    // brushes prove against the level's BSP (docs/package-format.md). Facing
+    // out as their normals do, so that what is inside can leave.
+    std::vector<Triangle> tris;
+    Class* brushClass = world.brushClass;
+    for (Object* a : world.actors) {
+        if (a->deleted || !a->isA(brushClass) || !world.flag(a, "bCollideActors")) continue;
+        Object* mo = world.obj(a, "Brush");
+        const std::vector<BrushPolygon>* polys = mo ? brushPolygons(mo) : nullptr;
+        if (!polys || polys->empty()) continue;
+        float m[3][3], inv[3][3];
+        Vec3 o;
+        brushTransform(a, m, o);
+        if (!invert(m, inv)) continue;
+        ++brushActors;
+        for (const BrushPolygon& q : *polys) {
+            Vec3 n = mulT(inv, q.normal);
+            for (size_t k = 1; k + 1 < q.vertices.size(); ++k) {
+                Triangle t;
+                t.v[0] = o + mul(m, q.vertices[0]);
+                t.v[1] = o + mul(m, q.vertices[k]);
+                t.v[2] = o + mul(m, q.vertices[k + 1]);
+                if (dot(cross(t.v[1] - t.v[0], t.v[2] - t.v[0]), n) < 0) std::swap(t.v[1], t.v[2]);
+                t.actor = a;
+                t.oneSided = true;
+                tris.push_back(t);
+            }
+        }
+    }
+    brushTriangles = tris.size();
+    brushTris_.build(std::move(tris));
+}
+
+bool Collision::brushBlocks(Object* b, const Object* mover, bool line, bool worldOnly) {
+    if (b == mover || b->deleted || !world.flag(b, "bCollideActors")) return false;
+    if (worldOnly && !world.flag(b, "bWorldGeometry")) return false;
+    if (line) return world.flag(b, "bBlockZeroExtentTraces") && world.flag(b, "bWorldGeometry");
+    if (!world.flag(b, "bBlockNonZeroExtentTraces")) return false;
+    // a player is stopped by bBlockPlayers, anything else by bBlockActors
+    bool player = false;
+    if (mover) {
+        if (mover->isA(world.pawnClass)) {
+            Object* c = world.obj(const_cast<Object*>(mover), "Controller");
+            player = c && c->isA(world.playerControllerClass);
+        }
+    }
+    return world.flag(b, player ? "bBlockPlayers" : "bBlockActors");
+}
+
+std::vector<Triangle> Collision::worldTriangles(Placed& pl) {
+    std::vector<Triangle> out;
+    for (const MeshTriangle& m : pl.mesh->triangles) {
+        Triangle t;
+        for (int j = 0; j < 3; ++j) t.v[j] = pl.origin + mul(pl.m, pl.mesh->positions[m.v[j]]);
+        t.actor = pl.actor;
+        out.push_back(t);
+    }
+    return out;
+}
+
+bool Collision::blocks(Object* o, const Object* ignore) {
+    if (o == ignore || o->deleted || o == world.info) return false;
+    if (!world.flag(o, "bCollideActors") || !(world.flag(o, "bBlockActors") || world.flag(o, "bBlockPlayers")))
+        return false;
+    // a static mesh blocks with its triangles, unless it asks for its cylinder
+    if (world.var(o, "DrawType").i() == DT_StaticMesh && world.obj(o, "StaticMesh") &&
+        !world.flag(o, "bUseCylinderCollision"))
+        return false;
+    if (o->cls->name == Name("TerrainInfo")) return false;
+    return true;
+}
+
+TraceHit Collision::boxCheck(Vec3 a, Vec3 b, Vec3 extent, const Object* ignore) {
+    TraceHit best;
+    best.location = b;
+    Vec3 d = b - a;
+    Vec3 lo{std::min(a.x, b.x) - extent.x, std::min(a.y, b.y) - extent.y, std::min(a.z, b.z) - extent.z};
+    Vec3 hi{std::max(a.x, b.x) + extent.x, std::max(a.y, b.y) + extent.y, std::max(a.z, b.z) + extent.z};
+    auto consider = [&](const Triangle& t) {
+        if (t.actor && t.actor == ignore) return;
+        float time;
+        Vec3 n;
+        if (!sweepBox(t, a, d, extent, best.time, time, n)) return;
+        best.time = time;
+        best.normal = n;
+        best.actor = t.actor;
+        best.startSolid = time == 0;
+    };
+    statics_.query(lo, hi, consider);
+    std::map<Object*, bool> asked;
+    brushTris_.query(lo, hi, [&](const Triangle& t) {
+        auto it = asked.find(t.actor);
+        if (it == asked.end()) it = asked.emplace(t.actor, brushBlocks(t.actor, ignore, false, false)).first;
+        if (it->second) consider(t);
+    });
+    for (Placed& pl : placed_) {
+        if (pl.fixed || !pl.box || pl.actor == ignore || pl.actor->deleted) continue;
+        update(pl);
+        if (pl.hi.x < lo.x || pl.lo.x > hi.x || pl.hi.y < lo.y || pl.lo.y > hi.y || pl.hi.z < lo.z || pl.lo.z > hi.z)
+            continue;
+        for (const Triangle& t : worldTriangles(pl)) consider(t);
+    }
+    // The cylinders of the actors that block, as boxes: summed with the
+    // moving box they are a larger box the segment enters.
+    for (Object* o : world.actors) {
+        if (!blocks(o, ignore)) continue;
+        Vec3 c;
+        world.vm.unvector(world.var(o, "Location"), c.x, c.y, c.z);
+        float r = world.var(o, "CollisionRadius").f(), h = world.var(o, "CollisionHeight").f();
+        Vec3 bl = c - Vec3{r + extent.x, r + extent.y, h + extent.z}, bh = c + Vec3{r + extent.x, r + extent.y, h + extent.z};
+        float enter = -1e30f, exit = 1e30f;
+        Vec3 axis{};
+        bool miss = false;
+        const float pa[3] = {a.x, a.y, a.z}, pd[3] = {d.x, d.y, d.z};
+        const float mn[3] = {bl.x, bl.y, bl.z}, mx[3] = {bh.x, bh.y, bh.z};
+        for (int k = 0; k < 3 && !miss; ++k) {
+            if (std::fabs(pd[k]) < 1e-9f) {
+                miss = pa[k] < mn[k] || pa[k] > mx[k];
+                continue;
+            }
+            float t0 = (mn[k] - pa[k]) / pd[k], t1 = (mx[k] - pa[k]) / pd[k];
+            if (t0 > t1) std::swap(t0, t1);
+            if (t0 > enter) {
+                enter = t0;
+                axis = {};
+                (&axis.x)[k] = pd[k] > 0 ? -1.0f : 1.0f;
+            }
+            exit = std::min(exit, t1);
+            miss = enter > exit;
+        }
+        if (miss || exit < 0 || enter > 1 || enter >= best.time) continue;
+        if (enter < 0) continue;    // already overlapping: let it move apart
+        best.time = enter;
+        best.normal = axis;
+        best.actor = o;
+        best.startSolid = false;
+    }
+    if (best) best.location = a + d * best.time;
+    return best;
+}
+
+bool Collision::fits(Vec3 p, Vec3 extent, const Object* ignore) {
+    bool free = true;
+    statics_.query(p - extent, p + extent, [&](const Triangle& t) {
+        if (free && !(t.actor && t.actor == ignore) && overlapsBox(t, p, extent)) free = false;
+    });
+    brushTris_.query(p - extent, p + extent, [&](const Triangle& t) {
+        if (free && brushBlocks(t.actor, ignore, false, false) && overlapsBox(t, p, extent)) free = false;
+    });
+    return free;
 }
 
 const StaticMeshCollision* Collision::mesh(Object* o) {
@@ -161,6 +374,47 @@ const StaticMeshCollision* Collision::mesh(Object* o) {
         problems[std::string("StaticMesh: ") + ex.what()]++;
     }
     return slot.get();
+}
+
+const std::vector<BrushPolygon>* Collision::brushPolygons(Object* o) {
+    auto it = brushes_.find(o);
+    if (it != brushes_.end()) return it->second.get();
+    auto& slot = brushes_[o];
+    std::vector<std::string> parts;
+    for (const Object* k = o; k; k = k->outer) parts.insert(parts.begin(), lower(k->name.str()));
+    if (parts.size() < 2 || parts[0] != lower(map_.stem)) return nullptr;
+    int idx = findByPath(map_, std::vector<std::string>(parts.begin() + 1, parts.end()));
+    if (!idx || map_.classOf(idx) != "Model") return nullptr;
+    try {
+        BspModel m(map_, idx);
+        if (m.polys <= 0 || map_.classOf(m.polys) != "Polys") return nullptr;
+        slot = std::make_unique<std::vector<BrushPolygon>>(readPolys(map_, m.polys));
+    } catch (const FormatError& ex) {
+        problems[std::string("brush: ") + ex.what()]++;
+    }
+    return slot.get();
+}
+
+void Collision::brushTransform(Object* a, float m[3][3], Vec3& origin) {
+    VM& vm = world.vm;
+    int32_t pitch, yaw, roll;
+    vm.unrotator(world.var(a, "Rotation"), pitch, yaw, roll);
+    float axes[3][3];
+    rotationAxes(pitch, yaw, roll, axes);
+    auto scale = [&](const char* name) {
+        const StructVal& sv = world.var(a, name).st();
+        Vec3 v;
+        vm.unvector(sv.f[size_t(sv.type->field(Name("Scale"))->slot)], v.x, v.y, v.z);
+        return v;
+    };
+    Vec3 main = scale("MainScale"), post = scale("PostScale"), loc, pp;
+    vm.unvector(world.var(a, "Location"), loc.x, loc.y, loc.z);
+    vm.unvector(world.var(a, "PrePivot"), pp.x, pp.y, pp.z);
+    const float ms[3] = {main.x, main.y, main.z}, ps[3] = {post.x, post.y, post.z};
+    // column k: the rotated, scaled axis k
+    for (int r = 0; r < 3; ++r)
+        for (int k = 0; k < 3; ++k) m[r][k] = ps[r] * axes[k][r] * ms[k];
+    origin = loc - mul(m, pp);
 }
 
 Collision::Transform Collision::transform(Object* a) {
@@ -263,7 +517,7 @@ float cylinder(Vec3 a, Vec3 b, Vec3 c, float r, float h, Vec3& normal) {
 void Collision::meshHits(Vec3 a, Vec3 b, const Object* ignore, bool worldOnly, std::vector<TraceHit>* all,
                          TraceHit& best) {
     for (Placed& pl : placed_) {
-        if (pl.actor == ignore || pl.actor->deleted || (worldOnly && !pl.world)) continue;
+        if (!pl.line || pl.actor == ignore || pl.actor->deleted || (worldOnly && !pl.world)) continue;
         if (!pl.fixed) update(pl);
         if (!pl.invertible || !segmentMeetsBox(a, b, pl.lo, pl.hi)) continue;
         Vec3 ma = mul(pl.inv, a - pl.origin), mb = mul(pl.inv, b - pl.origin);
@@ -291,6 +545,24 @@ TraceHit Collision::lineCheck(Vec3 a, Vec3 b, const Object* ignore, bool actors,
         best.actor = terrainActors[i];
     }
     meshHits(a, b, ignore, worldOnly, nullptr, best);
+    {
+        Vec3 lo{std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z)};
+        Vec3 hi{std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)};
+        Vec3 d = b - a;
+        brushTris_.query(lo, hi, [&](const Triangle& t) {
+            float time;
+            Vec3 n;
+            if (!sweepBox(t, a, d, Vec3{}, best.time, time, n) || time == 0) return;
+            if (!brushBlocks(t.actor, ignore, !actors, worldOnly) && !(actors && brushBlocks(t.actor, ignore, false, worldOnly)))
+                return;
+            best.time = time;
+            best.location = lerp(a, b, time);
+            best.normal = n;
+            best.node = -1;
+            best.startSolid = false;
+            best.actor = t.actor;
+        });
+    }
     if (actors) {
         for (Object* o : world.actors) {
             if (o == ignore || o->deleted || o == world.info) continue;

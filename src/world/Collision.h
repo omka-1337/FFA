@@ -12,6 +12,7 @@
 
 #include "world/Bsp.h"
 #include "world/StaticMesh.h"
+#include "world/Sweep.h"
 #include "world/Terrain.h"
 #include "world/World.h"
 
@@ -41,6 +42,18 @@ public:
     // first, and then the BSP's hit as the LevelInfo.
     std::vector<TraceHit> multiLineCheck(Vec3 a, Vec3 b, const Object* ignore = nullptr);
 
+    // The first thing a box of half size `extent` moving from a to b
+    // touches: the level's solid faces, the terrains, the static meshes and
+    // the cylinders of the actors that block, all but `ignore`.
+    TraceHit boxCheck(Vec3 a, Vec3 b, Vec3 extent, const Object* ignore = nullptr);
+    // Whether a box of half size `extent` at p touches none of that.
+    bool fits(Vec3 p, Vec3 extent, const Object* ignore = nullptr);
+
+    // The level's polygons that bound solid, used for boxes: those with solid
+    // just behind them and open space just in front, by the same walk.
+    size_t bspFaces = 0, bspFacesSkipped = 0, staticTriangles = 0;
+    size_t brushActors = 0, brushTriangles = 0;
+
     // Move an actor to p, and update its Region; with `events`, the zones'
     // ActorLeaving and ActorEntered and the actor's ZoneChange when the zone
     // is another. Collision is not tested.
@@ -48,6 +61,12 @@ public:
 
     // The collision of a StaticMesh object, or null when it cannot be found.
     const StaticMeshCollision* mesh(Object* meshObject);
+    // The polygons of a brush, by its Model, in the map; null when there are
+    // none.
+    const std::vector<BrushPolygon>* brushPolygons(Object* modelObject);
+    // A brush actor's model to world transform, world = origin + M v:
+    // Location + PostScale R MainScale (v - PrePivot).
+    void brushTransform(Object* a, float m[3][3], Vec3& origin);
 
     bool everyTriangle = false;     // test meshes without their trees, as a check
     size_t meshActors = 0, meshesMissing = 0;
@@ -59,6 +78,7 @@ private:
         const StaticMeshCollision* mesh;
         bool fixed;                 // bStatic: its transform is kept
         bool world;                 // bWorldGeometry
+        bool line, box;             // blocks lines, boxes
         float m[3][3], inv[3][3];
         Vec3 origin, lo, hi;        // and its box in the world
         bool invertible = false;
@@ -73,11 +93,22 @@ private:
     };
     Transform transform(Object* a);
 
+    void buildStatics();
+    std::vector<Triangle> worldTriangles(Placed& pl);
+    bool blocks(Object* o, const Object* ignore);
+    TriangleTree statics_;
+    // Volumes and other brushes that may block, whose flags script can switch:
+    // asked at each query.
+    TriangleTree brushTris_;
+    void buildBrushes();
+    bool brushBlocks(Object* b, const Object* mover, bool line, bool worldOnly);
+
     const Package& map_;
     std::string gameDir_;
     std::vector<Placed> placed_;
     std::map<std::string, std::unique_ptr<Package>> packages_;
     std::map<std::string, std::unique_ptr<StaticMeshCollision>> meshes_;   // by path
+    std::map<const Object*, std::unique_ptr<std::vector<BrushPolygon>>> brushes_;
 };
 
 // Trace, FastTrace, TraceActors and SetLocation, on the World's Collision.

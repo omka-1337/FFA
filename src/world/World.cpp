@@ -1,6 +1,7 @@
 #include "world/World.h"
 
 #include "world/Collision.h"
+#include "world/Physics.h"
 
 #include <cmath>
 #include <stdexcept>
@@ -28,12 +29,20 @@ World::World(VM& vm, int pkg, const LevelRecord& level) : vm(vm), linker(vm.link
     outer_ = info->outer;
     for (Object* a : actors) names_.insert(a->name);
     vm.host = this;
+    actorClass = vm.findClass("Actor");
+    pawnClass = vm.findClass("Pawn");
+    brushClass = vm.findClass("Brush");
+    playerControllerClass = vm.findClass("PlayerController");
 }
 
 Value& World::var(Object* a, const char* name) {
-    Prop* p = a->cls ? a->cls->findProp(Name(name)) : nullptr;
+    // Looked up by name once per class and kept: physics asks for the same
+    // few variables thousands of times a frame.
+    Prop*& p = varCache_[{a->cls, name}];
+    if (!p) p = a->cls ? a->cls->findProp(Name(name)) : nullptr;
     if (!p) throw vm.error(a->path() + " has no variable " + name);
-    return *vm.slot(a, p);
+    if (size_t(p->slot) >= a->props.size()) return *vm.slot(a, p);
+    return a->props[size_t(p->slot)];
 }
 
 Name World::uniqueName(Class* c) {
@@ -56,7 +65,6 @@ void World::setOwner(Object* a, Object* owner) {
 
 Object* World::spawn(Class* c, Object* spawner, Object* owner, Name tag, const Value* location,
                      const Value* rotation) {
-    static Class* actorClass = vm.findClass("Actor");
     if (!c || !c->isChildOf(actorClass)) return nullptr;
     // Placed for good: such a class is only ever loaded with its level.
     Object* d = c->defaults();
@@ -223,6 +231,8 @@ void World::tick(float dt) {
                     var(a, "TimerCounter") = Value::Float(counter);
                 }
             }
+            if (a->deleted) continue;
+            performPhysics(*this, a, dt);
             if (a->deleted) continue;
             float life = var(a, "LifeSpan").f();
             if (life != 0) {

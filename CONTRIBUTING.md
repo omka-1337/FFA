@@ -128,7 +128,8 @@ whose records carry native data after their properties.
 - [ ] The rest of `TerrainSector` beyond its box.
 - [ ] `KMeshProps` (320), Karma physics; `ConvexVolume` (156), KnowWonder's
   volumes; `VertMesh` (4), vertex animated meshes.
-- [ ] `Polys` (3039), the editor's brush polygons; probably not needed to run.
+- [x] `Polys` (3039), the editor's brush polygons: what volumes collide with,
+  read to the end of every record.
 - [x] Text: all 199 `.ini` and `.int` files, subtitles, bump sets, menus and
   cutscene scripts.
 - [ ] The cutscene script language: some fifty commands, Cue, Say, FlyTo,
@@ -158,7 +159,10 @@ Engine:
   past its token, in all 752 states with one, and 0xFFFF in the other 216.
 - [x] The tick: level time, PlayerTick, Tick, state code with Sleep, timers
   and LifeSpan. Twenty seconds of every level run with no script error.
-- [ ] Physics, and the latent natives that wait on it or on animation.
+- [x] Physics: walking, falling, flying, rotating, projectiles, trailers,
+  Touch and UnTouch. No pawn falls through any level.
+- [ ] Swimming, ladders, movers (MovingBrush, Interpolating), Karma; and the
+  latent natives that wait on physics or animation.
 - [x] Loading a level: all 22606 live actors of the 29 levels as objects,
   agreeing with tools/umap.py on every one.
 - [x] Starting a level: the game spawned and InitGame'd, the start up events
@@ -173,9 +177,12 @@ Engine:
   lies on a level polygon, and path nodes stand at their collision height.
 - [x] Trace, FastTrace, TraceActors and SetLocation with its zone change, on
   that collision, with actors' cylinders.
-- [ ] Traces with an extent, a swept box, on the BSP's hulls and the meshes'
-  collision models, and SetLocation testing that an actor fits: 650 and 45
-  uses in twenty seconds of every level.
+- [x] Boxes swept through the BSP's solid faces, terrains, meshes, colliding
+  brushes and actors' cylinders, exactly; path nodes agree with the line trace.
+- [ ] Trace with an extent and SetLocation testing room, on those boxes: 650
+  and 45 uses in twenty seconds of every level.
+- [ ] Which of a mesh's collision forms boxes use: the triangles now; the
+  collision model is read and unused.
 - [ ] Config and localisation, probe masks, replication, garbage collection.
 
 Open questions, written up in the format document with the measurements so

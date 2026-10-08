@@ -34,6 +34,12 @@ public:
     Object* game = nullptr;         // the GameInfo, once begun
     bool begunPlay = false;
     size_t editorOnly = 0;          // listed actors the game does not load
+    // Classes the engine's own code asks about, of this VM's linker. Kept
+    // here, not in statics, as a VM and its classes live and die together.
+    Class* actorClass = nullptr;
+    Class* pawnClass = nullptr;
+    Class* brushClass = nullptr;
+    Class* playerControllerClass = nullptr;
     std::unordered_map<const Object*, int32_t> exportOf;   // the loaded actors' exports
     std::unordered_map<int32_t, Object*> actorAt;         // and back
     Collision* collision = nullptr;  // what traces hit, once attached
@@ -64,13 +70,14 @@ public:
     // One frame of dt seconds of real time. The level's TimeDilation scales
     // it; then every actor that is not bStatic, in list order, has the
     // player's PlayerTick if it is the local controller, Tick, its state code
-    // run on to its next wait, its timer, and its LifeSpan. Actors spawned
+    // run on to its next wait, its timer, its physics, and its LifeSpan. Actors spawned
     // during the frame first tick in the next.
     void tick(float dt);
     float time = 0;                 // Level.TimeSeconds, as kept here
     size_t frames = 0;
 
-    // An actor variable by name, as the engine's own code reaches it.
+    // An actor variable by name, as the engine's own code reaches it. The
+    // name must be a string literal: lookups are kept by its address.
     Value& var(Object* a, const char* name);
     bool flag(Object* a, const char* name) { return var(a, name).b(); }
     Object* obj(Object* a, const char* name) { return var(a, name).o(); }
@@ -86,6 +93,17 @@ private:
     Object* outer_ = nullptr;
     std::unordered_set<Name> names_;
     std::unordered_map<Class*, int> counters_;
+    struct VarKey {
+        const Class* cls;
+        const char* name;
+        bool operator==(const VarKey& o) const { return cls == o.cls && name == o.name; }
+    };
+    struct VarHash {
+        size_t operator()(const VarKey& k) const {
+            return std::hash<const void*>()(k.cls) * 31 + std::hash<const void*>()(k.name);
+        }
+    };
+    std::unordered_map<VarKey, Prop*, VarHash> varCache_;
 };
 
 // Actor, LevelInfo, Pawn and Controller natives that act on a World.

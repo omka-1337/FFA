@@ -20,11 +20,13 @@
 #include <fstream>
 #include <map>
 #include <set>
+#include <tuple>
 
 #include "script/VM.h"
 #include "world/Bsp.h"
 #include "world/Collision.h"
 #include "world/Level.h"
+#include "world/Physics.h"
 #include "world/World.h"
 
 using namespace ffa;
@@ -449,6 +451,7 @@ int start(const std::string& dir, const std::string& map, float seconds) {
     vm.sink = [](const std::string&, const std::string&) {};
     registerWorldNatives(vm);
     registerCollisionNatives(vm);
+    registerPhysicsNatives(vm);
     World w(vm, pkg, lv);
     Collision col(w, pkg, lv.model, dir + "/..");
     w.collision = &col;
@@ -466,12 +469,21 @@ int start(const std::string& dir, const std::string& map, float seconds) {
                 gameClass ? "" : " (not found)", dgt.empty() ? "empty" : dgt.c_str());
     w.beginPlay(gameClass, options);
     Object* pc = w.login(widen(lv.portal), options);
+    // Where every pawn starts, to see where physics takes it.
+    std::map<Object*, float> startZ;
+    for (Object* a : w.actors)
+        if (!a->deleted && a->isA(w.pawnClass)) {
+            float x, y, z;
+            vm.unvector(w.var(a, "Location"), x, y, z);
+            startZ[a] = z;
+        }
     // Then time: frames of a thirtieth of a second, with the player's and its
     // pawn's state changes as they happen.
     std::vector<std::string> timeline;
     auto stateOf = [](Object* o) { return o && o->state ? o->state->name.str() : std::string("none"); };
     Object* pawn0 = pc ? w.obj(pc, "Pawn") : nullptr;
     std::string pcState = stateOf(pc), pawnState = stateOf(pawn0);
+    int pawnPhysics = pawn0 ? w.var(pawn0, "Physics").i() : -1;
     for (int f = 0; f < int(seconds * 30.0f + 0.5f); ++f) {
         w.tick(1.0f / 30.0f);
         if (!pc) continue;
@@ -484,6 +496,19 @@ int start(const std::string& dir, const std::string& map, float seconds) {
             pawn0 = pawn;
         }
         if (stateOf(pawn) != pawnState) timeline.push_back(at + std::string("pawn ") + (pawnState = stateOf(pawn)));
+        if (pawn) {
+            int ph = w.var(pawn, "Physics").i();
+            if (ph != pawnPhysics) {
+                float x, y, z;
+                vm.unvector(w.var(pawn, "Location"), x, y, z);
+                Object* base = w.obj(pawn, "Base");
+                char buf[160];
+                std::snprintf(buf, sizeof buf, "pawn physics %d at (%.1f, %.1f, %.1f), base %s", ph, x, y, z,
+                              base ? base->name.str().c_str() : "none");
+                timeline.push_back(at + std::string(buf));
+                pawnPhysics = ph;
+            }
+        }
     }
     for (const char* ev : {"InitGame", "PreBeginPlay", "BeginPlay", "PostBeginPlay", "PostNetBeginPlay",
                            "SetInitialState", "Login", "PostLogin", "PlayerTick", "Tick", "Timer", "tick"})
@@ -546,6 +571,38 @@ int start(const std::string& dir, const std::string& map, float seconds) {
     std::printf("actors              %zu loaded, %zu for the editor only, %zu spawned, %zu destroyed, %zu live\n",
                 loaded, w.editorOnly, w.actors.size() - loaded, w.actors.size() - live, live);
     std::printf("spawned and live    %zu:%s\n", spawnedLive, top(spawned, 8).c_str());
+    if (w.frames) {
+        size_t still = 0, up = 0, down = 0, fell = 0;
+        float worst = 0;
+        std::string worstName;
+        for (auto& [a, z0] : startZ) {
+            if (a->deleted) continue;
+            float x, y, z;
+            vm.unvector(w.var(a, "Location"), x, y, z);
+            float dz = z - z0;
+            if (std::fabs(dz) <= 1) ++still;
+            else if (dz > 0) ++up;
+            else ++down;
+            if (dz < -500) ++fell;
+            if (dz < worst) {
+                worst = dz;
+                worstName = a->path() + " (" + a->cls->name.str() + ")";
+            }
+        }
+        std::printf("pawns               %zu: within a unit of where they started %zu, higher %zu, lower %zu, "
+                    "more than 500 lower %zu; the lowest %s by %.0f\n",
+                    startZ.size(), still, up, down, fell, worstName.c_str(), -worst);
+    }
+    std::map<std::string, size_t> physics;
+    static const char* modes[] = {"None", "Walking", "Falling", "Swimming", "Flying", "Rotating", "Projectile",
+                                  "Interpolating", "MovingBrush", "Spider", "Trailer", "Ladder", "RootMotion",
+                                  "Karma", "KarmaRagDoll", "PushPulled"};
+    for (Object* a : w.actors) {
+        if (a->deleted || w.flag(a, "bStatic")) continue;
+        int m = w.var(a, "Physics").i();
+        physics[m >= 0 && m < 16 ? modes[m] : "?"]++;
+    }
+    std::printf("physics, not static %s\n", top(physics, 16).c_str());
     size_t inState = 0;
     for (auto& [s, n] : states) inState += n;
     std::printf("in a state          %zu:%s\n", inState, top(states, 8).c_str());
@@ -579,6 +636,9 @@ int collide(const std::string& dir, const std::vector<std::string>& files) {
     size_t meshActors = 0, meshesMissing = 0;
     size_t terrainCount = 0, terrainHits = 0;
     size_t treeChecks = 0, treeAgree = 0;
+    size_t brushes = 0, brushPoints = 0, brushOn = 0, brushAll = 0;
+    size_t boxNodes = 0, boxFits = 0, bspFaces = 0, bspSkipped = 0, statics = 0, volumes = 0, volumeTris = 0;
+    std::vector<float> boxDrops;
     float worstNormal = 0;
     std::vector<float> drops, bspDrops;
     std::map<std::string, std::vector<float>> byClass, withActors;
@@ -615,10 +675,50 @@ int collide(const std::string& dir, const std::vector<std::string>& files) {
         Collision col(w, k, lv.model, gameDir);
         meshActors += col.meshActors;
         terrainCount += col.terrains.size();
+        bspFaces += col.bspFaces;
+        bspSkipped += col.bspFacesSkipped;
+        statics += col.staticTriangles;
+        volumes += col.brushActors;
+        volumeTris += col.brushTriangles;
         for (auto& t : col.terrains) worstNormal = std::max(worstNormal, t->normalCheck());
         meshesMissing += col.meshesMissing;
         for (auto& [m, n] : col.problems) problems[m] += n;
         const BspModel& bsp = col.bsp;
+        // The editor's brushes are what the level's BSP was built from, so
+        // carried into the world their corners are corners of the BSP.
+        {
+            std::map<std::tuple<long, long, long>, int> grid;
+            for (const Vec3& p : bsp.points) grid[{std::lround(p.x * 4), std::lround(p.y * 4), std::lround(p.z * 4)}] = 1;
+            auto near = [&](Vec3 p) {
+                long x = std::lround(p.x * 4), y = std::lround(p.y * 4), z = std::lround(p.z * 4);
+                for (long dx = -1; dx <= 1; ++dx)
+                    for (long dy = -1; dy <= 1; ++dy)
+                        for (long dz = -1; dz <= 1; ++dz)
+                            if (grid.count({x + dx, y + dy, z + dz})) return true;
+                return false;
+            };
+            for (Object* b : loadActors(lk, k, lv)) {
+                if (b->cls->name != Name("Brush")) continue;
+                Object* mo = w.obj(b, "Brush");
+                const std::vector<BrushPolygon>* polys = mo ? col.brushPolygons(mo) : nullptr;
+                if (!polys || polys->empty()) continue;
+                float m[3][3];
+                Vec3 o;
+                col.brushTransform(b, m, o);
+                size_t on = 0, all = 0;
+                for (const BrushPolygon& q : *polys)
+                    for (const Vec3& p : q.vertices) {
+                        ++all;
+                        on += near(o + Vec3{m[0][0] * p.x + m[0][1] * p.y + m[0][2] * p.z,
+                                            m[1][0] * p.x + m[1][1] * p.y + m[1][2] * p.z,
+                                            m[2][0] * p.x + m[2][1] * p.y + m[2][2] * p.z});
+                    }
+                ++brushes;
+                brushPoints += all;
+                brushOn += on;
+                brushAll += on == all;
+            }
+        }
         for (Object* a : w.actors) {
             Vec3 at;
             vm.unvector(w.var(a, "Location"), at.x, at.y, at.z);
@@ -630,6 +730,17 @@ int collide(const std::string& dir, const std::vector<std::string>& files) {
             leafAgree += g.leaf == sv.f[size_t(lf->slot)].i();
             zoneAgree += g.zone == sv.f[size_t(zf->slot)].i();
             std::string cls = a->cls->name.str();
+            // A path node is where the editor found room for a pawn of its
+            // size, standing on the ground: a box of its extent fits there,
+            // and sinks next to nothing before it touches the ground.
+            if (cls == "PathNode") {
+                Vec3 ext{w.var(a, "CollisionRadius").f(), w.var(a, "CollisionRadius").f(),
+                         w.var(a, "CollisionHeight").f()};
+                ++boxNodes;
+                boxFits += col.fits(at, ext, a);
+                TraceHit bh = col.boxCheck(at, at - Vec3{0, 0, 256}, ext, a);
+                if (bh) boxDrops.push_back(bh.time * 256);
+            }
             bool open = cls.find("Coin") != std::string::npos || cls == "PathNode";
             if (!open || bsp.solidAt(at)) continue;
             ++traces;
@@ -679,6 +790,16 @@ int collide(const std::string& dir, const std::vector<std::string>& files) {
         std::printf("  with actors, %-9s %5zu: 10%% %.1f median %.1f 90%% %.1f 99%% %.1f\n", c.c_str(), v.size(), q(v, 0.1),
                     q(v, 0.5), q(v, 0.9), q(v, 0.99));
     std::printf("  the mesh trees agree with testing every triangle on %zu of %zu\n", treeAgree, treeChecks);
+    std::printf("brushes             %zu of the editor's: %zu of their %zu corners are BSP points, to a quarter "
+                "unit; every corner for %zu brushes\n",
+                brushes, brushOn, brushPoints, brushAll);
+    std::printf("boxes               %zu BSP faces bound solid, %zu do not; %zu static triangles; %zu colliding "
+                "brushes, %zu triangles\n",
+                bspFaces, bspSkipped, statics, volumes, volumeTris);
+    std::printf("  path nodes        %zu: a box of their size fits at %zu; it sinks %zu of them, 10%% %.2f median %.2f "
+                "90%% %.2f 99%% %.1f\n",
+                boxNodes, boxFits, boxDrops.size(), q(boxDrops, 0.1), q(boxDrops, 0.5), q(boxDrops, 0.9),
+                q(boxDrops, 0.99));
     for (auto& [c, v] : byClass)
         if (v.size() >= 20)
             std::printf("  %-36s %5zu: 10%% %.1f median %.1f 90%% %.1f\n", c.c_str(), v.size(), q(v, 0.1), q(v, 0.5),

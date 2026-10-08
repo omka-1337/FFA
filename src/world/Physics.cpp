@@ -1,0 +1,370 @@
+#include "world/Physics.h"
+
+#include <algorithm>
+#include <cmath>
+
+#include "world/Collision.h"
+
+namespace ffa {
+
+namespace {
+
+const float MinFloorZ = 0.7f;
+const float MaxStepHeight = 35.0f;
+const float MinFloorDist = 1.9f, MaxFloorDist = 2.4f;
+
+Vec3 vget(World& w, Object* a, const char* name) {
+    Vec3 v;
+    w.vm.unvector(w.var(a, name), v.x, v.y, v.z);
+    return v;
+}
+
+void vset(World& w, Object* a, const char* name, Vec3 v) { w.var(a, name) = w.vm.vector(v.x, v.y, v.z); }
+
+Vec3 extentOf(World& w, Object* a) {
+    float r = w.var(a, "CollisionRadius").f();
+    return {r, r, w.var(a, "CollisionHeight").f()};
+}
+
+// A variable only some actors have, Pawn's movement settings, or a default.
+float fopt(World&, Object* a, const char* name, float def) {
+    Prop* p = a->cls->findProp(Name(name));
+    return p ? a->props[size_t(p->slot)].f() : def;
+}
+bool bopt(World& w, Object* a, const char* name) {
+    (void)w;
+    Prop* p = a->cls->findProp(Name(name));
+    return p && a->props[size_t(p->slot)].b();
+}
+Object* controllerOf(World&, Object* a) {
+    Prop* p = a->cls->findProp(Name("Controller"));
+    return p ? a->props[size_t(p->slot)].o() : nullptr;
+}
+
+bool collides(World& w, Object* a) { return w.flag(a, "bCollideWorld") || w.flag(a, "bCollideActors"); }
+
+// The physics volume an actor is in, for gravity and friction: its own
+// PhysicsVolume, else the level's.
+Object* volumeOf(World& w, Object* a) {
+    Object* v = w.obj(a, "PhysicsVolume");
+    return v ? v : nullptr;
+}
+
+Vec3 gravityOf(World& w, Object* a) {
+    Object* v = volumeOf(w, a);
+    return v ? vget(w, v, "Gravity") : Vec3{0, 0, -1000};
+}
+
+void setBase(World& w, Object* a, Object* base) {
+    Object* old = w.obj(a, "Base");
+    if (old == base) return;
+    if (old) w.vm.event(old, "Detach", {Value::Obj(a)});
+    w.var(a, "Base") = Value::Obj(base);
+    if (base) w.vm.event(base, "Attach", {Value::Obj(a)});
+    w.vm.event(a, "BaseChange");
+}
+
+void setPhysics(World& w, Object* a, int mode) {
+    if (w.var(a, "Physics").i() == mode) return;
+    w.var(a, "Physics") = Value::Int(mode);
+    if (mode != PHYS_Walking) setBase(w, a, nullptr);
+}
+
+// Move a by delta, stopping at the first thing in the way, a tenth of a unit
+// short of it. Returns the hit, its time along delta.
+TraceHit move(World& w, Object* a, Vec3 delta) {
+    Collision& c = *w.collision;
+    Vec3 from = vget(w, a, "Location");
+    if (!collides(w, a)) {
+        c.place(a, from + delta);
+        return TraceHit{};
+    }
+    TraceHit h = c.boxCheck(from, from + delta, extentOf(w, a), a);
+    Vec3 to = from + delta;
+    if (h) {
+        float len = length(delta);
+        float t = len > 0 ? std::max(0.0f, h.time - 0.1f / len) : 0.0f;
+        to = from + delta * t;
+    }
+    c.place(a, to);
+    updateTouching(w, a);
+    return h;
+}
+
+void hitWall(World& w, Object* a, const TraceHit& h) {
+    Object* wall = h.actor ? h.actor : w.info;
+    Value n = w.vm.vector(h.normal.x, h.normal.y, h.normal.z);
+    Object* ctl = controllerOf(w, a);
+    if (ctl && w.vm.event(ctl, "NotifyHitWall", {n, Value::Obj(wall)}).b()) return;
+    w.vm.event(a, "HitWall", {n, Value::Obj(wall)});
+}
+
+void landed(World& w, Object* a, const TraceHit& h) {
+    Value n = w.vm.vector(h.normal.x, h.normal.y, h.normal.z);
+    Object* ctl = controllerOf(w, a);
+    if (!(ctl && w.vm.event(ctl, "NotifyLanded", {n}).b())) w.vm.event(a, "Landed", {n});
+    if (w.var(a, "Physics").i() == PHYS_Falling) setPhysics(w, a, PHYS_Walking);
+    if (h.actor && h.actor->cls->name != Name("TerrainInfo")) setBase(w, a, h.actor);
+    else setBase(w, a, w.info);
+}
+
+// Turning: toward DesiredRotation at RotationRate, or at RotationRate for ever.
+void physicsRotation(World& w, Object* a, float dt) {
+    int32_t r[3], rate[3], want[3];
+    w.vm.unrotator(w.var(a, "Rotation"), r[0], r[1], r[2]);
+    w.vm.unrotator(w.var(a, "RotationRate"), rate[0], rate[1], rate[2]);
+    bool toDesired = w.flag(a, "bRotateToDesired"), fixed = w.flag(a, "bFixedRotationDir");
+    if (!toDesired && !fixed) return;
+    w.vm.unrotator(w.var(a, "DesiredRotation"), want[0], want[1], want[2]);
+    for (int k = 0; k < 3; ++k) {
+        int32_t step = int32_t(float(rate[k]) * dt);
+        if (toDesired) {
+            int32_t d = int32_t(int16_t((want[k] - r[k]) & 0xFFFF));   // the short way round
+            int32_t mag = std::abs(step);
+            r[k] += std::clamp(d, -mag, mag);
+        } else {
+            r[k] += step;
+        }
+        r[k] &= 0xFFFF;
+    }
+    w.var(a, "Rotation") = w.vm.rotator(r[0], r[1], r[2]);
+}
+
+void physFalling(World& w, Object* a, float dt) {
+    Vec3 v = vget(w, a, "Velocity");
+    Vec3 acc = vget(w, a, "Acceleration");
+    float air = fopt(w, a, "AirControl", 0);
+    v = v + Vec3{acc.x * air, acc.y * air, 0} * dt + gravityOf(w, a) * dt;
+    Object* vol = volumeOf(w, a);
+    float terminal = vol ? w.var(vol, "TerminalVelocity").f() : 2500.0f;
+    if (terminal > 0 && length(v) > terminal) v = v * (terminal / length(v));
+    vset(w, a, "Velocity", v);
+    Vec3 delta = v * dt;
+    for (int pass = 0; pass < 3 && length(delta) > 0.01f; ++pass) {
+        TraceHit h = move(w, a, delta);
+        if (!h || a->deleted) return;
+        if (h.normal.z >= MinFloorZ) {
+            Vec3 vv = vget(w, a, "Velocity");
+            vv.z = 0;
+            vset(w, a, "Velocity", vv);
+            landed(w, a, h);
+            return;
+        }
+        hitWall(w, a, h);
+        if (a->deleted || w.var(a, "Physics").i() != PHYS_Falling) return;
+        // slide along what was hit with what is left of the move
+        Vec3 rest = delta * (1 - h.time);
+        delta = rest - h.normal * dot(rest, h.normal);
+        Vec3 vv = vget(w, a, "Velocity");
+        vset(w, a, "Velocity", vv - h.normal * dot(vv, h.normal));
+    }
+}
+
+void physWalking(World& w, Object* a, float dt) {
+    Vec3 v = vget(w, a, "Velocity");
+    Vec3 acc = vget(w, a, "Acceleration");
+    acc.z = 0;
+    v.z = 0;
+    Object* vol = volumeOf(w, a);
+    float friction = vol ? w.var(vol, "GroundFriction").f() : 8.0f;
+    float speed = fopt(w, a, "GroundSpeed", 0);
+    if (bopt(w, a, "bIsWalking")) speed *= fopt(w, a, "WalkingPct", 1);
+    // Friction slows a pawn left to itself; acceleration turns and speeds it.
+    float vs = length(v);
+    if (length(acc) < 1e-3f) {
+        Vec3 nv = v - v * (2 * friction * dt);
+        v = dot(nv, v) <= 0 ? Vec3{} : nv;
+    } else {
+        Vec3 dir = acc * (1 / length(acc));
+        v = v - (v - dir * vs) * std::min(1.0f, dt * friction);
+        v = v + acc * dt;
+    }
+    if (length(v) > speed && speed > 0) v = v * (speed / length(v));
+    vset(w, a, "Velocity", v);
+    Vec3 delta = v * dt;
+    if (length(delta) > 0.01f) {
+        TraceHit h = move(w, a, delta);
+        if (a->deleted) return;
+        if (h && h.normal.z < MinFloorZ) {
+            // A step up: lift, move on, and come down on what is there. If
+            // that does not land on a floor, back to before it, and slide
+            // along the wall instead.
+            Vec3 before = vget(w, a, "Location");
+            Vec3 rest = delta * (1 - h.time);
+            TraceHit up = move(w, a, {0, 0, MaxStepHeight});
+            float lifted = up ? up.time * MaxStepHeight : MaxStepHeight;
+            move(w, a, rest);
+            TraceHit down = move(w, a, {0, 0, -(lifted + MaxFloorDist)});
+            if (a->deleted) return;
+            if (!(down && down.normal.z >= MinFloorZ)) {
+                w.collision->place(a, before);
+                hitWall(w, a, h);
+                if (a->deleted || w.var(a, "Physics").i() != PHYS_Walking) return;
+                Vec3 slide = rest - h.normal * dot(rest, h.normal);
+                slide.z = 0;
+                move(w, a, slide);
+            }
+        }
+    }
+    // The floor: keep to it, or fall when it is gone.
+    Collision& c = *w.collision;
+    Vec3 at = vget(w, a, "Location");
+    float probe = MaxStepHeight + MaxFloorDist;
+    TraceHit floor = c.boxCheck(at, at - Vec3{0, 0, probe}, extentOf(w, a), a);
+    if (!floor || floor.normal.z < MinFloorZ) {
+        setPhysics(w, a, PHYS_Falling);
+        w.vm.event(a, "Falling");
+        return;
+    }
+    float dist = floor.time * probe;
+    if (dist < MinFloorDist || dist > MaxFloorDist) {
+        float target = 0.5f * (MinFloorDist + MaxFloorDist);
+        c.place(a, at - Vec3{0, 0, dist - target});
+        updateTouching(w, a);
+    }
+    if (floor.actor && floor.actor->cls->name != Name("TerrainInfo")) setBase(w, a, floor.actor);
+    else setBase(w, a, w.info);
+}
+
+// Flying: acceleration up to AirSpeed, no gravity, sliding along what it meets.
+void physFlying(World& w, Object* a, float dt) {
+    Vec3 v = vget(w, a, "Velocity") + vget(w, a, "Acceleration") * dt;
+    float speed = fopt(w, a, "AirSpeed", 0);
+    if (speed > 0 && length(v) > speed) v = v * (speed / length(v));
+    vset(w, a, "Velocity", v);
+    Vec3 delta = v * dt;
+    for (int pass = 0; pass < 2 && length(delta) > 0.01f; ++pass) {
+        TraceHit h = move(w, a, delta);
+        if (!h || a->deleted) return;
+        hitWall(w, a, h);
+        if (a->deleted || w.var(a, "Physics").i() != PHYS_Flying) return;
+        Vec3 rest = delta * (1 - h.time);
+        delta = rest - h.normal * dot(rest, h.normal);
+    }
+}
+
+void physProjectile(World& w, Object* a, float dt) {
+    Vec3 v = vget(w, a, "Velocity") + vget(w, a, "Acceleration") * dt;
+    vset(w, a, "Velocity", v);
+    TraceHit h = move(w, a, v * dt);
+    if (h && !a->deleted) hitWall(w, a, h);
+}
+
+void physTrailer(World& w, Object* a) {
+    Object* owner = w.obj(a, "Owner");
+    if (!owner) return;
+    Vec3 at = vget(w, owner, "Location");
+    if (w.flag(a, "bTrailerPrePivot")) at = at + vget(w, a, "PrePivot");
+    w.collision->place(a, at);
+    if (w.flag(a, "bTrailerSameRotation")) w.var(a, "Rotation") = w.var(owner, "Rotation");
+}
+
+}  // namespace
+
+void performPhysics(World& w, Object* a, float dt) {
+    if (!w.collision) return;
+    int mode = w.var(a, "Physics").i();
+    switch (mode) {
+    case PHYS_None:
+        return;
+    case PHYS_Walking:
+        physicsRotation(w, a, dt);
+        physWalking(w, a, dt);
+        return;
+    case PHYS_Falling:
+        physicsRotation(w, a, dt);
+        physFalling(w, a, dt);
+        return;
+    case PHYS_Flying:
+        physicsRotation(w, a, dt);
+        physFlying(w, a, dt);
+        return;
+    case PHYS_Rotating:
+        physicsRotation(w, a, dt);
+        return;
+    case PHYS_Projectile:
+        physicsRotation(w, a, dt);
+        physProjectile(w, a, dt);
+        return;
+    case PHYS_Trailer:
+        physTrailer(w, a);
+        return;
+    default: {
+        static const char* names[] = {"", "", "", "Swimming", "", "", "", "Interpolating", "MovingBrush",
+                                      "Spider", "", "Ladder", "RootMotion", "Karma", "KarmaRagDoll", "PushPulled"};
+        w.vm.missingCalls[std::string("physics PHYS_") + (mode >= 0 && mode < 16 ? names[mode] : "?")]++;
+    }
+    }
+}
+
+void updateTouching(World& w, Object* a) {
+    if (!w.flag(a, "bCollideActors")) return;
+    Vec3 p = vget(w, a, "Location");
+    float r = w.var(a, "CollisionRadius").f(), h = w.var(a, "CollisionHeight").f();
+    bool blocksA = w.flag(a, "bBlockActors");
+    Value& mine = w.var(a, "Touching");
+    if (!mine.isArr()) mine = Value::Arr(Array());
+    auto touching = [&](Object* x, Object* y) {
+        const Value& t = w.var(x, "Touching");
+        if (!t.isArr()) return false;
+        for (const Value& e : t.arr())
+            if (e.o() == y) return true;
+        return false;
+    };
+    auto add = [&](Object* x, Object* y) {
+        Value& t = w.var(x, "Touching");
+        if (!t.isArr()) t = Value::Arr(Array());
+        t.arr().push_back(Value::Obj(y));
+    };
+    auto remove = [&](Object* x, Object* y) {
+        Value& t = w.var(x, "Touching");
+        if (!t.isArr()) return;
+        auto& arr = t.arr();
+        arr.erase(std::remove_if(arr.begin(), arr.end(), [&](const Value& e) { return e.o() == y; }), arr.end());
+    };
+    for (Object* o : w.actors) {
+        if (o == a || o->deleted || o == w.info || !w.flag(o, "bCollideActors")) continue;
+        if (w.var(o, "DrawType").i() == 8 && !w.flag(o, "bUseCylinderCollision") && w.obj(o, "StaticMesh") &&
+            w.flag(o, "bStatic"))
+            continue;   // level decoration touches through its triangles, not done
+        if (blocksA && w.flag(o, "bBlockActors")) continue;
+        Vec3 q = vget(w, o, "Location");
+        float dr = r + w.var(o, "CollisionRadius").f(), dh = h + w.var(o, "CollisionHeight").f();
+        bool over = std::fabs(q.z - p.z) <= dh && (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y) <= dr * dr;
+        bool was = touching(a, o);
+        if (over && !was) {
+            add(a, o);
+            add(o, a);
+            w.vm.event(o, "Touch", {Value::Obj(a)});
+            if (!a->deleted && !o->deleted) w.vm.event(a, "Touch", {Value::Obj(o)});
+        } else if (!over && was) {
+            remove(a, o);
+            remove(o, a);
+            w.vm.event(o, "UnTouch", {Value::Obj(a)});
+            if (!a->deleted && !o->deleted) w.vm.event(a, "UnTouch", {Value::Obj(o)});
+        }
+        if (a->deleted) return;
+    }
+}
+
+void registerPhysicsNatives(VM& vm) {
+    auto& n = vm.natives;
+    n["actor.touchingactors"] = [](NativeCall& c) {
+        World* w = World::of(c.vm);
+        Object* base = c.o(0);
+        if (!w || !base || !base->isClass()) return Value();
+        const Value& t = w->var(c.self, "Touching");
+        if (t.isArr())
+            for (const Value& e : Array(t.arr()))
+                if (e.o() && !e.o()->deleted && e.o()->isA(static_cast<Class*>(base))) c.yield({e});
+        return Value();
+    };
+    n["actor.setphysics"] = [](NativeCall& c) {
+        World* w = World::of(c.vm);
+        if (!w) return Value();
+        setPhysics(*w, c.self, c.i(0));
+        return Value();
+    };
+}
+
+}  // namespace ffa

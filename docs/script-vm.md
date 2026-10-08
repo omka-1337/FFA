@@ -285,6 +285,31 @@ that traces from Shrek back to where it wants to be; at the swamp's start that
 place is inside the bank behind him, the terrain at 49 against the camera's
 -93, so it settles 115 units from him instead of 200.
 
+Physics runs after the timer, in `src/world/Physics.cpp`, on boxes swept
+through the collision (`Collision::boxCheck`): the BSP's faces that bound solid
+(one unit behind the polygon's middle is solid, one unit in front is not), the
+terrains' triangles, the static meshes' triangles, the colliding brushes, and
+the cylinders of actors that block, as boxes. A box against a triangle is
+exact: the segment against their Minkowski sum, on the 13 axes that can
+separate them. Path nodes check it: a box of a node's size dropped from the
+node sinks a median 2.50 before it touches, the same as the line trace says.
+
+The modes are the engine family's, with its constants, none of them in the
+data: Walking with friction, acceleration up to GroundSpeed, a step up of 35,
+sliding along walls, and the floor kept 1.9 to 2.4 below, or Falling when it
+is gone; Falling with gravity from the PhysicsVolume, TerminalVelocity, and
+Landed on a floor whose normal has Z of 0.7 or more, HitWall otherwise, each
+offered to the controller first; Flying, Rotating, Projectile and Trailer.
+Swimming, Karma, MovingBrush and the rest are counted as missing. A move ends
+in Touch and UnTouch with the actors whose cylinders it begins or stops
+overlapping, keeping each actor's Touching array, which TouchingActors reads.
+
+Over twenty seconds of every level, no pawn falls through the world. Three
+fall more than 500 units, and they are not collision: Puss on The Hunt's
+parts 2 and 3 waits on a cutscene mark right over a BouncePad, whose Touch
+throws him to its target. Before the colliding brushes were in, Shrek on
+6_Hamlet_Mine and Puss on The Hunt part 4 fell, standing on BlockingVolumes.
+
 **Corpus check.** Twenty seconds of every level run 8014835 events with no
 script error. Thirty seconds of Shrek's swamp take 2.4 s. Gnats and dragonflies
 spawn and wander, 32 KWCutScene objects come up, the camera ShCam runs in

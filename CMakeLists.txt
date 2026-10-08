@@ -26,7 +26,9 @@ add_library(ffa_script
   src/world/Bsp.cpp
   src/world/Collision.cpp
   src/world/Level.cpp
+  src/world/Physics.cpp
   src/world/StaticMesh.cpp
+  src/world/Sweep.cpp
   src/world/Terrain.cpp
   src/world/World.cpp
 )
