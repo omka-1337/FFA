@@ -501,6 +501,18 @@ of those meshes also has its triangle tree. Which of the two the engine uses
 for what is up to its native code; StaticMesh has no script class, and none of
 the game's meshes stores any property but Materials.
 
+The engine's reader, `src/world/StaticMesh.cpp`, reads all 841 meshes in the
+game's packages to the end of their records, every triangle's vertices and
+every node's links in range. Its line trace takes the triangle tree, as the
+exact form: down the tree from the root, a subtree passed over when the segment
+misses its box, each node's triangle tested from either side. The collision
+model is left for traces with an extent, as the engine family does it; that
+choice is not settled by the data.
+
+A placed mesh is found by its path, by package stem whatever the extension: the
+beanstalk bonus levels take meshes from Textures/Beanstalk.utx. All 7931 actors
+drawn as a static mesh that block traces find theirs.
+
 **The raw triangles** are the editor's source: per triangle its three corners,
 which are mesh vertices in 108697 of 108739 cases, the UVs of each corner for
 every UV stream, NumUVs matching the mesh's stream count in all of them, three
@@ -683,6 +695,24 @@ A node's iCollisionBound points into the leaf hulls: a list of node indices,
 the planes of a convex hull, ending in -1 and followed by the hull's box as six
 floats. Bit 0x40000000 on an index means the plane is used flipped. All 3039
 Models' hulls read this way, every index a node and every box ordered.
+
+**A trace through the level.** The engine's reader, `src/world/Bsp.cpp`, reads
+every one of the 3039 Models to the end of its record as well, and traces a
+segment by the same walk: where the segment crosses a plane it goes down the
+near side first, then the far side from the crossing, and it hits where it first
+leaves the tree into leaf -1, on the plane it crossed last. That the result is
+a real surface and not a bare splitting plane is checkable: the hit must lie on
+the polygon of that node or of a node coplanar with it. `ffa-script collide`
+traces down from all 2331 coins and path nodes in the open, and every hit lies
+on a polygon, to half a unit.
+
+Adding the terrains and the static meshes that block traces gives the ground
+they stand on, and path nodes are where the editor puts them, at their own
+collision height above the ground: the 1086 with a CollisionHeight of 50 stand
+a median 52.5 above it, the lowest tenth 49.5. The level saved where its
+actors are too, in each actor's Region, and the walk agrees on the zone for
+20023 of the 20115 actors the game loads, and on the leaf for 20007. The coins
+high above anything are on the beanstalk bonus levels and in the prison.
 
 Light lists are the other run-length array: a leaf's iPermeating and
 iVolumetric each start a list of Light actors ending in 0, or are -1 for none.
@@ -1074,6 +1104,11 @@ stored vertices agree with the formula at every vertex of every terrain, within
 0.0007 units, and the frames say the same thing in other words, ToWorld's axes
 being TerrainScale X and Y and Z / 256 and ToHeightmap's origin Location minus
 half the grid.
+
+The engine's reader, `src/world/Terrain.cpp`, traces against this copy, the
+grid as stored in world space: it walks the quads under the segment nearest
+first and tests the two triangles of each. Its split agrees with the stored
+normals on every quad of all 22 terrains, exactly.
 
 **The normals settle the quad split, and showed it had been wrong.** Read the
 obvious way, the edge turn bit cuts a quad from (x, y) to (x+1, y+1) when set.

@@ -6,6 +6,7 @@
 //   ffa-script level <System dir> <map> [dump]    load a level's live actors
 //   ffa-script start <System dir> <map>           and run its start up sequence
 //   ffa-script run <System dir> <map> <seconds>   then that long of level time
+//   ffa-script collide <System dir> <packages...> check the BSP as collision
 //
 // `check` is the corpus-wide proof the VM rests on, in the manner of the
 // Python readers in tools/: every class loads, every function and state compiles with
@@ -20,6 +21,8 @@
 #include <set>
 
 #include "script/VM.h"
+#include "world/Bsp.h"
+#include "world/Collision.h"
 #include "world/Level.h"
 #include "world/World.h"
 
@@ -34,7 +37,8 @@ int usage() {
                  "       ffa-script smoke <System dir>\n"
                  "       ffa-script level <System dir> <map.unr> [dump.tsv]\n"
                  "       ffa-script start <System dir> <map.unr>\n"
-                 "       ffa-script run <System dir> <map.unr> <seconds>\n");
+                 "       ffa-script run <System dir> <map.unr> <seconds>\n"
+                 "       ffa-script collide <System dir> <map.unr or .usx>...\n");
     return 2;
 }
 
@@ -544,12 +548,120 @@ int start(const std::string& dir, const std::string& map, float seconds) {
     return 0;
 }
 
+// The level's collision, checked against the data. Every Model and StaticMesh
+// in the given packages must read to the end of its record. Every live actor's
+// saved Region, which the engine wrote, must be the leaf and zone the BSP walk
+// finds. A trace down from what stands in the open, coins and path nodes, must
+// hit the BSP on one of its polygons, not on a bare splitting plane; and with
+// the static meshes added, it shows how far above the ground they stand.
+int collide(const std::string& dir, const std::vector<std::string>& files) {
+    size_t models = 0, modelsBad = 0, meshes = 0, meshesBad = 0;
+    size_t regions = 0, leafAgree = 0, zoneAgree = 0;
+    size_t traces = 0, hits = 0, onPoly = 0, startSolid = 0, meshHits = 0;
+    size_t meshActors = 0, meshesMissing = 0;
+    size_t terrainCount = 0, terrainHits = 0;
+    float worstNormal = 0;
+    std::vector<float> drops, bspDrops;
+    std::map<std::string, std::vector<float>> byClass;
+    std::map<std::string, size_t> problems;
+    std::string gameDir = dir + "/..";
+    for (const std::string& file : files) {
+        Package pkg(file);
+        for (int i = 1; i <= int(pkg.exports.size()); ++i) {
+            std::string cls = pkg.classOf(i);
+            if ((cls != "Model" && cls != "StaticMesh") || pkg.exp(i).size <= 0) continue;
+            bool model = cls == "Model";
+            ++(model ? models : meshes);
+            try {
+                if (model)
+                    BspModel m(pkg, i);
+                else
+                    StaticMeshCollision m(pkg, i);
+            } catch (const FormatError& ex) {
+                ++(model ? modelsBad : meshesBad);
+                problems[cls + ": " + ex.what()]++;
+            }
+        }
+        if (file.size() < 4 || file.compare(file.size() - 4, 4, ".unr") != 0) continue;
+        std::vector<std::string> paths = Linker::packageFiles(dir);
+        paths.push_back(file);
+        Linker lk(paths);
+        std::string stem = file.substr(file.find_last_of("/\\") + 1);
+        stem = stem.substr(0, stem.find_last_of('.'));
+        int k = lk.packageIndex(stem);
+        if (k < 0) continue;
+        LevelRecord lv = readLevel(*lk.packages[size_t(k)]);
+        VM vm(lk);
+        World w(vm, k, lv);
+        Collision col(w, k, lv.model, gameDir);
+        meshActors += col.meshActors;
+        terrainCount += col.terrains.size();
+        for (auto& t : col.terrains) worstNormal = std::max(worstNormal, t->normalCheck());
+        meshesMissing += col.meshesMissing;
+        for (auto& [m, n] : col.problems) problems[m] += n;
+        const BspModel& bsp = col.bsp;
+        for (Object* a : w.actors) {
+            Vec3 at;
+            vm.unvector(w.var(a, "Location"), at.x, at.y, at.z);
+            const StructVal& sv = w.var(a, "Region").st();
+            Prop* lf = sv.type->field(Name("iLeaf"));
+            Prop* zf = sv.type->field(Name("ZoneNumber"));
+            BspModel::Region g = bsp.regionAt(at);
+            ++regions;
+            leafAgree += g.leaf == sv.f[size_t(lf->slot)].i();
+            zoneAgree += g.zone == sv.f[size_t(zf->slot)].i();
+            std::string cls = a->cls->name.str();
+            bool open = cls.find("Coin") != std::string::npos || cls == "PathNode";
+            if (!open || bsp.solidAt(at)) continue;
+            ++traces;
+            Vec3 down = at + Vec3{0, 0, -8192};
+            Hit h = bsp.lineCheck(at, down);
+            if (h) {
+                ++hits;
+                startSolid += h.startSolid;
+                onPoly += bsp.onPolygon(h.node, h.location, 0.5f);
+                bspDrops.push_back(at.z - h.location.z);
+            }
+            TraceHit t = col.lineCheck(at, down, a);
+            if (t) {
+                byClass[cls + " (CollisionHeight " + std::to_string(int(w.var(a, "CollisionHeight").f())) + ")"]
+                    .push_back(at.z - t.location.z);
+                drops.push_back(at.z - t.location.z);;
+                meshHits += t.actor && t.actor->cls->name != Name("TerrainInfo");
+                terrainHits += t.actor && t.actor->cls->name == Name("TerrainInfo");
+            }
+        }
+    }
+    std::printf("models              %zu read to the end, %zu not\n", models - modelsBad, modelsBad);
+    std::printf("static meshes       %zu read to the end, %zu not\n", meshes - meshesBad, meshesBad);
+    std::printf("regions             %zu actors: leaf agrees %zu, zone agrees %zu\n", regions, leafAgree, zoneAgree);
+    std::printf("mesh actors         %zu blocking traces, %zu meshes not found\n", meshActors, meshesMissing);
+    std::printf("terrains            %zu read to the end; stored normals agree with the split to %.6f\n",
+                terrainCount, worstNormal);
+    auto q = [](std::vector<float>& v, double f) {
+        std::sort(v.begin(), v.end());
+        return v.empty() ? 0.0f : v[size_t(f * double(v.size() - 1))];
+    };
+    std::printf("down from coins and path nodes, %zu\n", traces);
+    std::printf("  BSP               %zu hit, %zu on a polygon, %zu start solid; drop 10%% %.1f median %.1f 90%% %.1f\n",
+                hits, onPoly, startSolid, q(bspDrops, 0.1), q(bspDrops, 0.5), q(bspDrops, 0.9));
+    std::printf("  everything        %zu hit, %zu on a mesh, %zu on terrain; drop 10%% %.1f median %.1f 90%% %.1f\n",
+                drops.size(), meshHits, terrainHits, q(drops, 0.1), q(drops, 0.5), q(drops, 0.9));
+    for (auto& [c, v] : byClass)
+        if (v.size() >= 20)
+            std::printf("  %-36s %5zu: 10%% %.1f median %.1f 90%% %.1f\n", c.c_str(), v.size(), q(v, 0.1), q(v, 0.5),
+                        q(v, 0.9));
+    for (auto& [m, n] : problems) std::printf("  %6zu  %s\n", n, m.c_str());
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) return usage();
     std::string cmd = argv[1], dir = argv[2];
     try {
         if (cmd == "check") return check(dir);
         if (cmd == "smoke") return smoke(dir);
+        if (cmd == "collide" && argc >= 4) return collide(dir, std::vector<std::string>(argv + 3, argv + argc));
         if (cmd == "start" && argc >= 4) return start(dir, argv[3], 0.0f);
         if (cmd == "run" && argc >= 5) return start(dir, argv[3], std::stof(argv[4]));
         if (cmd == "level" && argc >= 4) return level(dir, argv[3], argc >= 5 ? argv[4] : nullptr);

@@ -32,6 +32,7 @@ public:
     Object* game = nullptr;         // the GameInfo, once begun
     bool begunPlay = false;
     size_t editorOnly = 0;          // listed actors the game does not load
+    std::unordered_map<const Object*, int32_t> exportOf;   // the loaded actors' exports
 
     // The world a VM's natives act on; null when none is attached.
     static World* of(VM& vm) { return static_cast<World*>(vm.host); }

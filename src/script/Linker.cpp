@@ -406,6 +406,19 @@ void Linker::initClassObject(Class* c) {
     c->cls = saved;
 }
 
+size_t Linker::propertiesStart(const Package& p, const Export& e) {
+    size_t start = size_t(e.off), end = size_t(e.off + e.size);
+    if (e.flags & 0x02000000) {        // RF_HasStack: the state frame comes first
+        Reader r(p.data, start, end);
+        int32_t node = r.idx();
+        r.idx();                        // StateNode
+        r.p += 12;                      // ProbeMask, LatentAction
+        if (node) r.idx();              // Offset
+        start = r.p;
+    }
+    return start;
+}
+
 Object* Linker::instanceAt(int pkg, int idx) {
     auto key = std::make_pair(pkg, idx);
     auto it = objects_.find(key);
@@ -422,16 +435,9 @@ Object* Linker::instanceAt(int pkg, int idx) {
     obj->props = obj->cls->defaults()->props;
     setIntrinsics(obj);
     if (e.size <= 0) return obj;
-    size_t start = size_t(e.off), end = size_t(e.off + e.size);
+    size_t start = 0, end = size_t(e.off + e.size);
     try {
-        if (e.flags & 0x02000000) {    // RF_HasStack: the state frame comes first
-            Reader r(p.data, start, end);
-            int32_t node = r.idx();
-            r.idx();                    // StateNode
-            r.p += 12;                  // ProbeMask, LatentAction
-            if (node) r.idx();          // Offset
-            start = r.p;
-        }
+        start = propertiesStart(p, e);
     } catch (const FormatError&) {
         return obj;
     }

@@ -18,6 +18,7 @@ World::World(VM& vm, int pkg, const LevelRecord& level) : vm(vm), linker(vm.link
             continue;
         }
         actors.push_back(linker.instanceAt(pkg, idx));
+        exportOf[actors.back()] = idx;
     }
     if (actors.empty()) throw std::runtime_error("the level lists no actors");
     info = actors[0];

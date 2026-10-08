@@ -54,6 +54,9 @@ public:
     StructType* structAt(int pkg, int idx);
     EnumType* enumAt(int pkg, int idx);
     Object* instanceAt(int pkg, int idx);
+    // Where an instance's tagged properties start: after its state frame,
+    // when its flags say it has one. Throws FormatError past the record.
+    static size_t propertiesStart(const Package& p, const Export& e);
 
     // types and objects by reference from inside a package
     Class* classRef(int pkg, int32_t ref);

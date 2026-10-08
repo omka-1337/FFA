@@ -168,9 +168,11 @@ Engine:
 - [ ] The natives the start up still calls without having them: animation,
   attachment to bones, projectors, emitters, and SetLocation and Move, which
   need collision.
-- [ ] Collision queries, a line trace and a swept box, on the static mesh
-  triangle trees and collision models and on the BSP's leaves and hulls, all
-  decoded. Checked against where the game's own actors stand.
+- [x] Line traces through the BSP, the terrains and the static meshes, read
+  to the end of every record in the engine. Every hit from a coin or path node
+  lies on a level polygon, and path nodes stand at their collision height.
+- [ ] Traces with an extent, a swept box, on the BSP's hulls and the meshes'
+  collision models; and actors' cylinders.
 - [ ] Config and localisation, probe masks, replication, garbage collection.
 
 Open questions, written up in the format document with the measurements so
