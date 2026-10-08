@@ -118,8 +118,11 @@ whose records carry native data after their properties.
   dialogue: curves of floats over time that move the characters' mouths.
   Versions 0 and 1 are read.
 - [x] **Font** (120). Both layouts, by package version, drawn as text.
-- [ ] **Lighting**: BSP lightmaps, the rest of a level Model after Linked, and
-  `StaticMeshInstance` (9260), each placed mesh's baked vertex light.
+- [x] `StaticMeshInstance` (9260), each placed mesh's baked vertex light.
+- [x] BSP render sections, and the last three fields of a BSP node.
+- [ ] **BSP lightmaps**: the lightmap array (4007 in the Donkey prison, each a
+  matrix, three vectors and a shadow bitmap per light) and the lightmap
+  textures after it.
 - [ ] **Terrain**: the native part of `TerrainInfo` after its properties, and
   the rest of `TerrainSector` beyond its box.
 - [ ] `KMeshProps` (320), Karma physics; `ConvexVolume` (156), KnowWonder's

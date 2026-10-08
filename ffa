@@ -190,6 +190,8 @@ def check(args):
     section('skeletal meshes', lambda: uskel.main([os.path.join(g, 'Animations')]))
     section('animations', lambda: uanim.main([os.path.join(g, 'Animations')]))
     section('fonts', lambda: font_total(g))
+    section('static mesh lighting', lambda: __import__('ulight').survey(
+        sorted(glob.glob(os.path.join(maps, '*.unr')))))
     section('sounds', lambda: usound.main([os.path.join(g, d) for d in ('Sounds', 'System', 'Animations')]))
 
 

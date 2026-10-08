@@ -133,6 +133,7 @@ Not done yet, roughly in order:
 | `tools/umesh.py` | Static mesh geometry: vertices, normals, UVs, colours, triangles |
 | `tools/ubsp.py` | BSP: level vectors, points, nodes, surfaces and verts |
 | `tools/ulevel.py` | Assembles a level: BSP polygons and placed static meshes |
+| `tools/ulight.py` | Baked lighting of placed static meshes |
 | `tools/umaterial.py` | Materials: from shaders and modifiers down to the base texture |
 | `tools/utexture.py` | Textures: every format the game uses, decoded to RGBA and PNG |
 | `tools/ufont.py` | Fonts: glyph rectangles over texture pages, in both layouts |
@@ -167,6 +168,9 @@ UnrealEngine2 Runtime (version 126):
   leaves, convex hulls and light lists. A point's zone and whether it is solid
   come from walking the tree, checked against the zone table and against where
   19580 live actors stand.
+- **Lighting.** Every placed mesh's baked vertex light, 9260 records, to their
+  end, with its channel order taken from the lights themselves; the BSP's
+  render sections, matched to every node's polygon. BSP lightmaps are next.
 - **Level.** All 29 Level records, to their exact end: the live actor list, the
   URL and the level's Model. Actors the list leaves out, 8572 of them, are
   deleted ones the editor saved anyway, all marked bDeleteMe.

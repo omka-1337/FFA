@@ -26,8 +26,13 @@ then the UPrimitive prefix shared with static meshes, then the BSP arrays:
               ending in 0, that a leaf's iPermeating and iVolumetric start
     u32       RootOutside
     u32       Linked
-    ...       lightmaps, not decoded yet; three empty arrays where there are
-              none, as in a static mesh's collision model
+    index     render section count, then each: index vertex count, then
+              40 bytes a vertex (position, texture u v, lightmap u v,
+              normal), u32 revision, index Material, u32 node count,
+              u32 poly flags, i32 lightmap texture or -1
+    index     lightmap count, then the lightmaps, not decoded yet
+    ...       and after them the lightmap textures; a static mesh's collision
+              model has none of the three, three empty arrays
 
 A node is variable length, because seven of its fields are compact indices:
 
@@ -42,7 +47,9 @@ A node is variable length, because seven of its fields are compact indices:
     u8        zone in front of the plane
     u8        vertex count of the node's polygon
     i32 x2    iLeaf behind and in front of the plane, -1 for none
-    i32 x3    meaning unknown, not leaves
+    i32       render section, -1 in a model that is not rendered
+    i32       first vertex of the node's polygon in that section
+    i32       lightmap, or -1
 
 The layout was not guessed. Node starts are findable independently, because a
 node begins with a unit length plane normal followed by a small zone mask, and
@@ -66,7 +73,7 @@ class Node:
     __slots__ = ('plane', 'zone_mask', 'flags', 'vert_pool', 'surf', 'back',
                  'front', 'plane_index', 'collision_bound', 'render_bound',
                  'sphere', 'num_vertices', 'zone_back', 'zone', 'leaf_back',
-                 'leaf_front', 'ints', 'size')
+                 'leaf_front', 'section', 'first_vertex', 'light_map', 'ints', 'size')
 
 
 class Surf:
@@ -89,6 +96,8 @@ class Model:
         self.lights = []
         self.polys = 0
         self.root_outside = self.linked = None
+        self.sections = []          # (vertex offset, vertex count, revision,
+        self.light_map_count = None  #  material, node count, flags, lightmap texture)
         self.rest = 0
         self.parse()
 
@@ -161,6 +170,27 @@ class Model:
         self.node_bounds, self.leaf_hulls, self.leaves, self.lights = bounds, hulls, leaves, lights
         self.root_outside, self.linked = root_outside, linked
         self.rest = end - r.p
+        sections = []
+        for _ in range(r.idx()):
+            nv = r.idx()
+            at = r.p
+            r.p += 40 * nv
+            if r.p > end:
+                raise ValueError('render section runs past the record')
+            rev, mat, count, flags, lmt = r.u32(), r.idx(), r.u32(), r.u32(), r.i32()
+            sections.append((at, nv, rev, mat, count, flags, lmt))
+        self.sections, self.light_map_count = sections, r.idx()
+        self.rest = end - r.p
+
+    def section_vertices(self, i):
+        """A render section's vertices: (position, texture uv, lightmap uv,
+        normal) per vertex."""
+        at, n = self.sections[i][:2]
+        out = []
+        for k in range(n):
+            f = struct.unpack_from('<10f', self.p.b, at + 40 * k)
+            out.append((f[0:3], f[3:5], f[5:7], f[7:10]))
+        return out
 
     def hull(self, i):
         """The leaf hull a node's iCollisionBound starts: ((node, flipped)
@@ -194,6 +224,7 @@ class Model:
         n.num_vertices = r.u8()
         n.ints = struct.unpack_from('<5i', b, r.p)
         n.leaf_back, n.leaf_front = n.ints[0], n.ints[1]
+        n.section, n.first_vertex, n.light_map = n.ints[2], n.ints[3], n.ints[4]
         r.p += 20
         n.size = r.p - n.size
         return n
@@ -259,6 +290,17 @@ class Model:
         nl, nz = len(self.leaves), max(1, len(self.zones))
         if any(l[0] >= nz for l in self.leaves):
             return False
+        ns, nlm = len(self.sections), self.light_map_count or 0
+        for n in self.nodes:
+            if not ns:
+                # brushes and collision models are not rendered: no section
+                if (n.section, n.first_vertex, n.light_map) != (-1, 0, -1):
+                    return False
+            elif n.num_vertices >= 3 and not (
+                    0 <= n.section < ns
+                    and n.first_vertex + n.num_vertices <= self.sections[n.section][1]
+                    and -1 <= n.light_map < nlm):
+                return False
         for n in self.nodes:
             if not (-1 <= n.back < nn and -1 <= n.front < nn):
                 return False

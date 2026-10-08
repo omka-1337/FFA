@@ -464,7 +464,16 @@ index     leaf count, then each: index iZone, index iPermeating,
 index     light count, then index each: Light actors, in lists ending in 0
 u32       RootOutside
 u32       Linked
-...       lightmaps, not decoded yet
+index     render section count, then each section:
+            index  vertex count, then 40 bytes a vertex: position, texture
+                   u v, lightmap u v, normal
+            u32    revision, equal to the node count in every section
+            index  Material
+            u32    node count
+            u32    poly flags
+            i32    lightmap texture, or -1
+index     lightmap count, then the lightmaps, not decoded yet
+...       the lightmap textures, not decoded yet
 ```
 
 Every Model in the game, 2727 in levels and 312 behind static meshes, reads to
@@ -519,7 +528,9 @@ u8        zone behind the plane
 u8        zone in front of the plane
 u8        vertex count of the node's polygon
 i32 x2    iLeaf behind and in front of the plane, -1 for none
-i32 x3    not leaves, meaning unknown
+i32       render section, -1 in a model that is not rendered
+i32       first vertex of the node's polygon in its section
+i32       lightmap, or -1
 ```
 
 The two leaf indices were settled by the zones: wherever a node names a leaf on
@@ -594,6 +605,28 @@ Several other zones on Shrek's swamp stand near the sky and look like part of
 it, ringed with the same treeline texture. They are not: they hold
 CutCamPosition, CSPeasant and the potion bottles, sets for the cutscenes, and one
 is a tavern interior with pool balls and a shelf of skull candles.
+
+### Render sections
+
+A level Model carries its polygons a second time, laid out for drawing: one
+section per material and set of flags, its vertices in one buffer. Each node
+names its section and the first of its vertices there, and on all 29512 nodes
+of the 29 levels those vertices are exactly the node's polygon, corner for
+corner; the sections' node counts and vertex counts add up to the number of
+polygons and of corners. Brush and collision models have no sections, and their
+nodes hold -1, 0 and -1 in the three fields. Section flags are the surfaces'
+poly flags with the bits that do not matter to drawing dropped, 0x08 and 0x80
+among them.
+
+The fifth i32 of a node is its lightmap: the Donkey prison has 4007, the count
+the lightmap array declares, and its nodes name 0 to 4006. Shrek's swamp has
+none, its nodes all -1 and its sections all flagged 0x400000. A surface's own
+iLightMap field is something else: the swamp's surfaces name 32 values while it
+has no lightmap at all.
+
+A lightmap holds a world to lightmap matrix, three vectors, and a shadow bitmap
+for each light; the array after the lightmaps holds the lightmap textures, 9 in
+the prison. Both are variable length and not decoded yet.
 
 ### How the node was found
 
@@ -1261,6 +1294,36 @@ them right, Ö, ß and ü, and leaves others blank, so the slots are not simply
 swapped either. The English game has no use for those letters, which is likely
 why it shipped like this. The engine should draw what is stored.
 
+## Static mesh lighting
+
+Each placed static mesh carries its own baked light, in the StaticMeshInstance
+record its actor names:
+
+```
+index      colour count, one per vertex of the mesh
+per colour u8 R, G, B, A, with A 255
+u32        revision of the colour stream
+index      light count, then each: index the light actor, index mask length
+           and the mask, a bit per vertex set where that light reaches it,
+           then u32 applied
+```
+
+All 9260 records read to their exact end. Every mask is ceil(vertices / 8)
+bytes, 73611 of them, and every light is a Light, Sunlight or Spotlight.
+
+The channel order is R G B A, the opposite of RGBA8 texture pixels, and it was
+settled by the data rather than by eye: over the 402 meshes a single coloured
+light reaches, the hue of their colours read as R G B matches the light's
+LightHue in 400. In Castle Siege a blue light of hue 170 leaves colours such as
+(12, 12, 49), whose hue as R G B is 170 exactly.
+
+The colour count is the mesh's vertex count for 9117 of the 9161 live instances
+whose mesh resolves. The other 44 are one mesh, 11_FGM_Battle_SM.bush_wall,
+lit when it had 143 vertices and shipped with 79: stale light an engine has to
+throw away. 1563 instances are black throughout with no light reaching them,
+lit, presumably, by their zone's ambient alone; 544 more are black throughout
+although lights reach them, which is not explained yet.
+
 ## A warning about parsers
 
 A desynchronised parse will happily read garbage as opcodes and walk off the end
@@ -1276,8 +1339,7 @@ budget per record. Run bulk passes under an external memory cap.
 - Whether and how PrePivot applies to skeletal meshes; see placing them.
 - The sky dome is drawn lit like the rest of the scene; the game probably
   draws it unlit.
-- BSP lightmaps, after Linked in a level's Model, and three of the five i32s at
-  the end of a BSP node.
+- BSP lightmaps and lightmap textures, after the render sections.
 - Which of a static mesh's two collision forms, its triangle tree or its
   collision model, the engine uses for which kind of check.
 - Version 2 lip sync after a sound, the curves that move the characters'
