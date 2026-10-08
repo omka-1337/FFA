@@ -25,7 +25,7 @@ The class reader was additionally confirmed against the outside world: the
 recovered signatures of `Actor.Spawn`, `Actor.Trace`, `Actor.PlaySound` and
 `Actor.PlayAnim` match the published UE2 API exactly.
 
-Current state: 8599 of 8638 functions pass end alignment, 8426 pass both checks.
+Current state: 8599 of 8638 functions pass end alignment, 8547 pass both checks.
 
 ## Primitives
 
@@ -122,11 +122,18 @@ u32  FunctionFlags
 u16  extra              present on some functions, see the discriminator below
 ```
 
-**Reading the tail.** The tail is 7 or 9 bytes and the length cannot be taken
-from the flags, because reading the flags at the wrong offset returns a word
-shifted by 16 bits. Every real `FunctionFlags` word carries exactly one access
-specifier, so those bits are the discriminator: read a u32 at `end - 4`, and if
-no access bit is set, read at `end - 6` instead.
+**Reading the tail.** The tail is 7 or 9 bytes: the extra u16 is RepOffset,
+there exactly when the flags carry FUNC_Net. Read the u32 at `end - 6`; when it
+has FUNC_Net and exactly one access specifier, the tail is 9 bytes. Otherwise it
+is 7, the flags at `end - 4`.
+
+The first rule here tested the 7 byte position for any access bit and took the
+9 byte one only when that failed. At `end - 4` the u32 takes its top half from
+RepOffset, and in 121 net functions, PlayerController.ServerMove among them,
+RepOffset has bits where the access specifiers are. Those were read with a 7
+byte tail, which left the RepOffset's two zero bytes in the bytecode as a stray
+local variable reference after the final return. The script sizes caught it:
+dropping that token makes all 121 agree.
 
 ```
 FUNC_Final      0x00000001   FUNC_Defined   0x00000002   FUNC_PreOperator 0x00000010
@@ -218,12 +225,25 @@ index, `parms` expressions terminated by EndFunctionParms (0x16).
 0x31 IteratorNext           0x32 StructCmpEq obj e e    0x33 StructCmpNe obj e e
 0x34 UnicodeStringConst     0x35 InstanceDelegate name  0x36 StructMember obj expr
 0x37 DynArrayLength expr    0x38 GlobalFunction name parms
-0x39 .. 0x5F                primitive conversions, one expression each
+0x39 PrimitiveCast u8 expr  the byte is the conversion, 0x39 .. 0x5F
+0x3A .. 0x5F                the conversions also stand as tokens, rarely
 ```
 
-The conversion block 0x39 to 0x5F is a single run of cast tokens, each taking
-exactly one expression. Not knowing this is what stalls a first parser: those
-opcodes look like unrelated unknowns.
+0x39 is a prefix, EX_PrimitiveCast: the byte after it says which conversion,
+0x3A ByteToInt, 0x3F IntToFloat, 0x53 IntToString and so on, with 0x39 itself
+meaning RotatorToVector, and one expression follows. Of the 8208 casts in the
+game's script 7778 carry a code from 0x3A up and 215 carry 0x39; the codes
+stand alone as tokens only 53 times, all at statement level.
+
+The first reading took all of 0x39 to 0x5F as cast tokens of one expression
+each. That parses to the same length, prefix and code reading as two nested
+tokens, so alignment and size never objected, but it means something else:
+`(Level.TimeSeconds - Pawn.LastStartTime) > 1` came out as `> vector(float(1))`,
+and a VM running it would cast twice. The engine's check settled it, by the
+declared type of what each conversion is handed: read as a prefix, every code
+is given only its own source type, RotatorToVector 263 Rotators, IntToString
+238 ints, NameToString 668 names; read the first way, 0x39 was handed floats,
+ints, strings, rotators and vectors alike.
 
 ## Default properties, and the tagged value format
 
@@ -1528,8 +1548,7 @@ budget per record. Run bulk passes under an external memory cap.
   mouths in the dialogue.
 
 - 39 of 8638 functions still fail end alignment, 33 of them in GUI.u.
-- 212 functions align but disagree on size, so one token's memory size is still
-  wrong somewhere, most likely in a rarely used operand kind.
+- 52 functions align but disagree on size, 42 of them in GUI.u.
 - The seventh index of struct-like records is zero everywhere seen, so its
   meaning is unknown.
 - The fields between a class's struct header and its defaults block are still

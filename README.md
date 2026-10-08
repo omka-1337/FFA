@@ -154,7 +154,7 @@ Measured against Shrek 2 PC (package version 129) and the freely available
 UnrealEngine2 Runtime (version 126):
 
 - **Script.** 8599 of 8638 functions parse to the exact end of their record,
-  8426 of those also agree with the declared script size. 2002 classes
+  8547 of those also agree with the declared script size. 2002 classes
   decompile, with signatures, bodies and defaults.
 - **Defaults.** Every class of both corpora, 2002 and 607, with every property
   name resolving to a real inherited property.

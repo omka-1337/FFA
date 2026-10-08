@@ -100,11 +100,15 @@ FunctionTail readTail(const Package& p, const Export& e) {
         std::memcpy(&v, p.data.data() + end - back, 4);
         return v;
     };
+    // RepOffset follows the flags exactly when they carry FUNC_Net, so try
+    // the 9 byte reading first. Testing the 7 byte position for an access bit
+    // alone misreads the 121 net functions whose RepOffset has bits there.
+    auto single = [](uint32_t f) {
+        uint32_t a = f & FUNC_ACCESS;
+        return a && !(a & (a - 1));
+    };
     uint32_t f4 = word(4), f6 = word(6);
-    if (f4 & FUNC_ACCESS) {
-        t.flags = f4;
-        t.length = 7;
-    } else if (f6 & FUNC_ACCESS) {
+    if ((f6 & 0x40) && single(f6)) {
         t.flags = f6;
         t.length = 9;
     } else {
@@ -137,6 +141,17 @@ Ins BytecodeParser::token(Reader& r, uint32_t mem) {
         }
         size += parms(r, mem + size, n.kids);
         n.msize = size;
+        return n;
+    }
+    if (op == 0x39) {
+        // EX_PrimitiveCast: a conversion code byte, then one expression. The
+        // code may itself be 0x39, RotatorToVector.
+        uint8_t conv = r.u8();
+        if (conv < 0x39 || conv >= 0x60) throw FormatError("primitive cast with an unknown conversion");
+        n.op = Op::Cast;
+        n.code = conv;
+        n.kids.push_back(token(r, mem + 2));
+        n.msize = 2 + n.kids.back().msize;
         return n;
     }
     const OpInfo& oi = info(op);

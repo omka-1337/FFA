@@ -149,9 +149,11 @@ Engine:
 - [x] Which structs are stored raw: Vector, Rotator and Color only. With tag
   type 7 read as a delegate and the defaults block chosen by tag types as well
   as names, all 2002 default objects build without a problem.
-- [ ] The functions the VM does not load: 121 with a LocalVariable that names
-  no variable, 6 InstanceVariable, 3 StateVariable, the 39 known misaligned
-  ones, and about 15 jumps that land inside a statement.
+- [ ] The functions the VM does not load: 8077 of 8140 compile now that the
+  net function tail and the primitive cast prefix are read right. Left: the 39
+  misaligned ones, 33 in GUI.u, 9 variable references in GUI.u that are most
+  likely the same misparse, about 15 jumps that land inside a statement, and
+  one undeclared native.
 - [ ] LabelTableOffset in a state's tail agrees with the label table found by
   the bytecode walk in 216 states and not in 752.
 - [ ] Engine natives: Actor, Level, spawning, timers, the tick.

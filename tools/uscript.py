@@ -96,7 +96,12 @@ OPS = {
     0x38: ('GlobalFunction', ['name', 'parms']),
 }
 
-# 0x39..0x5F are the primitive conversion tokens, one expression each. The target
+# 0x39 is EX_PrimitiveCast: a conversion code byte, then one expression. The
+# codes are 0x39..0x5F, 0x39 itself being RotatorToVector; 7778 of the 8208
+# casts in the game's script carry a code from 0x3A up and the other 215 carry
+# 0x39. The codes also stand alone as tokens, 53 times, all at statement level.
+EX_PRIMITIVE_CAST = 0x39
+# 0x39..0x5F as conversions, one expression each. The target
 # type of each is only needed for pretty printing, so unknown ones stay generic.
 CASTS = {
     0x39: 'vector', 0x3A: 'int', 0x3B: 'bool', 0x3C: 'float', 0x3D: 'byte',
@@ -113,18 +118,21 @@ for _op in range(0x39, 0x60):
 def read_tail(b, e):
     """FunctionFlags and tail length of a UFunction record.
 
-    The tail is iNative u16, OperPrecedence u8, FunctionFlags u32, and for some
-    functions a further u16. Which of the two lengths applies cannot be read from
-    the flags themselves (reading at the wrong offset yields a shifted word), so
-    the access specifier bits are used as the discriminator.
+    The tail is iNative u16, OperPrecedence u8, FunctionFlags u32, and, when the
+    flags carry FUNC_Net, RepOffset u16. Read at the 9 byte position first: when
+    that reading has FUNC_Net and exactly one access specifier, it is the tail.
+    Testing only for an access bit at the 7 byte position is not enough, since
+    there the u32 takes its top half from RepOffset, and 121 functions have a
+    RepOffset whose bits fall on the access specifiers.
     """
     end = e['off'] + e['size']
-    f4 = struct.unpack_from('<I', b, end - 4)[0]
-    if f4 & FUNC_ACCESS:
-        return f4, 7
+    single = lambda f: bin(f & FUNC_ACCESS).count('1') == 1
     f6 = struct.unpack_from('<I', b, end - 6)[0]
-    if f6 & FUNC_ACCESS:
+    if f6 & FUNC_NET and single(f6):
         return f6, 9
+    f4 = struct.unpack_from('<I', b, end - 4)[0]
+    if single(f4):
+        return f4, 7
     return f4, 7
 
 
@@ -175,6 +183,19 @@ class Script:
             kids, ksize = self.parms(r, mem + size)
             n.kids = kids
             n.mem_size = size + ksize
+            return n
+        if op == EX_PRIMITIVE_CAST:
+            # 0x39 is a prefix: the next byte is the conversion, then one
+            # expression. Read as two tokens it gives the same length and the
+            # wrong meaning, vector(float(1)) for float(1), and the code 0x39
+            # itself, RotatorToVector, as a second prefix.
+            code = r.u8()
+            if not EX_PRIMITIVE_CAST <= code < 0x60:
+                raise ValueError('primitive cast with conversion 0x%02x' % code)
+            n.op = OPS[code][0]
+            kid = self.token(r, mem + 2)
+            n.kids.append(kid)
+            n.mem_size = 2 + kid.mem_size
             return n
         if op not in OPS:
             raise ValueError('unknown opcode 0x%02x' % op)
