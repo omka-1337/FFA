@@ -199,6 +199,7 @@ Engine:
   colours are there.
 - [x] The dynamic light of characters: their nearest lights by that formula.
 - [ ] The Spotlight's cone in it.
+- [x] Projectors: placed ones and characters' shadows, soft, on the world.
 - [x] Animation timing: channels, PlayAnim, LoopAnim, TweenAnim, FinishAnim,
   AnimEnd, blending alphas, AddNotify, the default animation of a mesh, and
   the engine's own movement animation of pawns.

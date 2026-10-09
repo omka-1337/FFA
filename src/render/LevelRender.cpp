@@ -606,6 +606,11 @@ void LevelRender::buildMeshes() {
         d.model[13] = origin[1];
         d.model[14] = origin[2];
         d.model[15] = 1;
+        for (const Vec3& v : m->positions) {
+            Vec3 q{d.model[0] * v.x + d.model[4] * v.y + d.model[8] * v.z, d.model[1] * v.x + d.model[5] * v.y + d.model[9] * v.z,
+                   d.model[2] * v.x + d.model[6] * v.y + d.model[10] * v.z};
+            d.radius = std::max(d.radius, length(q));
+        }
         // the baked light of this placing: its StaticMeshInstance's colours
         ObjectRef inst = refOf(w.obj(a, "StaticMeshInstance"));
         if (inst) {
@@ -882,6 +887,13 @@ void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye) {
         Vec3 loc;
         an.meshToWorld(a, r, loc);
         std::vector<Vec3> light = characterLight(a, *d.mesh, pts, r, loc);
+        d.world.resize(pts.size());
+        for (size_t i = 0; i < pts.size(); ++i) {
+            const Vec3& p = pts[i];
+            d.world[i] = {loc.x + r[0][0] * p.x + r[0][1] * p.y + r[0][2] * p.z,
+                          loc.y + r[1][0] * p.x + r[1][1] * p.y + r[1][2] * p.z,
+                          loc.z + r[2][0] * p.x + r[2][1] * p.y + r[2][2] * p.z};
+        }
         for (size_t i = 0; i < d.mesh->wedges.size(); ++i) {
             const SkeletalMesh::Wedge& wd = d.mesh->wedges[i];
             const Vec3& p = pts[wd.point];
@@ -926,6 +938,269 @@ void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye) {
             glUniform1f(uC, part.mat.alphaRef);
             glDrawElements(GL_TRIANGLES, part.count, GL_UNSIGNED_SHORT, reinterpret_cast<void*>(size_t(part.first) * 2));
         }
+    }
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+}
+
+namespace {
+
+const char* kProjVertex = R"(
+attribute vec3 aPos;
+uniform mat4 uMvp;
+uniform mat4 uModel;
+varying vec3 vW;
+void main() {
+    vec4 w = uModel * vec4(aPos, 1.0);
+    vW = w.xyz;
+    gl_Position = uMvp * w;
+}
+)";
+
+// A point's place in the projector's frame: depth along its axis from the
+// apex, and across it as -1 to 1 of its size, perspective or not. Past the
+// frame nothing is drawn; the gradient fades it out with depth.
+const char* kProjFragment = R"(
+precision mediump float;
+uniform sampler2D uTex;
+uniform vec3 uO;
+uniform vec3 uX;
+uniform vec3 uY;
+uniform vec3 uZ;
+uniform float uNear;
+uniform float uFar;
+uniform float uHalf;
+uniform float uTanHalf;
+uniform float uFade;
+uniform float uAlpha;
+varying vec3 vW;
+void main() {
+    vec3 d = vW - uO;
+    float x = dot(d, uX);
+    if (x < uNear || x > uFar) discard;
+    float s = uTanHalf > 0.0 ? x * uTanHalf : uHalf;
+    float u = dot(d, uY) / s, v = dot(d, uZ) / s;
+    if (abs(u) > 1.0 || abs(v) > 1.0) discard;
+    vec4 c = texture2D(uTex, vec2(u * 0.5 + 0.5, 0.5 - v * 0.5));
+    float fade = uFade > 0.5 ? clamp(1.0 - (x - uNear) / (uFar - uNear), 0.0, 1.0) : 1.0;
+    if (uAlpha > 0.5) gl_FragColor = vec4(c.rgb, c.a * fade);
+    else gl_FragColor = vec4(mix(vec3(1.0), c.rgb, fade), 1.0);
+}
+)";
+
+const char* kShadowVertex = R"(
+attribute vec3 aPos;
+uniform vec3 uC;
+uniform vec3 uY;
+uniform vec3 uZ;
+uniform float uHalf;
+uniform vec2 uShift;
+void main() {
+    vec3 d = aPos - uC;
+    gl_Position = vec4(dot(d, uY) / uHalf + uShift.x, -dot(d, uZ) / uHalf + uShift.y, 0.0, 1.0);
+}
+)";
+
+// Each of the silhouette's shifted copies takes its share of the darkness
+// away from the white, so that a point every copy covers ends at 0.45 and
+// the edges between: a soft shadow, as the game's are.
+const char* kShadowFragment = R"(
+precision mediump float;
+uniform float uShare;
+void main() { gl_FragColor = vec4(uShare, uShare, uShare, 1.0); }
+)";
+
+unsigned program(const char* vs, const char* fs) {
+    unsigned p = glCreateProgram();
+    glAttachShader(p, compile(GL_VERTEX_SHADER, vs));
+    glAttachShader(p, compile(GL_FRAGMENT_SHADER, fs));
+    glBindAttribLocation(p, 0, "aPos");
+    glLinkProgram(p);
+    return p;
+}
+
+}  // namespace
+
+void LevelRender::drawReceivers(Vec3 lo, Vec3 hi) {
+    static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    GLint uModel = glGetUniformLocation(projProgram_, "uModel");
+    glUniformMatrix4fv(uModel, 1, GL_FALSE, identity);
+    glEnableVertexAttribArray(0);
+    for (int a = 1; a < 5; ++a) glDisableVertexAttribArray(GLuint(a));
+    for (const Batch& b : batches_) {
+        if (b.mat.blended()) continue;
+        glBindBuffer(GL_ARRAY_BUFFER, b.buffer);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 10 * sizeof(float), nullptr);
+        glDrawArrays(GL_TRIANGLES, 0, b.count);
+    }
+    for (const TerrainDraw& td : terrains_)
+        for (const TerrainDraw::Band& b : td.bands) {
+            glBindBuffer(GL_ARRAY_BUFFER, b.vertices);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, b.indices);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 17 * sizeof(float), nullptr);
+            glDrawElements(GL_TRIANGLES, b.count, GL_UNSIGNED_SHORT, nullptr);
+        }
+    for (const MeshDraw& d : meshDraws_) {
+        Vec3 o{d.model[12], d.model[13], d.model[14]};
+        if (o.x + d.radius < lo.x || o.x - d.radius > hi.x || o.y + d.radius < lo.y || o.y - d.radius > hi.y ||
+            o.z + d.radius < lo.z || o.z - d.radius > hi.z)
+            continue;
+        glUniformMatrix4fv(uModel, 1, GL_FALSE, d.model);
+        glBindBuffer(GL_ARRAY_BUFFER, d.mesh->vertices);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), nullptr);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, d.mesh->indices);
+        for (const MeshDraw::Part& part : d.parts)
+            if (!part.mat.blended())
+                glDrawElements(GL_TRIANGLES, part.count, GL_UNSIGNED_SHORT, reinterpret_cast<void*>(size_t(part.first) * 2));
+    }
+}
+
+unsigned LevelRender::shadowFor(Object* proj, Object* actor, Vec3 centre, const Vec3 axes[3], float half) {
+    // The actor's silhouette as the light sees it, grey on white, 128 square.
+    auto it = skel_.find(actor);
+    if (it == skel_.end() || it->second.world.empty() || !it->second.mesh) return 0;
+    const SkelDraw& d = it->second;
+    unsigned& tex = shadowTex_[proj];
+    if (!tex) {
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 128, 128, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    if (!shadowFbo_) glGenFramebuffers(1, &shadowFbo_);
+    GLint viewport[4];
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    glBindFramebuffer(GL_FRAMEBUFFER, shadowFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+    glViewport(0, 0, 128, 128);
+    glClearColor(1, 1, 1, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glUseProgram(shadowProgram_);
+    glUniform3f(glGetUniformLocation(shadowProgram_, "uC"), centre.x, centre.y, centre.z);
+    glUniform3f(glGetUniformLocation(shadowProgram_, "uY"), axes[1].x, axes[1].y, axes[1].z);
+    glUniform3f(glGetUniformLocation(shadowProgram_, "uZ"), axes[2].x, axes[2].y, axes[2].z);
+    glUniform1f(glGetUniformLocation(shadowProgram_, "uHalf"), half);
+    std::vector<float> tris;
+    tris.reserve(d.mesh->faces.size() * 9);
+    for (const SkeletalMesh::Face& f : d.mesh->faces)
+        for (uint16_t wv : f.wedge) {
+            const Vec3& p = d.world[d.mesh->wedges[wv].point];
+            tris.insert(tris.end(), {p.x, p.y, p.z});
+        }
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glEnableVertexAttribArray(0);
+    for (int a = 1; a < 5; ++a) glDisableVertexAttribArray(GLuint(a));
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, tris.data());
+    const int copies = 12;
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
+    glBlendFunc(GL_ONE, GL_ONE);
+    glUniform1f(glGetUniformLocation(shadowProgram_, "uShare"), 0.55f / float(copies));
+    GLint uShift = glGetUniformLocation(shadowProgram_, "uShift");
+    for (int k = 0; k < copies; ++k) {
+        float t = float(k) * 6.2831853f / float(copies), rad = k % 2 ? 0.07f : 0.035f;
+        glUniform2f(uShift, std::cos(t) * rad, std::sin(t) * rad);
+        glDrawArrays(GL_TRIANGLES, 0, GLsizei(tris.size() / 3));
+    }
+    glBlendEquation(GL_FUNC_ADD);
+    glDisable(GL_BLEND);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+    glEnable(GL_DEPTH_TEST);
+    return tex;
+}
+
+void LevelRender::drawProjectors(const float mvp[16], Vec3 eye) {
+    World& w = *session_.world;
+    if (!projProgram_) {
+        projProgram_ = program(kProjVertex, kProjFragment);
+        shadowProgram_ = program(kShadowVertex, kShadowFragment);
+    }
+    if (!shadowClass_) shadowClass_ = session_.vm->findClass("ShadowProjector");
+    Class* shadowClass = shadowClass_;
+    for (Object* p : w.projectors) {
+        if (p->deleted) continue;
+        Vec3 at;
+        w.vm.unvector(w.var(p, "Location"), at.x, at.y, at.z);
+        if (length(at - eye) > 8000) continue;
+        int32_t pr, yr, rr;
+        w.vm.unrotator(w.var(p, "Rotation"), pr, yr, rr);
+        float m[3][3];
+        rotationAxes(pr, yr, rr, m);
+        Vec3 ax[3] = {{m[0][0], m[0][1], m[0][2]}, {m[1][0], m[1][1], m[1][2]}, {m[2][0], m[2][1], m[2][2]}};
+        float far = float(w.var(p, "MaxTraceDistance").i());
+        unsigned tex = 0;
+        Vec3 apex = at;
+        float nearD = 0, half = 1, tanHalf = 0;
+        bool alpha = w.var(p, "FrameBufferBlendingOp").i() == 2;
+        if (shadowClass && p->isA(shadowClass)) {
+            // An actor's shadow: its silhouette along the light, from just
+            // behind it, as far down as the projector reaches.
+            Object* actor = w.obj(p, "ShadowActor");
+            if (!actor || actor->deleted || w.flag(actor, "bHidden") || !w.flag(p, "bShadowActive")) continue;
+            Vec3 c;
+            w.vm.unvector(w.var(actor, "Location"), c.x, c.y, c.z);
+            float radius = std::max(w.var(actor, "CollisionRadius").f(), w.var(actor, "CollisionHeight").f()) * 1.4f;
+            tex = shadowFor(p, actor, c, ax, radius);
+            apex = c - ax[0] * radius;
+            half = radius;
+            far = far + radius * 2;
+            alpha = false;
+            glUseProgram(projProgram_);
+        } else {
+            ObjectRef ref = refOf(w.obj(p, "ProjTexture"));
+            if (!ref) continue;
+            SurfaceMaterial mat = materials_.resolve(*ref.pkg, ref.idx);
+            int tw = 64, th = 64;
+            tex = textureFor(mat, tw, th);
+            // its size at its location is DrawScale times half the texture;
+            // with a field of view the apex is behind it, where the frustum
+            // narrows to nothing
+            half = w.var(p, "DrawScale").f() * float(tw) * 0.5f;
+            int fov = w.var(p, "FOV").i();
+            if (fov > 0) {
+                tanHalf = std::tan(float(fov) * 3.14159265f / 360.0f);
+                nearD = half / tanHalf;
+                apex = at - ax[0] * nearD;
+                far += nearD;
+            }
+        }
+        if (!tex) continue;
+        glUseProgram(projProgram_);
+        glUniformMatrix4fv(glGetUniformLocation(projProgram_, "uMvp"), 1, GL_FALSE, mvp);
+        glUniform3f(glGetUniformLocation(projProgram_, "uO"), apex.x, apex.y, apex.z);
+        glUniform3f(glGetUniformLocation(projProgram_, "uX"), ax[0].x, ax[0].y, ax[0].z);
+        glUniform3f(glGetUniformLocation(projProgram_, "uY"), ax[1].x, ax[1].y, ax[1].z);
+        glUniform3f(glGetUniformLocation(projProgram_, "uZ"), ax[2].x, ax[2].y, ax[2].z);
+        glUniform1f(glGetUniformLocation(projProgram_, "uNear"), nearD);
+        glUniform1f(glGetUniformLocation(projProgram_, "uFar"), far);
+        glUniform1f(glGetUniformLocation(projProgram_, "uHalf"), half);
+        glUniform1f(glGetUniformLocation(projProgram_, "uTanHalf"), tanHalf);
+        glUniform1f(glGetUniformLocation(projProgram_, "uFade"), w.flag(p, "bGradient") ? 1.0f : 0.0f);
+        glUniform1f(glGetUniformLocation(projProgram_, "uAlpha"), alpha ? 1.0f : 0.0f);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glUniform1i(glGetUniformLocation(projProgram_, "uTex"), 0);
+        glEnable(GL_BLEND);
+        if (alpha) glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        else glBlendFunc(GL_DST_COLOR, GL_ZERO);
+        glDepthMask(GL_FALSE);
+        glDepthFunc(GL_LEQUAL);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(-1, -4);
+        // the box the frustum fits in, to pass over meshes outside it
+        float reach = (tanHalf > 0 ? far * tanHalf : half) + 1;
+        Vec3 end = apex + ax[0] * far;
+        Vec3 lo{std::min(apex.x, end.x) - reach, std::min(apex.y, end.y) - reach, std::min(apex.z, end.z) - reach};
+        Vec3 hi{std::max(apex.x, end.x) + reach, std::max(apex.y, end.y) + reach, std::max(apex.z, end.z) + reach};
+        drawReceivers(lo, hi);
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glDepthFunc(GL_LESS);
     }
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
@@ -1022,6 +1297,13 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
     GLint uM = glGetUniformLocation(meshProgram_, "uMvp"), uA = glGetUniformLocation(meshProgram_, "uAmb");
     GLint uB = glGetUniformLocation(meshProgram_, "uBaked"), uC = glGetUniformLocation(meshProgram_, "uCut");
     for (int pass = 0; pass < 2; ++pass) {
+        if (pass == 1) {
+            // shadows and the like on what is drawn so far, the opaque world,
+            // before what blends over it
+            drawProjectors(mvp, loc);
+            glUseProgram(meshProgram_);
+            glActiveTexture(GL_TEXTURE0);
+        }
         for (const MeshDraw& d : meshDraws_) {
             float m[16];
             for (int c = 0; c < 4; ++c)

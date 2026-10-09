@@ -613,6 +613,41 @@ void registerAnimationNatives(VM& vm) {
         animator(c).world.var(c.self, "RelativeRotation") = c.get(0);
         return Value::Bool(true);
     };
+    // GetRenderBoundingSphere: a Plane of the centre and the radius, in the
+    // world; for a skeletal mesh around its posed points, else its collision
+    // cylinder's.
+    n["actor.getrenderboundingsphere"] = [](NativeCall& c) {
+        Animator& an = animator(c);
+        World& w = an.world;
+        Vec3 centre;
+        w.vm.unvector(w.var(c.self, "Location"), centre.x, centre.y, centre.z);
+        float radius = std::max(w.var(c.self, "CollisionRadius").f(), w.var(c.self, "CollisionHeight").f());
+        if (const SkeletalMesh* m = an.state(c.self).mesh) {
+            float r[3][3];
+            Vec3 loc;
+            an.meshToWorld(c.self, r, loc);
+            Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+            for (const Vec3& p0 : m->points) {
+                Vec3 p = m->toActor(p0);
+                Vec3 q{loc.x + r[0][0] * p.x + r[0][1] * p.y + r[0][2] * p.z, loc.y + r[1][0] * p.x + r[1][1] * p.y + r[1][2] * p.z,
+                       loc.z + r[2][0] * p.x + r[2][1] * p.y + r[2][2] * p.z};
+                lo = {std::min(lo.x, q.x), std::min(lo.y, q.y), std::min(lo.z, q.z)};
+                hi = {std::max(hi.x, q.x), std::max(hi.y, q.y), std::max(hi.z, q.z)};
+            }
+            if (!m->points.empty()) {
+                centre = (lo + hi) * 0.5f;
+                radius = length(hi - lo) * 0.5f;
+            }
+        }
+        StructType* st = c.vm.linker.findStruct("Plane");
+        if (!st) return Value();
+        Value v = st->make();
+        const char* names[4] = {"X", "Y", "Z", "W"};
+        const float vals[4] = {centre.x, centre.y, centre.z, radius};
+        for (int k = 0; k < 4; ++k)
+            if (Prop* f = st->field(Name(names[k]))) v.st().f[size_t(f->slot)] = Value::Float(vals[k]);
+        return v;
+    };
     // The MeshAnimation of the actor's that holds a sequence.
     n["actor.getanimobjectbyname"] = [](NativeCall& c) {
         Animator& an = animator(c);

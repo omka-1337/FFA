@@ -429,6 +429,17 @@ void registerWorldNatives(VM& vm) {
         return Value();
     };
 
+    n["projector.attachprojector"] = [](NativeCall& c) {
+        world(c).projectors.insert(c.self);
+        return Value();
+    };
+    n["projector.detachprojector"] = [](NativeCall& c) {
+        world(c).projectors.erase(c.self);
+        return Value();
+    };
+    // AbandonProjector leaves the projection where it is, for good: here it
+    // stays attached.
+    n["projector.abandonprojector"] = [](NativeCall&) { return Value(); };
     n["levelinfo.issoftwarerendering"] = [](NativeCall&) { return Value::Bool(false); };
     n["playercontroller.setviewtarget"] = [](NativeCall& c) {
         world(c).var(c.self, "ViewTarget") = Value::Obj(c.o(0));

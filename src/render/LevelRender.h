@@ -77,6 +77,7 @@ private:
             SurfaceMaterial mat;
         };
         std::vector<Part> parts;
+        float radius = 0;           // around its origin, in the world
     };
     // Skeletal meshes: per actor its wedges' positions, skinned each frame on
     // the CPU from the animator's pose, and its faces by material.
@@ -85,8 +86,16 @@ private:
         unsigned vertices = 0, indices = 0;
         std::vector<MeshDraw::Part> parts;
         std::vector<float> scratch;
+        std::vector<Vec3> world;    // the posed points this frame, for its shadow
         bool failed = false;
     };
+    // Projectors: what they cover drawn again with their texture laid on.
+    void drawProjectors(const float mvp[16], Vec3 eye);
+    void drawReceivers(Vec3 lo, Vec3 hi);
+    unsigned shadowFor(Object* projector, Object* actor, Vec3 centre, const Vec3 axes[3], float half);
+    unsigned projProgram_ = 0, shadowProgram_ = 0, shadowFbo_ = 0, blob_ = 0;
+    std::map<Object*, unsigned> shadowTex_;
+    Class* shadowClass_ = nullptr;
     void drawSkeletal(const float mvp[16], Vec3 eye);
     std::vector<Vec3> characterLight(Object* a, const SkeletalMesh& mesh, const std::vector<Vec3>& pts,
                                      const float r[3][3], Vec3 loc);

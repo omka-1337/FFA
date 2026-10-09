@@ -70,6 +70,28 @@ A mesh takes the ambient of the zone its Region names, which the engine wrote;
 a walk from its origin, which can sit inside the ground, found the zone outside
 the level for some.
 
+## Projectors and shadows
+
+A projector lays its texture over what it covers: the BSP, the terrains and the
+opaque static meshes, drawn again after the opaque world and before what
+blends over it. AttachProjector and DetachProjector say which are attached;
+a placed Projector attaches itself in PostBeginPlay. Its frame is its
+Rotation's axes from its Location, as far as MaxTraceDistance; at its location
+it is DrawScale times half its texture across, and with a FOV the apex is
+behind it where the frustum narrows to nothing. FrameBufferBlendingOp
+PB_Modulate multiplies the frame, PB_AlphaBlend blends by the texture's alpha,
+and bGradient fades it with depth. Shrek's swamp has one placed projector, a
+tree's shadow (a TexOscillator over Tree_shadow, PB_AlphaBlend, FOV 45).
+
+A character's shadow is KWPawn's ShadowProjector: it follows its ShadowActor,
+points along the light, the Sunlight's direction where there is one, and asks
+for its texture, a ShadowBitmapMaterial, the actor seen from the light. Here
+that texture is drawn each frame: the posed mesh's silhouette from along the
+projector, grey on white, twelve copies shifted round a small circle each
+taking its share of the darkness away, so that the edges are soft as the
+game's are. GetRenderBoundingSphere, which sizes it, is the posed mesh's box's
+sphere.
+
 ## Textures and materials
 
 `src/render/Texture.cpp` decodes every texture of the game, P8, RGBA8, DXT1,
@@ -91,4 +113,4 @@ decides over what it wraps.
   flagged PF_FakeBackdrop, which show the clear colour now.
 - The Spotlight's cone in the vertex light computed for black instances
   (docs/package-format.md, StaticMeshInstance) and on characters.
-- Characters lit, sprites and emitters, fog, translucency sorted by depth.
+- Sprites and emitters, fog, translucency sorted by depth, water's cubemap.
