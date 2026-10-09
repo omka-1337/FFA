@@ -4,6 +4,7 @@
 // window share it.
 #pragma once
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -60,6 +61,10 @@ public:
     // class it must be of, made for script: its outers as plain objects, its
     // class the linker's of that name.
     Object* loadObject(const std::string& path, const Class* want = nullptr);
+    void eachLoaded(const std::function<void(Object*)>& f) const {
+        for (auto& [k, o] : loaded_)
+            if (o) f(o);
+    }
 
     // Localize: a key of a section of System/<package>.int, the package a path
     // under System such as Cutscenes\SwampIntro, its case not minded.

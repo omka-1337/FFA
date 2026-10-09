@@ -545,6 +545,7 @@ Object* Linker::stub(int pkg, int32_t ref) {
     Object* raw = adopt(std::move(o));
     setIntrinsics(raw);
     stubs_.emplace(key, raw);
+    if (onStub && raw->cls) onStub(raw);
     return raw;
 }
 

@@ -155,9 +155,45 @@ LevelRender::LevelRender(Session& s, Library& lib) : session_(s), lib_(lib), mat
     buildBsp();
     buildTerrains();
     buildMeshes();
+    // Textures that script reaches in packages the linker does not hold get
+    // their size from the texture itself, as script reads USize and VSize:
+    // KnowWonder's HUD lays out its bars and the bypass hourglass by them.
+    session_.linker->onStub = [this](Object* o) { fillTexture(o); };
+    session_.linker->eachStub([this](Object* o) { fillTexture(o); });
+    session_.eachLoaded([this](Object* o) { fillTexture(o); });
+}
+
+void LevelRender::fillTexture(Object* o) {
+    static const Name bitmap("BitmapMaterial");
+    bool isTexture = false;
+    for (Class* k = o->cls; k; k = k->super)
+        if (k->name == bitmap) isTexture = true;
+    if (!isTexture) return;
+    ObjectRef r = refOf(o);
+    if (!r || r.cls() != "Texture") return;
+    try {
+        TextureInfo t = readTexture(r);
+        if (t.mips.empty()) return;
+        World& w = *session_.world;
+        int u = t.mips[0].width, v = t.mips[0].height;
+        auto bits = [](int n) {
+            int b = 0;
+            while ((1 << b) < n && b < 30) ++b;
+            return b;
+        };
+        w.var(o, "USize") = Value::Int(u);
+        w.var(o, "VSize") = Value::Int(v);
+        w.var(o, "UClamp") = Value::Int(u);
+        w.var(o, "VClamp") = Value::Int(v);
+        w.var(o, "UBits") = Value::Int(bits(u));
+        w.var(o, "VBits") = Value::Int(bits(v));
+        w.var(o, "Format") = Value::Int(t.format);
+    } catch (const std::exception&) {
+    }
 }
 
 LevelRender::~LevelRender() {
+    session_.linker->onStub = nullptr;
     for (Batch& b : batches_) glDeleteBuffers(1, &b.buffer);
     for (auto& [k, t] : textures_) glDeleteTextures(1, &t.first);
     for (unsigned t : lightMapTex_) glDeleteTextures(1, &t);
@@ -1415,6 +1451,7 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
     glDisable(GL_BLEND);
     glActiveTexture(GL_TEXTURE0);
     drawFlash();
+    drawHud(width, height);
 }
 
 // The frame times the controller's FlashScale, plus its FlashFog, as the

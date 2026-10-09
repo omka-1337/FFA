@@ -6,6 +6,7 @@
 // whole game's script can be opened without building what is never touched.
 #pragma once
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -68,6 +69,13 @@ public:
     Object* objectRef(int pkg, int32_t ref);
 
     Class* findClass(std::string_view name);
+    // Told of every object made for a reference into a package not loaded,
+    // a texture among them, once it has its class: the renderer gives a
+    // texture its size there, which script reads (USize, VSize).
+    std::function<void(Object*)> onStub;
+    void eachStub(const std::function<void(Object*)>& f) const {
+        for (auto& [k, o] : stubs_) f(o);
+    }
     // A class of the engine's C++ that no script declares, Mesh or Sound, or
     // null.
     Class* nativeClass(std::string_view name);

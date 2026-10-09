@@ -175,11 +175,16 @@ Object* Session::loadObject(const std::string& path, const Class* want) {
         o->name = Name(i == 0 ? p->stem : parts[i]);
         o->outer = outer;
         // a class with script, or none for a native one such as MeshAnimation
-        if (i + 1 == parts.size()) o->cls = linker->findClass(p->classOf(idx));
+        if (i + 1 == parts.size()) {
+            o->cls = linker->findClass(p->classOf(idx));
+            if (o->cls) o->props = o->cls->defaults()->props;
+        }
         outer = o.get();
         owned_.push_back(std::move(o));
     }
-    return slot = outer;
+    slot = outer;
+    if (linker->onStub && outer->cls) linker->onStub(outer);
+    return slot;
 }
 
 Object* Session::pawn() const { return controller ? world->obj(controller, "Pawn") : nullptr; }

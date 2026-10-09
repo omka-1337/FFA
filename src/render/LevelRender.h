@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "core/Library.h"
+#include "render/Font.h"
 #include "render/Material.h"
 #include "render/Texture.h"
 #include "world/Session.h"
@@ -32,6 +33,28 @@ public:
     void draw(Vec3 location, const int32_t rotation[3], int width, int height, float fovDegrees);
 
     size_t triangles = 0, batches = 0, textures = 0, lightMaps = 0, missingTextures = 0, meshes = 0, characters = 0, relit = 0;
+
+    // The HUD, over the frame: the player's HUD's PostRender on a Canvas, as
+    // the engine calls it, and the tiles and text its natives draw
+    // (render/Hud.cpp). Called by draw.
+    void drawHud(int width, int height);
+    size_t hudTiles = 0, hudFailures = 0;
+
+    // What Canvas's natives draw into, one rectangle of a texture each, in
+    // pixels from the top left, and the fonts they draw text with.
+    struct HudTile {
+        unsigned texture = 0;
+        float x = 0, y = 0, w = 0, h = 0, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+        float color[4] = {1, 1, 1, 1};
+        int style = 1;
+    };
+    void hudPush(const HudTile& t) { hud_.push_back(t); }
+    // A material's texture for the HUD, and its size in texels; 0 for none.
+    unsigned hudTexture(Object* material, int& width, int& height);
+    const FontData* hudFont(Object* font);
+    unsigned hudPage(const FontData& f, int page, int& width, int& height);
+    // A texture object script reaches, given its USize, VSize and the rest.
+    void fillTexture(Object* o);
 
 private:
     struct Batch {
@@ -103,6 +126,10 @@ private:
     // FlashFog, which the game's fades set.
     void drawFlash();
     unsigned flashProgram_ = 0;
+    std::vector<HudTile> hud_;
+    Object* canvas_ = nullptr;
+    unsigned hudProgram_ = 0;
+    std::map<std::pair<const Package*, int>, FontData> fonts_;
     std::map<Object*, unsigned> shadowTex_;
     Class* shadowClass_ = nullptr;
     // Skeletal meshes: posed and their opaque parts drawn, or, after every

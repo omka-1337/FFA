@@ -131,6 +131,33 @@ alpha is nearly all opaque, 96 to 97 per cent at 255 on the workers' suits
 and HazMatShrek's hood, and drawn without it the mesh's far faces came over
 its near ones, the hood see-through and black rings round the workers.
 
+## The screen flash and the HUD
+
+Over the frame, the player controller's screen flash: the frame times
+FlashScale plus FlashFog, which KnowWonder's cutscenes fade through, FadeTo
+setting FlashScale.X to one less its alpha and FlashFog to its colour.
+
+Then the HUD, drawn by the game's own script (`src/render/Hud.cpp`): each
+frame the player's HUD gets PostRender(Canvas) on one Canvas, its SizeX and
+SizeY and ClipX and ClipY the window's, Reset first, and the HUD draws through
+Canvas's natives, DrawTile and its clipped, stretched, scaled and justified
+kinds, DrawText, DrawTextClipped, DrawTextJustified, TextSize, StrLen and
+WrapStringToArray. A tile is a material's texture at OrgX + CurX, OrgY + CurY
+by DrawColor and Style, after which CurX moves on by its width; text is glyph
+after glyph from the Canvas's Font, its pages textures (`src/render/Font.cpp`
+reads both of the game's font layouts). Styles: Normal and Alpha blend by the
+texture's alpha, Masked cuts at half, Translucent and Additive add, Modulated
+multiplies. What it draws: the letterbox borders and subtitles of cutscenes,
+the black screen and hourglass over a skipped one, KWHud's health bar, potion
+and coin counters, and SAVING.
+
+The HUD lays out by its textures' USize and VSize, and its textures are in
+packages the linker does not hold: an object made for one is given its size
+from the texture itself when it is made (Linker::onStub), else every bar was
+nought wide. KnowWonder's own SHCutTextController sets the bypass borders to
+half the screen in pixels where DrawBorder takes a fraction of it, so each is
+the screen's height squared, which covers the screen all the same.
+
 ## Projectors and shadows
 
 A projector lays its texture over what it covers: the BSP, the terrains and the
