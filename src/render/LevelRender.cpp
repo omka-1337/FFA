@@ -722,7 +722,7 @@ LevelRender::SkelDraw& LevelRender::skelFor(Object* a) {
     d.mesh = m;
     glGenBuffers(1, &d.vertices);
     glBindBuffer(GL_ARRAY_BUFFER, d.vertices);
-    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(m->wedges.size() * 5 * sizeof(float)), nullptr, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(m->wedges.size() * 8 * sizeof(float)), nullptr, GL_DYNAMIC_DRAW);
     // faces by material: the actor's Skins over the mesh's materials
     World& w = *session_.world;
     const Value& skins = w.var(a, "Skins");
@@ -744,9 +744,104 @@ LevelRender::SkelDraw& LevelRender::skelFor(Object* a) {
     glGenBuffers(1, &d.indices);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, d.indices);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(idx.size() * 2), idx.data(), GL_STATIC_DRAW);
-    d.scratch.resize(m->wedges.size() * 5);
+    d.scratch.resize(m->wedges.size() * 8);
     ++characters;
     return d;
+}
+
+// A character's light at each of its points, as the engine lights an actor:
+// the MaxLights lights strongest where it stands, each falling off and lighting
+// by N.L as a static mesh's light does (bakeVertexLight), without shadows. In
+// the units of the baked colours: the shader doubles it and adds the ambient.
+std::vector<Vec3> LevelRender::characterLight(Object* a, const SkeletalMesh& mesh, const std::vector<Vec3>& pts,
+                                              const float r[3][3], Vec3 loc) {
+    World& w = *session_.world;
+    std::vector<Vec3> out(pts.size(), Vec3{0.5f, 0.5f, 0.5f});
+    if (w.flag(a, "bUnlit")) return out;
+    if (!lightsBuilt_) {
+        lightsBuilt_ = true;
+        if (Class* lc = session_.vm->findClass("Light"))
+            for (Object* l : w.actors)
+                if (!l->deleted && l->isA(lc) && w.var(l, "LightType").i() != 0 && w.var(l, "LightBrightness").f() > 0)
+                    lights_.push_back(l);
+    }
+    struct Lit {
+        bool sun;
+        Vec3 pos, dir, col;
+        float bright, radius, strength;
+    };
+    std::vector<Lit> near;
+    for (Object* l : lights_) {
+        if (l->deleted) continue;
+        Lit li;
+        li.sun = l->cls->name == Name("Sunlight");
+        w.vm.unvector(w.var(l, "Location"), li.pos.x, li.pos.y, li.pos.z);
+        li.bright = w.var(l, "LightBrightness").f();
+        li.radius = w.var(l, "LightRadius").f() * 25.0f;
+        float d = length(li.pos - loc);
+        if (!li.sun && d >= li.radius) continue;
+        float x = li.sun ? 0 : d / li.radius;
+        li.strength = li.bright * (1 - x * x) * (1 - x * x);
+        int32_t pr, yr, rr;
+        w.vm.unrotator(w.var(l, "Rotation"), pr, yr, rr);
+        float ax[3][3];
+        rotationAxes(pr, yr, rr, ax);
+        li.dir = {ax[0][0], ax[0][1], ax[0][2]};
+        float h = float(w.var(l, "LightHue").i()) / 255.0f, sat = 1.0f - float(w.var(l, "LightSaturation").i()) / 255.0f;
+        float hi = std::floor(h * 6), f = h * 6 - hi, pv = 1 - sat, qv = 1 - f * sat, tv = 1 - (1 - f) * sat;
+        switch (int(hi) % 6) {
+        case 0: li.col = {1, tv, pv}; break;
+        case 1: li.col = {qv, 1, pv}; break;
+        case 2: li.col = {pv, 1, tv}; break;
+        case 3: li.col = {pv, qv, 1}; break;
+        case 4: li.col = {tv, pv, 1}; break;
+        default: li.col = {1, pv, qv};
+        }
+        near.push_back(li);
+    }
+    size_t most = size_t(std::max(1, w.var(a, "MaxLights").i()));
+    std::sort(near.begin(), near.end(), [](const Lit& x, const Lit& y) { return x.strength > y.strength; });
+    if (near.size() > most) near.resize(most);
+    // normals from the posed faces, turned to face away from the middle
+    std::vector<Vec3> nrm(pts.size());
+    for (const SkeletalMesh::Face& f : mesh.faces) {
+        uint16_t p0 = mesh.wedges[f.wedge[0]].point, p1 = mesh.wedges[f.wedge[1]].point, p2 = mesh.wedges[f.wedge[2]].point;
+        Vec3 n = cross(pts[p1] - pts[p0], pts[p2] - pts[p0]);
+        nrm[p0] = nrm[p0] + n;
+        nrm[p1] = nrm[p1] + n;
+        nrm[p2] = nrm[p2] + n;
+    }
+    Vec3 mid{};
+    for (const Vec3& p : pts) mid = mid + p;
+    if (!pts.empty()) mid = mid * (1.0f / float(pts.size()));
+    float outward = 0;
+    for (size_t i = 0; i < pts.size(); ++i) outward += dot(nrm[i], pts[i] - mid);
+    float sign = outward < 0 ? -1.0f : 1.0f;
+    for (size_t i = 0; i < pts.size(); ++i) {
+        Vec3 p = pts[i], n = nrm[i] * sign;
+        Vec3 wp{loc.x + r[0][0] * p.x + r[0][1] * p.y + r[0][2] * p.z, loc.y + r[1][0] * p.x + r[1][1] * p.y + r[1][2] * p.z,
+                loc.z + r[2][0] * p.x + r[2][1] * p.y + r[2][2] * p.z};
+        Vec3 wn{r[0][0] * n.x + r[0][1] * n.y + r[0][2] * n.z, r[1][0] * n.x + r[1][1] * n.y + r[1][2] * n.z,
+                r[2][0] * n.x + r[2][1] * n.y + r[2][2] * n.z};
+        float ln = length(wn);
+        if (ln > 0) wn = wn * (1 / ln);
+        Vec3 c{};
+        for (const Lit& li : near) {
+            float k;
+            if (li.sun) {
+                k = std::max(0.0f, -dot(wn, li.dir));
+            } else {
+                Vec3 d = li.pos - wp;
+                float dist = length(d);
+                if (dist <= 0 || dist >= li.radius) continue;
+                float x = dist / li.radius;
+                k = (1 - x * x) * (1 - x * x) * std::max(0.0f, dot(wn, d) / dist);
+            }
+            c = c + li.col * (0.65f * li.bright / 255.0f * k);
+        }
+        out[i] = {std::min(c.x, 1.0f), std::min(c.y, 1.0f), std::min(c.z, 1.0f)};
+    }
+    return out;
 }
 
 void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye) {
@@ -755,9 +850,8 @@ void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye) {
     glUseProgram(meshProgram_);
     glActiveTexture(GL_TEXTURE0);
     GLint uM = glGetUniformLocation(meshProgram_, "uMvp"), uB = glGetUniformLocation(meshProgram_, "uBaked");
-    GLint uC = glGetUniformLocation(meshProgram_, "uCut");
-    glUniform1f(uB, 0.0f);
-    glDisableVertexAttribArray(2);
+    GLint uC = glGetUniformLocation(meshProgram_, "uCut"), uA = glGetUniformLocation(meshProgram_, "uAmb");
+    glUniform1f(uB, 1.0f);
     for (Object* a : w.actors) {
         if (a->deleted || w.var(a, "DrawType").i() != 2 || w.flag(a, "bHidden") || !w.obj(a, "Mesh")) continue;
         Vec3 o;
@@ -765,25 +859,42 @@ void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye) {
         if (length(o - eye) > 8000) continue;
         SkelDraw& d = skelFor(a);
         if (!d.mesh) continue;
+        // the zone's ambient and the actor's own glow; unlit, full bright
+        Vec3 ambient{};
+        {
+            const BspModel& bsp = session_.collision->bsp;
+            BspModel::Region rg = bsp.regionAt(o);
+            if (rg.zone >= 0 && size_t(rg.zone) < bsp.zoneActors.size()) {
+                auto it = w.actorAt.find(bsp.zoneActors[size_t(rg.zone)]);
+                ambient = ambientOf(w, it != w.actorAt.end() ? it->second : w.info);
+            }
+            float glow = float(w.var(a, "AmbientGlow").i()) / 255.0f;
+            ambient = ambient + Vec3{glow, glow, glow};
+        }
         // the pose, skinned, into the actor's space; the actor's transform
         // goes to the shader
         std::vector<Vec3> pts = d.mesh->skin(an.pose(a));
         for (Vec3& p : pts) p = d.mesh->toActor(p);
+        float r[3][3], model[16] = {0};
+        Vec3 loc;
+        an.meshToWorld(a, r, loc);
+        std::vector<Vec3> light = characterLight(a, *d.mesh, pts, r, loc);
         for (size_t i = 0; i < d.mesh->wedges.size(); ++i) {
             const SkeletalMesh::Wedge& wd = d.mesh->wedges[i];
             const Vec3& p = pts[wd.point];
-            float* v = &d.scratch[i * 5];
+            const Vec3& c = light[wd.point];
+            float* v = &d.scratch[i * 8];
             v[0] = p.x;
             v[1] = p.y;
             v[2] = p.z;
             v[3] = wd.u;
             v[4] = wd.v;
+            v[5] = c.x;
+            v[6] = c.y;
+            v[7] = c.z;
         }
         glBindBuffer(GL_ARRAY_BUFFER, d.vertices);
         glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(d.scratch.size() * sizeof(float)), d.scratch.data());
-        float r[3][3], model[16] = {0};
-        Vec3 loc;
-        an.meshToWorld(a, r, loc);
         for (int c = 0; c < 3; ++c)
             for (int k = 0; k < 3; ++k) model[c * 4 + k] = r[k][c];
         model[12] = loc.x;
@@ -798,11 +909,13 @@ void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye) {
                 m[c * 4 + k] = sum;
             }
         glUniformMatrix4fv(uM, 1, GL_FALSE, m);
+        glUniform3f(uA, ambient.x, ambient.y, ambient.z);
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), nullptr);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), nullptr);
         glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), reinterpret_cast<void*>(12));
-        glVertexAttrib3f(2, 0.5f, 0.5f, 0.5f);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), reinterpret_cast<void*>(12));
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), reinterpret_cast<void*>(20));
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, d.indices);
         for (const MeshDraw::Part& part : d.parts) {
             applyBlend(part.mat);

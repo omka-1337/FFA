@@ -88,6 +88,10 @@ private:
         bool failed = false;
     };
     void drawSkeletal(const float mvp[16], Vec3 eye);
+    std::vector<Vec3> characterLight(Object* a, const SkeletalMesh& mesh, const std::vector<Vec3>& pts,
+                                     const float r[3][3], Vec3 loc);
+    std::vector<Object*> lights_;
+    bool lightsBuilt_ = false;
     SkelDraw& skelFor(Object* a);
     std::map<Object*, SkelDraw> skel_;
     std::map<const void*, MeshBuffers> meshBuffers_;

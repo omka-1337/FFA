@@ -197,7 +197,8 @@ Engine:
 - [x] Static mesh light computed from the lights and their masks, for the
   instances whose colours are black: the formula fitted to the 6992 whose
   colours are there.
-- [ ] The Spotlight's cone in it, and the dynamic light of characters.
+- [x] The dynamic light of characters: their nearest lights by that formula.
+- [ ] The Spotlight's cone in it.
 - [x] Animation timing: channels, PlayAnim, LoopAnim, TweenAnim, FinishAnim,
   AnimEnd, blending alphas, AddNotify, the default animation of a mesh, and
   the engine's own movement animation of pawns.

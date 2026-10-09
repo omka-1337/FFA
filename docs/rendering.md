@@ -42,7 +42,11 @@ same way, so what was confirmed by eye there holds here:
 
 - **Skeletal meshes**, each actor drawn as a mesh skinned on the CPU every
   frame from its pose, its faces by material, the actor's Skins over the
-  mesh's materials; full bright for now. Holding forward on the swamp
+  mesh's materials. Lit as the engine lights an actor: its MaxLights lights
+  strongest where it stands, by the same falloff and N.L as the static meshes'
+  baked light, without shadows, plus the zone's ambient and the actor's
+  AmbientGlow; bUnlit full bright. The normals come from the posed faces,
+  turned to face away from the mesh's middle, as the winding is not settled. Holding forward on the swamp
   (`--hold W`), Shrek runs into the pond past the lily pads, arms swinging.
 
 ## Textures and materials
@@ -65,5 +69,5 @@ decides over what it wraps.
 - The sky: the sky zone drawn first from the SkyZoneInfo, behind the surfaces
   flagged PF_FakeBackdrop, which show the clear colour now.
 - The Spotlight's cone in the vertex light computed for black instances
-  (docs/package-format.md, StaticMeshInstance), and lights on characters.
+  (docs/package-format.md, StaticMeshInstance) and on characters.
 - Characters lit, sprites and emitters, fog, translucency sorted by depth.
