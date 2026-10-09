@@ -1,7 +1,8 @@
 #include "world/World.h"
 
-#include "world/Collision.h"
+#include "world/AI.h"
 #include "world/Animator.h"
+#include "world/Collision.h"
 #include "world/Physics.h"
 
 #include <cmath>
@@ -261,9 +262,10 @@ void World::tick(float dt) {
             vm.event(a, "Tick", {delta});
             sent["Tick"]++;
             if (a->deleted) continue;
-            if (a->deleted) continue;
             vm.processState(a, dt);
             if (a->deleted) continue;
+            if (controllerClass && a->isA(controllerClass) && !(playerControllerClass && a->isA(playerControllerClass)))
+                aiTick(*this, a);
             // The timer counts while it is set. On reaching its rate it fires
             // once however many periods the frame covered, keeping the
             // remainder when it loops and stopping when it does not.

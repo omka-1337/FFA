@@ -725,6 +725,30 @@ void registerCollisionNatives(VM& vm) {
         }
         return Value();
     };
+    // VisibleCollidingActors(BaseClass, out Actor, Radius, optional Loc,
+    // optional bIgnoreHidden): every actor of the class that collides with
+    // actors, within the radius of the place, and seen from it through the
+    // world's geometry.
+    n["actor.visiblecollidingactors"] = [](NativeCall& c) {
+        Collision& col = collisionOf(c);
+        World& w = col.world;
+        Object* base = c.o(0);
+        if (!base || !base->isClass()) return Value();
+        float radius = c.f(2);
+        Vec3 at = c.has(3) ? vecArg(c, 3) : locationOf(w, c.self);
+        bool skipHidden = c.b(4);
+        std::vector<Object*> found;
+        for (Object* a : w.actors) {
+            if (a->deleted || !a->isA(static_cast<Class*>(base)) || !w.flag(a, "bCollideActors")) continue;
+            if (skipHidden && w.flag(a, "bHidden")) continue;
+            Vec3 p = locationOf(w, a);
+            if (length(p - at) > radius) continue;
+            if (col.lineCheck(at, p, c.self, false, true)) continue;
+            found.push_back(a);
+        }
+        for (Object* a : found) c.yield({Value::Obj(a)});
+        return Value();
+    };
     // SetLocation moves the actor and updates its zone, refusing a place that
     // an actor colliding with the world would not fit.
     n["actor.setlocation"] = [](NativeCall& c) {

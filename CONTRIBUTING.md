@@ -132,9 +132,10 @@ whose records carry native data after their properties.
   read to the end of every record.
 - [x] Text: all 199 `.ini` and `.int` files, subtitles, bump sets, menus and
   cutscene scripts.
-- [ ] The cutscene script language: some fifty commands, Cue, Say, FlyTo,
-  PlayAnim and the rest, which the engine has to run. Which script classes
-  interpret them is the place to start.
+- [x] The cutscene script language: some fifty commands, Cue, Say, FlyTo,
+  PlayAnim and the rest. KnowWonder's own script runs them, KWCutScene and
+  KWCutControllerII; the engine gives it Localize, SetPropertyText and the
+  AI's moves, and every level's opening cutscene plays to its end.
 - [x] Script: all 8638 functions end on their record and agree with their
   size, since the delegate and dynamic array tokens were read.
 - [ ] The class header fields between the struct and the defaults, and what
@@ -187,7 +188,15 @@ Engine:
   brushes and actors' cylinders, exactly; path nodes agree with the line trace.
 - [ ] Which of a mesh's collision forms boxes use: the triangles now; the
   collision model is read and unused.
-- [ ] Config and localisation, probe masks, replication, garbage collection.
+- [x] Localisation: Localize reads the System directory's `.int` files.
+- [ ] Config, probe masks, replication, garbage collection.
+- [x] AI moves and routes: turning to Focus, MoveTo, MoveToward,
+  FinishRotation, WaitForLanding, actorReachable, pointReachable,
+  FindPathToward and the other path finders over the level's ReachSpecs,
+  LineOfSightTo and CanSee.
+- [ ] Sight and hearing events (SeePlayer, HearNoise), the AI's adjusting
+  round what blocks it, jumping and ladders on a route.
+- [ ] Dialogue: sounds' lengths for Say, and sound and music at all.
 - [x] A window: `ffa-play`, SDL2 and OpenGL ES 2, the BSP, terrains and
   static meshes textured and lit as baked, from the game's own camera.
 - [ ] The sky zone behind the PF_FakeBackdrop surfaces.

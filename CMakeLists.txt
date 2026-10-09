@@ -31,6 +31,7 @@ add_library(ffa_script
   src/world/Bsp.cpp
   src/world/Collision.cpp
   src/world/Level.cpp
+  src/world/AI.cpp
   src/world/Physics.cpp
   src/world/Session.cpp
   src/world/SkeletalMesh.cpp

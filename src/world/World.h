@@ -11,6 +11,7 @@
 // said so at the place.
 #pragma once
 
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -48,6 +49,8 @@ public:
     // Projectors attached, by AttachProjector, until DetachProjector: what the
     // renderer projects this frame.
     std::unordered_set<Object*> projectors;
+    // The AI's view of the level's paths, built when first asked (world/AI.cpp).
+    std::shared_ptr<void> ai;
 
     // The world a VM's natives act on; null when none is attached.
     static World* of(VM& vm) { return static_cast<World*>(vm.host); }

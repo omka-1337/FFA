@@ -244,8 +244,15 @@ AnimChannel& Animator::channel(Object* a, int k) {
         // alpha. KWPawn plays its blinks on channels 34 to 39 with their lid
         // and brow bones set that way; with an alpha of 1 they took the whole
         // skeleton to the reference pose the blink leaves it in.
-        for (size_t i = was; i < s.channels.size(); ++i) s.channels[i].alpha = s.channels[i].alphaTarget = i == 0;
-        if (was == 0) s.channels[0].notify = true;
+        for (size_t i = was; i < s.channels.size(); ++i) {
+            s.channels[i].alpha = s.channels[i].alphaTarget = i == 0;
+            // Every channel sends AnimEnd unless EnableChannelNotify turns it
+            // off: no script of the game turns one on, yet the cutscenes play
+            // on channels 20 and 21 and wait for their AnimEnd
+            // (KWACTION_WaitForAnim), and KWPawn's AnimEnd passes over the
+            // channels it does not want.
+            s.channels[i].notify = true;
+        }
     }
     return s.channels[size_t(k)];
 }
@@ -329,7 +336,15 @@ void Animator::tick(float dt) {
             }
             if (ended && s.channels[k].notify) {
                 s.notifyChannel = int(k);
-                world.vm.event(a, "AnimEnd", {Value::Int(int32_t(k))});
+                // A pawn's controller takes it instead when it controls the
+                // animations, as a cutscene's does while it plays one
+                // (KWACTION_PlayAnim sets bControlAnimations): its AnimEnd
+                // goes on to the pawn for the channels it does not play.
+                Object* to = a;
+                if (world.pawnClass && a->isA(world.pawnClass))
+                    if (Object* c = world.obj(a, "Controller"); c && !c->deleted && world.flag(c, "bControlAnimations"))
+                        to = c;
+                world.vm.event(to, "AnimEnd", {Value::Int(int32_t(k))});
                 ++animEnds;
             }
         }

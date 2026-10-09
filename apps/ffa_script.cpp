@@ -46,7 +46,7 @@ int usage() {
                  "       ffa-script smoke <System dir>\n"
                  "       ffa-script level <System dir> <map.unr> [dump.tsv]\n"
                  "       ffa-script start <System dir> <map.unr>\n"
-                 "       ffa-script run <System dir> <map.unr> <seconds> [--hold <key>] [--axis <var>=<value>] [--event <tag>]...\n"
+                 "       ffa-script run <System dir> <map.unr> <seconds> [--hold <key>] [--axis <var>=<value>] [--event <tag>] [--log <word>] [--exec <seconds>=<command>]...\n"
                  "       ffa-script collide <System dir> <map.unr or .usx>...\n");
     return 2;
 }
@@ -445,10 +445,20 @@ std::string iniValue(const std::string& file, const std::string& section, const 
 // the engine's, from its published behaviour, not from the data. Reports what
 // ran, what failed, and the natives the sequence needed that do not exist.
 int start(const std::string& dir, const std::string& map, float seconds, const std::vector<std::string>& hold = {},
-          const std::vector<std::string>& events = {}) {
+          const std::vector<std::string>& events = {}, const std::vector<std::string>& logs = {},
+          std::vector<std::pair<float, std::string>> execs = {}) {
     Session session(dir, map);
     VM& vm = *session.vm;
     World& w = *session.world;
+    // --log: the script's log lines that hold any of the words, as they come
+    if (!logs.empty())
+        vm.sink = [&w, logs](const std::string& tag, const std::string& text) {
+            for (const std::string& l : logs)
+                if (text.find(l) != std::string::npos || tag == l) {
+                    std::printf("  %7.2fs  %-13s %s\n", w.time, tag.c_str(), text.c_str());
+                    return;
+                }
+        };
     Collision& col = *session.collision;
     (void)col;
     size_t loaded = w.actors.size();
@@ -491,11 +501,13 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
             }
     // Where every pawn starts, to see where physics takes it.
     std::map<Object*, float> startZ;
+    std::map<Object*, Vec3> startAt;
     for (Object* a : w.actors)
         if (!a->deleted && a->isA(w.pawnClass)) {
             float x, y, z;
             vm.unvector(w.var(a, "Location"), x, y, z);
             startZ[a] = z;
+            startAt[a] = {x, y, z};
         }
     // Then time: frames of a thirtieth of a second, with the player's and its
     // pawn's state changes as they happen.
@@ -509,6 +521,13 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
         if (a->deleted) wasGone.insert(a);
     int pawnPhysics = pawn0 ? w.var(pawn0, "Physics").i() : -1;
     for (int f = 0; f < int(seconds * 30.0f + 0.5f); ++f) {
+        // --exec: a command run once at its time, as a key bound to it does
+        for (auto& [t, command] : execs)
+            if (!command.empty() && w.time >= t) {
+                std::printf("  %7.2fs  exec %s\n", w.time, command.c_str());
+                session.exec(command);
+                command.clear();
+            }
         w.tick(1.0f / 30.0f);
         if (!pc) continue;
         Object* pawn = w.obj(pc, "Pawn");
@@ -702,6 +721,45 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
         std::printf("pawns               %zu: within a unit of where they started %zu, higher %zu, lower %zu, "
                     "more than 500 lower %zu; the lowest %s by %.0f\n",
                     startZ.size(), still, up, down, fell, worstName.c_str(), -worst);
+    }
+    // The pawns other controllers drive: their controller's state, and how far
+    // they went, the first dozen by distance.
+    {
+        std::vector<std::tuple<float, Object*, Object*>> ai;
+        for (auto& [a, v0] : startAt) {
+            if (a->deleted) continue;
+            Object* c = w.obj(a, "Controller");
+            if (!c || c == pc) continue;
+            Vec3 v;
+            vm.unvector(w.var(a, "Location"), v.x, v.y, v.z);
+            ai.emplace_back(length(v - v0), a, c);
+        }
+        std::sort(ai.begin(), ai.end(), [](auto& x, auto& y) { return std::get<0>(x) > std::get<0>(y); });
+        size_t moved = 0;
+        for (auto& t : ai) moved += std::get<0>(t) > 1;
+        std::printf("controlled pawns    %zu, %zu moved\n", ai.size(), moved);
+        for (size_t i = 0; i < ai.size() && i < 12; ++i) {
+            auto [d, a, c] = ai[i];
+            std::printf("  %-28s %-26s state %-24s moved %.0f\n", a->name.str().c_str(), c->cls->name.str().c_str(),
+                        c->state ? c->state->name.str().c_str() : "none", d);
+        }
+    }
+    // Cutscenes: each KnowWonder cut controller still scripting, where it is
+    // in its script and what its action is.
+    if (Class* cc = vm.findClass("KWCutController")) {
+        size_t n = 0;
+        for (Object* a : w.actors) {
+            if (a->deleted || !a->isA(cc) || !a->state || a->state->name != Name("Scripting")) continue;
+            if (n++ == 0) std::printf("cutscene actions\n");
+            const Value& acts = w.var(a, "Actions");
+            int k = w.var(a, "ActionNum").i();
+            std::string what;
+            if (acts.isArr() && k >= 0 && size_t(k) < acts.arr().size() && acts.arr()[size_t(k)].o())
+                what = utf8(vm.call(acts.arr()[size_t(k)].o(), "GetActionString").s());
+            Object* pawn = w.obj(a, "Pawn");
+            std::printf("  %-22s %-18s %s %d of %zu: %s\n", a->name.str().c_str(), pawn ? pawn->name.str().c_str() : "none",
+                        utf8(w.var(a, "ScriptFileName").s()).c_str(), k, acts.isArr() ? acts.arr().size() : 0, what.c_str());
+        }
     }
     std::map<std::string, size_t> physics;
     static const char* modes[] = {"None", "Walking", "Falling", "Swimming", "Flying", "Rotating", "Projectile",
@@ -1021,13 +1079,20 @@ int main(int argc, char** argv) {
         if (cmd == "collide" && argc >= 4) return collide(dir, std::vector<std::string>(argv + 3, argv + argc));
         if (cmd == "start" && argc >= 4) return start(dir, argv[3], 0.0f);
         if (cmd == "run" && argc >= 5) {
-            std::vector<std::string> hold, events;
+            std::vector<std::string> hold, events, logs;
+            std::vector<std::pair<float, std::string>> execs;
             for (int i = 5; i + 1 < argc; i += 2) {
+                if (std::string(argv[i]) == "--exec") {
+                    std::string e = argv[i + 1];
+                    size_t eq = e.find('=');
+                    if (eq != std::string::npos) execs.emplace_back(std::stof(e.substr(0, eq)), e.substr(eq + 1));
+                }
+                if (std::string(argv[i]) == "--log") logs.push_back(argv[i + 1]);
                 if (std::string(argv[i]) == "--hold") hold.push_back(argv[i + 1]);
                 if (std::string(argv[i]) == "--event") events.push_back(argv[i + 1]);
                 if (std::string(argv[i]) == "--axis") hold.push_back(std::string("=") + argv[i + 1]);
             }
-            return start(dir, argv[3], std::stof(argv[4]), hold, events);
+            return start(dir, argv[3], std::stof(argv[4]), hold, events, logs, execs);
         }
         if (cmd == "level" && argc >= 4) return level(dir, argv[3], argc >= 5 ? argv[4] : nullptr);
         if (cmd == "call" && argc >= 4)

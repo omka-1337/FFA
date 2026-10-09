@@ -61,11 +61,17 @@ public:
     // class the linker's of that name.
     Object* loadObject(const std::string& path, const Class* want = nullptr);
 
+    // Localize: a key of a section of System/<package>.int, the package a path
+    // under System such as Cutscenes\SwampIntro, its case not minded.
+    bool localize(const std::string& section, const std::string& key, const std::string& package, String& out);
+
     // A key of an .ini file in the System directory, or empty.
     std::string ini(const std::string& file, const std::string& section, const std::string& key) const;
 
 private:
     std::map<std::string, Object*> loaded_;
+    // localisation files read, by lowercase package: section/key to value
+    std::map<std::string, std::map<std::string, String>> int_;
     std::vector<std::unique_ptr<Object>> owned_;
 };
 

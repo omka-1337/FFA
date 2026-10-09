@@ -21,6 +21,142 @@ Value F(float v) { return Value::Float(v); }
 Value B(bool v) { return Value::Bool(v); }
 Value S(String v) { return Value::Str(std::move(v)); }
 
+// Text for one value of a property, read and written as the engine's
+// ImportText and ExportText have it for SetPropertyText and GetPropertyText:
+// numbers, True and False, names and strings as they are, an enum by its
+// value's name or number, an object by its path or, in the caller's package,
+// its name, and a struct as (Field=value,...). A name, an enum and an object
+// are one token.
+String trim(const String& t) {
+    size_t a = t.find_first_not_of(u" \t"), b = t.find_last_not_of(u" \t");
+    return a == String::npos ? String() : t.substr(a, b - a + 1);
+}
+
+// Top level parts of "a,b,(c,d),\"e,f\"", quotes and brackets kept whole.
+std::vector<String> topParts(const String& t) {
+    std::vector<String> out;
+    String cur;
+    int depth = 0;
+    bool quoted = false;
+    for (char16_t ch : t) {
+        if (ch == u'"') quoted = !quoted;
+        if (!quoted && (ch == u'(' || ch == u'[')) ++depth;
+        if (!quoted && (ch == u')' || ch == u']')) --depth;
+        if (!quoted && depth == 0 && ch == u',') {
+            out.push_back(trim(cur));
+            cur.clear();
+            continue;
+        }
+        cur += ch;
+    }
+    if (!trim(cur).empty() || !out.empty()) out.push_back(trim(cur));
+    return out;
+}
+
+// The first token of a text, as the engine reads a name or an object: up to
+// a space, a comma or a closing bracket. KnowWonder's cutscene actions rely on
+// it, setting PlayAnim's BaseAnim from "IDLESTART LOOP", its options and all,
+// and the game plays IdleStart.
+String token(const String& t) {
+    size_t e = t.find_first_of(u" \t,)");
+    return e == String::npos ? t : t.substr(0, e);
+}
+
+bool importText(VM& vm, Object* self, const Prop* p, String text, Value& out, int depth = 0) {
+    text = trim(text);
+    if (depth > 8) return false;
+    if (p->kind == Kind::Name || p->kind == Kind::Byte || p->kind == Kind::Object || p->kind == Kind::Class)
+        text = token(text);
+    std::string t = utf8(text);
+    switch (p->kind) {
+    case Kind::Int: out = Value::Int(parseInt(text)); return true;
+    case Kind::Float: out = Value::Float(parseFloat(text)); return true;
+    case Kind::Bool: out = Value::Bool(iequals(t, "true") || iequals(t, "yes") || parseInt(text) != 0); return true;
+    case Kind::Name: out = Value::Nm(Name(t)); return true;
+    case Kind::Str:
+        if (text.size() >= 2 && text.front() == u'"' && text.back() == u'"') text = text.substr(1, text.size() - 2);
+        out = Value::Str(text);
+        return true;
+    case Kind::Byte: {
+        if (EnumType* e = p->enumType())
+            for (size_t i = 0; i < e->values.size(); ++i)
+                if (iequals(e->values[i].str(), t)) {
+                    out = Value::Int(int32_t(i));
+                    return true;
+                }
+        out = Value::Int(parseInt(text) & 0xFF);
+        return true;
+    }
+    case Kind::Object:
+    case Kind::Class: {
+        if (iequals(t, "none") || t.empty()) {
+            out = Value::Obj(nullptr);
+            return true;
+        }
+        // Class'Package.Name', or the path alone
+        size_t q = t.find('\'');
+        if (q != std::string::npos && t.back() == '\'') t = t.substr(q + 1, t.size() - q - 2);
+        Object* o = vm.linker.findObject(t);
+        if (!o && self) {
+            Object* top = self;
+            while (top->outer) top = top->outer;
+            if (top != self) o = vm.linker.findObject(top->name.str() + "." + t);
+        }
+        if (!o && p->kind == Kind::Class) o = vm.linker.findClass(t.substr(t.rfind('.') + 1));
+        if (!o) return false;
+        out = Value::Obj(o);
+        return true;
+    }
+    case Kind::Struct: {
+        StructType* st = p->structType();
+        if (!st || text.size() < 2 || text.front() != u'(' || text.back() != u')') return false;
+        Value v = st->make();
+        for (const String& part : topParts(text.substr(1, text.size() - 2))) {
+            size_t eq = part.find(u'=');
+            if (eq == String::npos) continue;
+            Prop* f = st->field(Name(utf8(trim(part.substr(0, eq)))));
+            if (!f) continue;
+            Value fv;
+            if (importText(vm, self, f, part.substr(eq + 1), fv, depth + 1)) v.st().f[size_t(f->slot)] = f->coerce(fv);
+        }
+        out = v;
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+String exportText(const Prop* p, const Value& v, int depth = 0) {
+    switch (p->kind) {
+    case Kind::Int: return formatInt(v.i());
+    case Kind::Float: return formatFloat(v.f());
+    case Kind::Bool: return widen(v.b() ? "True" : "False");
+    case Kind::Name: return widen(v.n().str());
+    case Kind::Str: return v.s();
+    case Kind::Byte:
+        if (EnumType* e = p->enumType())
+            if (v.i() >= 0 && size_t(v.i()) < e->values.size()) return widen(e->values[size_t(v.i())].str());
+        return formatInt(v.i());
+    case Kind::Object:
+    case Kind::Class: return widen(v.o() ? v.o()->path() : "None");
+    case Kind::Struct: {
+        StructType* st = p->structType();
+        if (!st || !v.isStruct() || depth > 8) return String();
+        String out = u"(";
+        bool first = true;
+        for (Prop* f : st->layout()) {
+            if (!first) out += u",";
+            first = false;
+            out += widen(f->name.str()) + u"=" + exportText(f, v.st().f[size_t(f->slot)], depth + 1);
+        }
+        return out + u")";
+    }
+    default:
+        return String();
+    }
+}
+
 void divzero(NativeCall& c) {
     c.vm.write("ScriptWarning", (c.caller ? c.caller->where() : std::string("?")) + " Divide by zero");
 }
@@ -547,9 +683,25 @@ void registerCoreNatives(VM& vm) {
         c.vm.write("ScriptWarning", (c.caller ? c.caller->where() : std::string("?")) + " " + utf8(c.s(0)));
         return Value();
     };
+    // SetPropertyText(PropName, PropValue) and GetPropertyText(PropName): a
+    // variable of the object by name, as text. KnowWonder's cutscene actions
+    // set their arguments so: PlayAnim's BaseAnim from "PlayAnim SipDrink".
+    n["object.setpropertytext"] = [](NativeCall& c) {
+        if (!c.self || !c.self->cls) return Value();
+        Prop* p = c.self->cls->findProp(Name(utf8(c.s(0))));
+        Value v;
+        if (p && importText(c.vm, c.self, p, c.s(1), v)) *c.vm.slot(c.self, p) = p->coerce(v);
+        return Value();
+    };
+    n["object.getpropertytext"] = [](NativeCall& c) {
+        if (!c.self || !c.self->cls) return S(String());
+        Prop* p = c.self->cls->findProp(Name(utf8(c.s(0))));
+        return S(p ? exportText(p, *c.vm.slot(c.self, p)) : String());
+    };
     n["object.localize"] = [](NativeCall& c) {
-        // Localisation files are not read yet; this is what the engine
-        // returns for a key it cannot find.
+        String out;
+        if (c.vm.localize && c.vm.localize(utf8(c.s(0)), utf8(c.s(1)), utf8(c.s(2)), out)) return S(out);
+        // what the engine returns for a key it cannot find
         return S(u"<?int?" + c.s(2) + u"." + c.s(0) + u"." + c.s(1) + u"?>");
     };
     n["object.isa"] = [](NativeCall& c) {

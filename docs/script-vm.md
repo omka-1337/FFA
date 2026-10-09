@@ -371,7 +371,11 @@ blends the new sequence in from the channel's pose before, while it already
 plays, and the engine's movement animation blends over BlendChangeTime the same
 way. A looping sequence goes from its last key back to its first by its end.
 At the end of a play or of a round AnimEnd(channel) goes to the actor
-when the channel's notify is on, channel 0's from the start. A channel above
+when the channel's notify is on, as every channel's is from the start; no
+script of the game turns one on, yet the cutscenes play on channels 20 and 21
+and wait for their AnimEnd, and KWPawn's AnimEnd passes over the channels it
+does not want. It goes to the pawn's controller instead while the controller
+has bControlAnimations, which a cutscene's PlayAnim sets. A channel above
 0 adds nothing until AnimBlendParams gives it an alpha: KWPawn blinks on
 channels 34 to 39, set to its lid and brow bones, and with an alpha of 1 by
 default the blink took the whole skeleton to the reference pose for a few
@@ -435,6 +439,51 @@ cutscene triggers, picks up a coin, which goes with its twirl effect, steps
 off a ledge, falls 43 units and lands, and stops against the collision
 cylinder of a lily pad, AmbientLily8, at the pond. Ten seconds of it on every
 level run 4051526 events with no script error.
+
+**Cutscenes.** KnowWonder's cutscenes are script: a KWCutScene, triggered,
+reads its sequences from System/Cutscenes/<name>.int through Localize, one
+sequence for each actor it takes over, and a KWCutControllerII possesses each
+and runs its lines, `PlayAnim SipDrink`, `Cue _CAMERA_4`, `WaitForCue
+StartPart2`, `Say pc_shk_SwampIntro3_9`, `Sleep 1.5`, as actions; its exit
+lines run when it ends, `SaveGame 1` or `Donkey Follow Shrek`. What the engine
+gives them: Localize, which reads the System directory's localisation files,
+case not minded, UTF-16 with its byte order mark or Latin-1; SetPropertyText,
+which the actions set their arguments with, a name read up to its first space
+as the engine reads one, for `PlayAnim IdleStart Loop` hands BaseAnim
+"IDLESTART LOOP" and the game plays IdleStart; the controller's AnimEnd and
+every channel's, above; and the moves of the AI, below, as the actors walk to
+their marks with MoveToward. With these the opening cutscene of every level
+plays to its end: the swamp's NEWSwampIntro in 68 seconds of level time, the
+carriage's in 38, the hunt's in 33, Hamlet's in 49, and the player has the
+pawn back after it. Space bypasses one, BypassCutscene, an exec function of
+the HUD, which the console reaches after the controller and its pawn.
+Dialogue has no length yet without its sound, so a Say lasts as its text does
+in the subtitle, and nothing is heard.
+
+**AI.** `src/world/AI.cpp` does the engine's part of what controllers do. A
+controller other than the player's turns its pawn toward its Focus, or its
+FocalPoint, which KnowWonder's TurnToActor and TurnToPoint set: its
+DesiredRotation is the way to it, and the pawn's physics turns to that, in
+yaw, at its RotationRate; a controller looking at nothing leaves the pawn to
+its own rotation. MoveTo and MoveToward accelerate the pawn at its AccelRate
+toward the place, or the actor wherever it goes, until it is within its
+radius, half the pawn's, across and its height and a step up or down, which
+sets bMoveToSuccess, or until MoveTimer, one second and a third over the
+time the distance takes at the pawn's speed, runs out. FinishRotation waits
+until the pawn is within 2000 of its controller's yaw, WaitForLanding until
+it does not fall, each no more than a few seconds. actorReachable and
+pointReachable walk the way there in steps of the pawn's radius with its box,
+a step up, across and down to a floor, which must be within a drop of 160 and
+walkable; nothing farther than 1200 is reachable at once. FindPathToward
+gives the actor itself when it is reachable, else the first node of the
+cheapest route over the level's own paths: each NavigationPoint's PathList of
+ReachSpecs, from the nearest nodes the pawn can walk to, to the node itself or
+the nodes within 1200 that see the goal, along specs the pawn's cylinder fits,
+leaving out ladders, specials and proscribed ones; the route goes into
+RouteCache with RouteGoal and RouteDist. LineOfSightTo looks from the pawn's
+eyes at the other's middle and head; CanSee adds its SightRadius and its
+PeripheralVision. The distances and the reach test are this engine's own, the
+behaviour the published UE2's.
 
 **Corpus check.** Twenty seconds of every level run 8014835 events with no
 script error. Thirty seconds of Shrek's swamp take 2.4 s. Gnats and dragonflies

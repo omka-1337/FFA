@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "world/AI.h"
 #include "world/Collision.h"
 
 namespace ffa {
@@ -113,15 +114,17 @@ void landed(World& w, Object* a, const TraceHit& h) {
 // yaw: the game's scripts set that one to turn it (KWHeroController's
 // UpdateRotation sets it to the camera's rotation each frame, BaseCam's
 // ApplyMouseXToDestYaw adds the mouse to it), so Shrek comes round to face
-// where the camera looks, at his RotationRate. Other controllers are left to
-// their pawns' own, as their native rotation is not done yet.
+// where the camera looks, at his RotationRate. So does a pawn whose other
+// controller looks at something, its Focus or FocalPoint (world/AI.cpp); one
+// that looks at nothing leaves the pawn to its own.
 void physicsRotation(World& w, Object* a, float dt) {
     int32_t r[3], rate[3], want[3];
     w.vm.unrotator(w.var(a, "Rotation"), r[0], r[1], r[2]);
     w.vm.unrotator(w.var(a, "RotationRate"), rate[0], rate[1], rate[2]);
     bool toDesired = w.flag(a, "bRotateToDesired"), fixed = w.flag(a, "bFixedRotationDir");
     Object* ctl = w.pawnClass && a->isA(w.pawnClass) ? controllerOf(w, a) : nullptr;
-    bool player = ctl && !ctl->deleted && w.playerControllerClass && ctl->isA(w.playerControllerClass);
+    bool player = ctl && !ctl->deleted &&
+                  ((w.playerControllerClass && ctl->isA(w.playerControllerClass)) || aiSteering(w, ctl));
     if (!toDesired && !fixed && !player) return;
     w.vm.unrotator(w.var(a, "DesiredRotation"), want[0], want[1], want[2]);
     if (player) {

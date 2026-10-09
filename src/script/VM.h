@@ -125,6 +125,10 @@ public:
     // the class they must be of: DynamicLoadObject asks it when the linker has
     // none.
     std::function<Object*(const std::string& path, const Class* want)> loadObject;
+    // Localize(Section, Key, Package): the value of a key of a localisation
+    // file, Package.int, or false when there is none.
+    std::function<bool(const std::string& section, const std::string& key, const std::string& package, String& out)>
+        localize;
 
     void write(const std::string& tag, const std::string& text);
     void warn(const Frame* f, const Ins* at, const std::string& msg);

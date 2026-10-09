@@ -1,11 +1,13 @@
 #include "world/Session.h"
 
 #include <cctype>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <sstream>
 #include <stdexcept>
 
+#include "world/AI.h"
 #include "world/Physics.h"
 
 namespace ffa {
@@ -35,6 +37,64 @@ std::string Session::ini(const std::string& file, const std::string& section, co
     return std::string();
 }
 
+bool Session::localize(const std::string& section, const std::string& key, const std::string& package, String& out) {
+    std::string pkg = lower(package);
+    auto it = int_.find(pkg);
+    if (it == int_.end()) {
+        auto& table = int_[pkg];
+        // the file, each part of its path matched without minding case
+        namespace fs = std::filesystem;
+        fs::path at = systemDir;
+        std::stringstream parts(pkg + ".int");
+        bool found = true;
+        for (std::string part; found && std::getline(parts, part, '\\');) {
+            found = false;
+            std::error_code ec;
+            for (const auto& e : fs::directory_iterator(at, ec))
+                if (lower(e.path().filename().string()) == part) {
+                    at = e.path();
+                    found = true;
+                    break;
+                }
+        }
+        std::string bytes;
+        if (found) {
+            std::ifstream in(at, std::ios::binary);
+            bytes.assign(std::istreambuf_iterator<char>(in), {});
+        }
+        if (bytes.size() > (8u << 20)) bytes.clear();       // no localisation file is near this
+        // UTF-16 with its byte order mark, else Latin-1
+        String text;
+        if (bytes.size() >= 2 && uint8_t(bytes[0]) == 0xFF && uint8_t(bytes[1]) == 0xFE)
+            for (size_t i = 2; i + 1 < bytes.size(); i += 2) text += char16_t(uint8_t(bytes[i]) | uint8_t(bytes[i + 1]) << 8);
+        else
+            for (char ch : bytes) text += char16_t(uint8_t(ch));
+        std::string at2;
+        size_t pos = 0;
+        while (pos < text.size()) {
+            size_t end = text.find(u'\n', pos);
+            if (end == String::npos) end = text.size();
+            String line = text.substr(pos, end - pos);
+            pos = end + 1;
+            if (!line.empty() && line.back() == u'\r') line.pop_back();
+            if (line.size() > 1 && line[0] == u'[') {
+                at2 = lower(utf8(line.substr(1, line.find(u']') - 1)));
+                continue;
+            }
+            size_t eq = line.find(u'=');
+            if (eq == String::npos) continue;
+            String value = line.substr(eq + 1);
+            if (value.size() >= 2 && value.front() == u'"' && value.back() == u'"') value = value.substr(1, value.size() - 2);
+            table.emplace(at2 + "/" + lower(utf8(line.substr(0, eq))), value);
+        }
+        it = int_.find(pkg);
+    }
+    auto v = it->second.find(lower(section) + "/" + lower(key));
+    if (v == it->second.end()) return false;
+    out = v->second;
+    return true;
+}
+
 Session::Session(const std::string& sys, const std::string& map) : systemDir(sys), gameDir(sys + "/..") {
     std::vector<std::string> paths = Linker::packageFiles(sys);
     paths.push_back(map);
@@ -49,6 +109,7 @@ Session::Session(const std::string& sys, const std::string& map) : systemDir(sys
     registerWorldNatives(*vm);
     registerCollisionNatives(*vm);
     registerPhysicsNatives(*vm);
+    registerAINatives(*vm);
     world = std::make_unique<World>(*vm, pkg, level);
     collision = std::make_unique<Collision>(*world, pkg, level.model, gameDir);
     world->collision = collision.get();
@@ -57,6 +118,9 @@ Session::Session(const std::string& sys, const std::string& map) : systemDir(sys
     animator = std::make_unique<Animator>(*world, *library);
     registerAnimationNatives(*vm);
     vm->loadObject = [this](const std::string& path, const Class* want) { return loadObject(path, want); };
+    vm->localize = [this](const std::string& s, const std::string& k, const std::string& p, String& out) {
+        return localize(s, k, p, out);
+    };
     // The game: a Game= option of the URL, else the engine's default.
     gameName = ini("Default.ini", "Engine.Engine", "DefaultGame");
     for (const std::string& o : level.options) {
@@ -196,12 +260,17 @@ std::vector<std::pair<std::string, float>> Session::axesOf(const std::string& ke
 
 void Session::exec(const std::string& command) {
     // the first word names an exec function of the controller, else of its
-    // pawn; the rest are its arguments, not passed yet
+    // pawn, its HUD, its PlayerInput or its CheatManager, in the engine's
+    // order: Space's BypassCutscene is the HUD's. The rest are its arguments,
+    // not passed yet.
     std::istringstream cmd(command);
     std::string name;
     cmd >> name;
     if (name.empty() || lower(name) == "axis" || lower(name) == "button" || lower(name) == "count") return;
-    for (Object* o : {controller, pawn()}) {
+    auto member = [this](const char* n) {
+        return controller && controller->cls->findProp(Name(n)) ? world->obj(controller, n) : nullptr;
+    };
+    for (Object* o : {controller, pawn(), member("myHUD"), member("PlayerInput"), member("CheatManager")}) {
         if (!o) continue;
         Function* fn = vm->findVirtual(o, Name(name));
         if (!fn || !(fn->flags & FUNC_Exec)) continue;
