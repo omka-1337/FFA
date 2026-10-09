@@ -66,6 +66,12 @@ Session::Session(const std::string& sys, const std::string& map) : systemDir(sys
 }
 
 void Session::begin() {
+    // The engine makes the level's WorldInfo before play, of the class
+    // Default.ini names, [Engine.Engine] WorldInfo=ShGame.ShWorldInfo: the
+    // game states and their master list are in its defaults.
+    std::string wiName = ini("Default.ini", "Engine.Engine", "WorldInfo");
+    if (Class* wi = wiName.empty() ? nullptr : linker->findClass(wiName.substr(wiName.find('.') + 1)))
+        world->var(world->info, "WorldInfo") = Value::Obj(vm->spawn(wi, Name("WorldInfo"), world->info->outer));
     world->beginPlay(gameClass, options);
     controller = world->login(widen(level.portal), options);
 }

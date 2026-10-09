@@ -101,7 +101,7 @@ Object* World::spawn(Class* c, Object* spawner, Object* owner, Name tag, const V
     if (owner) setOwner(a, owner);
     if (!begunPlay) return a;
     for (const char* ev : {"Spawned", "PreBeginPlay", "BeginPlay", "PostBeginPlay", "PostNetBeginPlay",
-                           "SetInitialState"}) {
+                           "SetInitialState", "FilterForCurrentGameState"}) {
         vm.event(a, ev);
         if (a->deleted) return nullptr;
     }
@@ -167,6 +167,15 @@ void World::beginPlay(Class* gameClass, const String& options) {
     pass({"BeginPlay"});
     pass({"PostBeginPlay", "PostNetBeginPlay"});
     pass({"SetInitialState"});
+    // KnowWonder's engine then puts the level in its game state and restores
+    // what was saved of it: nothing in script calls these but supers, yet the
+    // game relies on them. FilterForCurrentGameState hides and stops the
+    // actors of other game states, CutSceneTrigger turns itself off out of its
+    // own, and KWPawn's PostPersistentDataRestored sets up its blend channels.
+    // Nothing is saved yet, so the restore itself is empty.
+    for (const char* ev : {"FilterForCurrentGameState", "PrePersistentDataRestored", "PostPersistentDataRestored"})
+        for (size_t i = 0; i < actors.size(); ++i)
+            if (!actors[i]->deleted) send(actors[i], ev);
     var(info, "bStartup") = Value::Bool(false);
 }
 

@@ -561,7 +561,8 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
         }
     }
     for (const char* ev : {"InitGame", "PreBeginPlay", "BeginPlay", "PostBeginPlay", "PostNetBeginPlay",
-                           "SetInitialState", "Login", "InitInputSystem", "PostLogin", "PlayerTick", "Tick", "Timer", "tick"})
+                           "SetInitialState", "FilterForCurrentGameState",
+                           "PrePersistentDataRestored", "PostPersistentDataRestored", "Login", "InitInputSystem", "PostLogin", "PlayerTick", "Tick", "Timer", "tick"})
         std::printf("%-19s %zu ran, %zu failed\n", ev, w.sent[ev], w.failed[ev]);
     if (w.frames) {
         std::printf("ran                 %zu frames, %.2f s of level time\n", w.frames, w.time);
@@ -692,6 +693,13 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
         physics[m >= 0 && m < 16 ? modes[m] : "?"]++;
     }
     std::printf("physics, not static %s\n", top(physics, 16).c_str());
+    {
+        size_t out = 0;
+        for (Object* a : w.actors)
+            if (!a->deleted && !w.flag(a, "bInCurrentGameState")) ++out;
+        std::printf("game state          %s: %zu actors out of it, hidden and not colliding\n",
+                    utf8(w.game ? vm.call(w.game, "GetGameState").s() : String()).c_str(), out);
+    }
     {
         std::map<std::string, size_t> movers;
         Class* moverClass = vm.findClass("Mover");

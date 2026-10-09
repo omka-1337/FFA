@@ -196,6 +196,19 @@ level: Login looks for the KWPawn with bIsMainPlayer, spawns its
 DefaultPlayerControllerClass and has it possess the pawn. PostLogin gives the
 controller its HUD.
 
+Then KnowWonder's engine puts the level in its game state and restores what was
+saved of it. Nothing in script calls Actor.FilterForCurrentGameState,
+PrePersistentDataRestored or PostPersistentDataRestored but their overrides'
+supers, yet the game depends on them: FilterForCurrentGameState hides and stops
+the actors of other game states, CutSceneTrigger turns itself off outside its
+own, and KWPawn's PostPersistentDataRestored gives its upper channels their
+bones and alphas. So every actor takes the three in turn after
+SetInitialState, and a spawned actor takes the filter after its own start up
+events. The game state comes from the LevelInfo's WorldInfo, an object the
+engine makes of the class Default.ini names, ShGame.ShWorldInfo, whose
+defaults hold the game states: with it KWGame's InitGame sets GSTATE000 on
+every level, and no actor is out of it at the start.
+
 From step 3 a spawned actor takes Spawned, PreBeginPlay, BeginPlay,
 PostBeginPlay, PostNetBeginPlay and SetInitialState in its Spawn, and
 Actor.SetInitialState marks it bScriptInitialized; the passes of step 4 skip
@@ -345,7 +358,11 @@ blends the new sequence in from the channel's pose before, while it already
 plays, and the engine's movement animation blends over BlendChangeTime the same
 way. A looping sequence goes from its last key back to its first by its end.
 At the end of a play or of a round AnimEnd(channel) goes to the actor
-when the channel's notify is on, channel 0's from the start. FinishAnim waits
+when the channel's notify is on, channel 0's from the start. A channel above
+0 adds nothing until AnimBlendParams gives it an alpha: KWPawn blinks on
+channels 34 to 39, set to its lid and brow bones, and with an alpha of 1 by
+default the blink took the whole skeleton to the reference pose for a few
+frames, a T pose. FinishAnim waits
 for the channel to stop, ending a loop at the end of its round, and the data
 settles one thing about it: KnowWonder's BounceController plays its pawn's
 idle and finishes it in a loop, Pawn.PlayAnim(IdleAnim); FinishAnim(); goto

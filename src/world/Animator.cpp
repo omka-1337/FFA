@@ -239,7 +239,13 @@ AnimChannel& Animator::channel(Object* a, int k) {
     if (s.channels.size() <= size_t(k)) {
         size_t was = s.channels.size();
         s.channels.resize(size_t(k) + 1);
-        if (was == 0) s.channels[0].notify = true;  // channel 0 notifies unless told not to
+        // channel 0 notifies unless told not to, and is the base pose; a
+        // channel above it adds nothing until AnimBlendParams gives it an
+        // alpha. KWPawn plays its blinks on channels 34 to 39 with their lid
+        // and brow bones set that way; with an alpha of 1 they took the whole
+        // skeleton to the reference pose the blink leaves it in.
+        for (size_t i = was; i < s.channels.size(); ++i) s.channels[i].alpha = s.channels[i].alphaTarget = i == 0;
+        if (was == 0) s.channels[0].notify = true;
     }
     return s.channels[size_t(k)];
 }
