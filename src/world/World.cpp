@@ -228,6 +228,8 @@ void World::tick(float dt) {
     bool parity = frames & 1;
     // Animation first, so that a sequence ending this frame ends FinishAnim
     // before the state code that waits on it runs; then what hangs on bones.
+    ticking = nullptr;
+    tickPart = "animation";
     if (animator) {
         try {
             animator->tick(dt);
@@ -240,6 +242,8 @@ void World::tick(float dt) {
     for (size_t i = 0; i < n; ++i) {
         Object* a = actors[i];
         if (a->deleted || flag(a, "bStatic")) continue;
+        ticking = a;
+        tickPart = "Tick";
         var(a, "bTicked") = Value::Bool(parity);
         try {
             if (player && a == obj(player, "Actor")) {
@@ -262,6 +266,7 @@ void World::tick(float dt) {
             vm.event(a, "Tick", {delta});
             sent["Tick"]++;
             if (a->deleted) continue;
+            tickPart = "state code";
             vm.processState(a, dt);
             if (a->deleted) continue;
             if (controllerClass && a->isA(controllerClass) && !(playerControllerClass && a->isA(playerControllerClass)))
@@ -277,6 +282,7 @@ void World::tick(float dt) {
                     counter -= rate * passed;
                     if (!flag(a, "bTimerLoop")) var(a, "TimerRate") = Value::Float(0);
                     var(a, "TimerCounter") = Value::Float(counter);
+                    tickPart = "Timer";
                     vm.event(a, "Timer");
                     sent["Timer"]++;
                 } else {
@@ -284,6 +290,7 @@ void World::tick(float dt) {
                 }
             }
             if (a->deleted) continue;
+            tickPart = "physics";
             performPhysics(*this, a, dt);
             if (a->deleted) continue;
             float life = var(a, "LifeSpan").f();
@@ -297,6 +304,8 @@ void World::tick(float dt) {
             failures[std::string("tick: ") + ex.what()]++;
         }
     }
+    ticking = nullptr;
+    tickPart = "";
 }
 
 // ================================================================ natives

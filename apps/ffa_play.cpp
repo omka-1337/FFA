@@ -4,6 +4,8 @@
 //   ffa-play <System dir> <map.unr> --shot <png> <seconds> run that long, save a frame, quit
 //   ... --hold <key>                                       hold a key from the start, as W
 //   ... --exec <seconds>=<command>                         run a command once, as BypassCutscene
+//   ... --log <file>                                       the script's log, keys, frames a second,
+//                                                          and where a frame that does not end is
 //
 // The level begins as the engine begins it (world/Session.h), the world ticks
 // once a frame drawn by the time it took, the keys held are given to the player's
@@ -15,11 +17,15 @@
 #include <GLES2/gl2.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <set>
 #include <string>
+#include <thread>
 
 #include "core/Library.h"
 #include "render/LevelRender.h"
@@ -60,12 +66,14 @@ int main(int argc, char** argv) {
     float shotAt = 0;
     std::vector<std::string> holdKeys;
     std::vector<std::pair<float, std::string>> execs;
+    const char* logPath = nullptr;
     for (int i = 3; i < argc; ++i) {
         if (std::string(argv[i]) == "--shot" && i + 2 < argc) {
             shot = argv[i + 1];
             shotAt = std::stof(argv[i + 2]);
         }
         if (std::string(argv[i]) == "--hold" && i + 1 < argc) holdKeys.push_back(argv[i + 1]);
+        if (std::string(argv[i]) == "--log" && i + 1 < argc) logPath = argv[i + 1];
         if (std::string(argv[i]) == "--exec" && i + 1 < argc) {
             std::string e = argv[i + 1];
             size_t eq = e.find('=');
@@ -90,6 +98,22 @@ int main(int argc, char** argv) {
         std::printf("GL %s, %s\n", glGetString(GL_VERSION), glGetString(GL_RENDERER));
 
         Session session(sys, map);
+        // --log: what script writes, the keys, once a second the frames and the
+        // player, and from a watchdog where a frame that does not end is
+        FILE* logFile = logPath ? std::fopen(logPath, "w") : nullptr;
+        std::mutex logLock;
+        auto logLine = [&](const std::string& line) {
+            if (!logFile) return;
+            std::lock_guard<std::mutex> g(logLock);
+            std::fprintf(logFile, "%s\n", line.c_str());
+        };
+        World* worldPtr = session.world.get();
+        auto stamp = [&]() {
+            char t[32];
+            std::snprintf(t, sizeof t, "%8.2f  ", worldPtr->time);
+            return std::string(t);
+        };
+        if (logFile) session.vm->sink = [&](const std::string& tag, const std::string& text) { logLine(stamp() + tag + "  " + text); };
         Library lib(sys + "/..");
         lib.adopt(session.linker->packages[size_t(session.pkg)].get());
         session.begin();
@@ -101,6 +125,40 @@ int main(int argc, char** argv) {
         std::printf("meshes relit        %zu whose baked light was black, from their lights and masks\n", render.relit);
 
         World& w = *session.world;
+        std::atomic<uint64_t> framesDone{0};
+        std::atomic<bool> quitting{false};
+        std::thread watchdog;
+        if (logFile)
+            watchdog = std::thread([&] {
+                uint64_t seen = 0;
+                auto since = std::chrono::steady_clock::now();
+                int reported = 0;
+                while (!quitting) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                    uint64_t now = framesDone;
+                    if (now != seen) {
+                        seen = now;
+                        since = std::chrono::steady_clock::now();
+                        reported = 0;
+                        continue;
+                    }
+                    double stuck = std::chrono::duration<double>(std::chrono::steady_clock::now() - since).count();
+                    // after 3 seconds, and every 10 after: where the frame is,
+                    // read while it runs, which a frame stuck in place allows
+                    if (stuck < 3 + 10 * reported) continue;
+                    ++reported;
+                    Object* a = w.ticking;
+                    std::string where = a ? a->path() + " (" + a->cls->name.str() + "), state " +
+                                                (a->state ? a->state->name.str() : std::string("none"))
+                                          : std::string("no actor");
+                    logLine(stamp() + "HANG  frame not done for " + std::to_string(int(stuck)) + " s, at " + where +
+                            ", in " + w.tickPart);
+                    for (const std::string& f : session.vm->trace()) logLine("          script  " + f);
+                    std::lock_guard<std::mutex> g(logLock);
+                    std::fflush(logFile);
+                }
+            });
+        std::map<std::string, size_t> failuresSeen;
         std::map<std::string, std::vector<std::pair<std::string, float>>> bindings;
         std::set<std::string> down(holdKeys.begin(), holdKeys.end());
         const float step = 1.0f / 30.0f;
@@ -137,6 +195,11 @@ int main(int argc, char** argv) {
                     mouseY -= float(e.motion.yrel);     // the engine's up is positive
                 }
                 if (!pressed.empty()) {
+                    if (logFile) {
+                        std::string cs;
+                        for (const std::string& c : session.commandsOf(pressed)) cs += " " + c;
+                        logLine(stamp() + "key  " + pressed + " ->" + cs);
+                    }
                     down.insert(pressed);
                     // what is not an axis runs once, on the press
                     for (const std::string& c : session.commandsOf(pressed)) session.exec(c);
@@ -188,6 +251,7 @@ int main(int argc, char** argv) {
                     command.clear();
                 }
             w.tick(dt);
+            ++framesDone;
             Vec3 loc;
             int32_t rot[3] = {0, 0, 0};
             session.view(loc, rot);
@@ -209,10 +273,34 @@ int main(int argc, char** argv) {
                 char title[128];
                 std::snprintf(title, sizeof title, "Far Far Away - %s - %d fps", session.level.map.c_str(), drawn);
                 SDL_SetWindowTitle(win, title);
+                if (logFile) {
+                    Object* pawn = session.pawn();
+                    std::string who = "no pawn";
+                    if (pawn) {
+                        float x, y, z;
+                        w.vm.unvector(w.var(pawn, "Location"), x, y, z);
+                        char at[160];
+                        std::snprintf(at, sizeof at, "%s at (%.0f, %.0f, %.0f), state %s", pawn->name.str().c_str(), x, y, z,
+                                      pawn->state ? pawn->state->name.str().c_str() : "none");
+                        who = at;
+                        if (pawn->cls->findProp(Name("Health"))) who += ", health " + std::to_string(int(w.var(pawn, "Health").f()));
+                    }
+                    logLine(stamp() + "frame  " + std::to_string(drawn) + " fps, " + who);
+                    for (auto& [msg, n] : w.failures)
+                        if (failuresSeen[msg] != n) {
+                            logLine(stamp() + "ERROR  " + msg + " (" + std::to_string(n) + " times)");
+                            failuresSeen[msg] = n;
+                        }
+                    std::lock_guard<std::mutex> g(logLock);
+                    std::fflush(logFile);
+                }
                 drawn = 0;
                 titled = t;
             }
         }
+        quitting = true;
+        if (watchdog.joinable()) watchdog.join();
+        if (logFile) std::fclose(logFile);
         SDL_GL_DeleteContext(gl);
         SDL_DestroyWindow(win);
         SDL_Quit();

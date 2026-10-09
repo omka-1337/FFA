@@ -106,6 +106,10 @@ public:
     // Every event the start up pass sent, by name, and how many failed.
     std::unordered_map<std::string, size_t> sent, failed;
     std::unordered_map<std::string, size_t> failures;   // by message
+    // The actor the tick is at, and the part of it, for a watchdog to say
+    // where a frame that does not end is.
+    Object* ticking = nullptr;
+    const char* tickPart = "";
 
 private:
     void send(Object* a, const char* event);
