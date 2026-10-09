@@ -36,6 +36,7 @@ public:
 
     // What drawing needs: the first UV stream, the index buffer, and the
     // sections, a material's run of it each, FirstIndex and NumFaces.
+    std::vector<Vec3> normals;          // one per vertex
     std::vector<float> uv;              // two per vertex
     std::vector<uint16_t> indices;
     struct Section {

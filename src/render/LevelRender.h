@@ -31,7 +31,7 @@ public:
     // width by height, with a horizontal field of view in degrees.
     void draw(Vec3 location, const int32_t rotation[3], int width, int height, float fovDegrees);
 
-    size_t triangles = 0, batches = 0, textures = 0, lightMaps = 0, missingTextures = 0, meshes = 0, characters = 0;
+    size_t triangles = 0, batches = 0, textures = 0, lightMaps = 0, missingTextures = 0, meshes = 0, characters = 0, relit = 0;
 
 private:
     struct Batch {

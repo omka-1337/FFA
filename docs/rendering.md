@@ -36,7 +36,9 @@ same way, so what was confirmed by eye there holds here:
   plus the zone's ambient.
 - **Static meshes**, at Location + R S (v - PrePivot), a section a material,
   the actor's Skins over the mesh's Materials; lit by the StaticMeshInstance's
-  vertex colours × 2 plus the zone's ambient.
+  vertex colours × 2 plus the zone's ambient. Where those colours are black
+  throughout although lights reach the mesh, they are computed from the lights
+  and their masks, by the formula the stored colours follow.
 
 - **Skeletal meshes**, each actor drawn as a mesh skinned on the CPU every
   frame from its pose, its faces by material, the actor's Skins over the
@@ -62,9 +64,6 @@ decides over what it wraps.
 
 - The sky: the sky zone drawn first from the SkyZoneInfo, behind the surfaces
   flagged PF_FakeBackdrop, which show the clear colour now.
-- Static meshes black throughout. Their vertex colours are a cache; for 1919
-  light-to-mesh pairs a light reaches vertices and is marked applied and yet
-  the colours are black, and 1955 more are not applied. The engine must
-  compute the light from the lights and the masks; the formula is to be found
-  from the 40462 pairs whose colours are there.
+- The Spotlight's cone in the vertex light computed for black instances
+  (docs/package-format.md, StaticMeshInstance), and lights on characters.
 - Characters lit, sprites and emitters, fog, translucency sorted by depth.

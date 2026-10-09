@@ -1607,7 +1607,29 @@ whose mesh resolves. The other 44 are one mesh, 11_FGM_Battle_SM.bush_wall,
 lit when it had 143 vertices and shipped with 79: stale light an engine has to
 throw away. 1563 instances are black throughout with no light reaching them,
 lit, presumably, by their zone's ambient alone; 544 more are black throughout
-although lights reach them, which is not explained yet.
+although lights reach them.
+
+**The colours are a cache, and the formula behind them is in the data.** Over
+the instances whose colours are there and whose lights are all marked applied,
+6992 of them, a vertex's colour is the sum over the lights whose mask bit it
+has of
+
+```
+0.65 x LightBrightness x falloff x max(N.L, 0) x the light's colour
+falloff   (1 - (d / (25 LightRadius))^2)^2 for a Light, 1 for a Sunlight
+colour    LightHue and LightSaturation as HSV, saturation 255 white
+```
+
+d the distance to the light, N the vertex normal, L towards the light, or
+against a Sunlight's facing. Each piece was read off the data: on vertices one
+point light reaches, the colour over LightBrightness falls to nothing at 25
+LightRadius and follows (1 - x^2)^2 better than any other form tried, and
+grows with N.L in a straight line, 0.34 at a half, 0.65 face on. Recomputed,
+the colours agree with the stored ones to a median of 0.0 of 255 where a
+Sunlight is among the lights (90 percent within 11), 1.1 with point lights
+alone (75 percent within 9), and 5.4 where a Spotlight is, whose cone is not
+modelled yet. So where an instance is black throughout although lights reach
+it, the window computes its colours this way: 650 instances on Shrek's swamp.
 
 ## Text files
 

@@ -460,6 +460,71 @@ void main() {
 
 }  // namespace
 
+namespace {
+
+// A placed mesh's vertex light from its lights, as the engine computes the
+// cache a StaticMeshInstance holds; fitted to the 6992 instances whose cache
+// is there, it gives their colours to a median of 0 to 1 of 255 (docs). A
+// light reaches a vertex where its mask's bit is set; a Light falls off as
+// (1 - (d / 25 LightRadius)^2)^2, a Sunlight is a direction without falloff,
+// and either lights by N.L; the colour is LightHue and LightSaturation as HSV,
+// at 0.65 LightBrightness.
+std::vector<uint8_t> bakeVertexLight(World& w, const StaticMeshCollision& m, const float model[16],
+                                     const std::vector<std::pair<Object*, std::vector<uint8_t>>>& lights) {
+    std::vector<float> acc(m.positions.size() * 3, 0.0f);
+    for (const auto& [light, mask] : lights) {
+        float bright = w.var(light, "LightBrightness").f(), radius = w.var(light, "LightRadius").f() * 25.0f;
+        float h = float(w.var(light, "LightHue").i()) / 255.0f, sat = 1.0f - float(w.var(light, "LightSaturation").i()) / 255.0f;
+        float hi = std::floor(h * 6), f = h * 6 - hi, pv = 1 - sat, qv = 1 - f * sat, tv = 1 - (1 - f) * sat;
+        Vec3 col;
+        switch (int(hi) % 6) {
+        case 0: col = {1, tv, pv}; break;
+        case 1: col = {qv, 1, pv}; break;
+        case 2: col = {pv, 1, tv}; break;
+        case 3: col = {pv, qv, 1}; break;
+        case 4: col = {tv, pv, 1}; break;
+        default: col = {1, pv, qv};
+        }
+        bool sun = light->cls->name == Name("Sunlight");
+        Vec3 lp, dir;
+        w.vm.unvector(w.var(light, "Location"), lp.x, lp.y, lp.z);
+        int32_t pr, yr, rr;
+        w.vm.unrotator(w.var(light, "Rotation"), pr, yr, rr);
+        float ax[3][3];
+        rotationAxes(pr, yr, rr, ax);
+        dir = {ax[0][0], ax[0][1], ax[0][2]};
+        for (size_t i = 0; i < m.positions.size() && i < m.normals.size(); ++i) {
+            if (!(i / 8 < mask.size() && (mask[i / 8] >> (i % 8)) & 1)) continue;
+            const Vec3 p = m.positions[i], nl = m.normals[i];
+            Vec3 wp{model[0] * p.x + model[4] * p.y + model[8] * p.z + model[12],
+                    model[1] * p.x + model[5] * p.y + model[9] * p.z + model[13],
+                    model[2] * p.x + model[6] * p.y + model[10] * p.z + model[14]};
+            Vec3 wn{model[0] * nl.x + model[4] * nl.y + model[8] * nl.z, model[1] * nl.x + model[5] * nl.y + model[9] * nl.z,
+                    model[2] * nl.x + model[6] * nl.y + model[10] * nl.z};
+            float ln = length(wn);
+            if (ln > 0) wn = wn * (1 / ln);
+            float k;
+            if (sun) {
+                k = std::max(0.0f, -dot(wn, dir));
+            } else {
+                Vec3 d = lp - wp;
+                float dist = length(d);
+                if (dist <= 0 || dist >= radius) continue;
+                float x = dist / radius;
+                k = (1 - x * x) * (1 - x * x) * std::max(0.0f, dot(wn, d) / dist);
+            }
+            acc[i * 3] += 0.65f * bright * k * col.x;
+            acc[i * 3 + 1] += 0.65f * bright * k * col.y;
+            acc[i * 3 + 2] += 0.65f * bright * k * col.z;
+        }
+    }
+    std::vector<uint8_t> out(acc.size());
+    for (size_t i = 0; i < acc.size(); ++i) out[i] = uint8_t(std::min(255.0f, acc[i]));
+    return out;
+}
+
+}  // namespace
+
 ObjectRef LevelRender::refOf(const Object* o) {
     if (!o) return {};
     std::vector<std::string> parts;
@@ -540,9 +605,31 @@ void LevelRender::buildMeshes() {
                     int32_t n = r.idx();
                     if (n == int32_t(m->positions.size())) {
                         std::vector<uint8_t> rgb;
+                        bool black = true;
                         for (int32_t i = 0; i < n; ++i) {
                             uint8_t c[4] = {r.u8(), r.u8(), r.u8(), r.u8()};
                             rgb.insert(rgb.end(), {c[0], c[1], c[2]});
+                            black &= !c[0] && !c[1] && !c[2];
+                        }
+                        r.u32();            // revision
+                        // the lights, each with a bit a vertex for where it reaches
+                        std::vector<std::pair<Object*, std::vector<uint8_t>>> lights;
+                        for (int32_t k = 0, nl = r.idx(); k < nl && k < 256; ++k) {
+                            int32_t actor = r.idx();
+                            int32_t len = r.idx();
+                            r.need(size_t(len));
+                            std::vector<uint8_t> mask(inst.pkg->data.begin() + long(r.p),
+                                                      inst.pkg->data.begin() + long(r.p + size_t(len)));
+                            r.p += size_t(len);
+                            r.u32();        // applied
+                            auto it = w.actorAt.find(actor);
+                            if (it != w.actorAt.end()) lights.emplace_back(it->second, std::move(mask));
+                        }
+                        // Black throughout although lights reach it: the colours
+                        // are a cache the engine fills, so fill it here.
+                        if (black && !lights.empty()) {
+                            rgb = bakeVertexLight(w, *m, d.model, lights);
+                            ++relit;
                         }
                         glGenBuffers(1, &d.colors);
                         glBindBuffer(GL_ARRAY_BUFFER, d.colors);

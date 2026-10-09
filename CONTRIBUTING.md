@@ -194,8 +194,10 @@ Engine:
 - [ ] Water: half transparent, reflecting a cubemap, not the scene. Most likely
   a Shader whose Opacity and a TexEnvMap over a cubemap give it; the material
   walk now stops at the cubemap.
-- [ ] Static mesh light computed from the lights and their masks, for the
-  instances whose colours are black.
+- [x] Static mesh light computed from the lights and their masks, for the
+  instances whose colours are black: the formula fitted to the 6992 whose
+  colours are there.
+- [ ] The Spotlight's cone in it, and the dynamic light of characters.
 - [x] Animation timing: channels, PlayAnim, LoopAnim, TweenAnim, FinishAnim,
   AnimEnd, blending alphas, AddNotify, the default animation of a mesh, and
   the engine's own movement animation of pawns.

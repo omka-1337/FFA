@@ -89,7 +89,7 @@ int main(int argc, char** argv) {
                     "%zu lightmaps\n",
                     render.triangles, render.batches, render.meshes, render.textures, render.missingTextures,
                     render.lightMaps);
-        std::printf("characters          drawn as they come into view\n");
+        std::printf("meshes relit        %zu whose baked light was black, from their lights and masks\n", render.relit);
 
         World& w = *session.world;
         std::map<std::string, std::vector<std::pair<std::string, float>>> bindings;

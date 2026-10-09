@@ -72,7 +72,11 @@ StaticMeshCollision::StaticMeshCollision(const Package& p, int idx) {
         v.x = r.f32();
         v.y = r.f32();
         v.z = r.f32();
-        skip(r, 12);                        // normal
+        Vec3 nv;
+        nv.x = r.f32();
+        nv.y = r.f32();
+        nv.z = r.f32();
+        normals.push_back(nv);
         positions.push_back(v);
     }
     r.u32();
