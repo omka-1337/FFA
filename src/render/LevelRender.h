@@ -89,6 +89,10 @@ private:
         std::vector<float> scratch;
         std::vector<Vec3> world;    // the posed points this frame, for its shadow
         bool failed = false;
+        // this frame's, kept from the opaque pass for the blended one
+        bool drawn = false;
+        float mvp[16];
+        Vec3 ambient;
     };
     // Projectors: what they cover drawn again with their texture laid on.
     void drawProjectors(const float mvp[16], Vec3 eye);
@@ -97,7 +101,11 @@ private:
     unsigned projProgram_ = 0, shadowProgram_ = 0, shadowFbo_ = 0, blob_ = 0;
     std::map<Object*, unsigned> shadowTex_;
     Class* shadowClass_ = nullptr;
-    void drawSkeletal(const float mvp[16], Vec3 eye);
+    // Skeletal meshes: posed and their opaque parts drawn, or, after every
+    // opaque thing, their blended parts.
+    void drawSkeletal(const float mvp[16], Vec3 eye, bool blended);
+    // The BSP's opaque batches, or its blended ones.
+    void drawBsp(const float mvp[16], bool blended);
     std::vector<Vec3> characterLight(Object* a, const SkeletalMesh& mesh, const std::vector<Vec3>& pts,
                                      const float r[3][3], Vec3 loc);
     std::vector<Object*> lights_;

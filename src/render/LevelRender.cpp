@@ -879,7 +879,7 @@ std::vector<Vec3> LevelRender::characterLight(Object* a, const SkeletalMesh& mes
     return out;
 }
 
-void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye) {
+void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye, bool blended) {
     World& w = *session_.world;
     Animator& an = *session_.animator;
     glUseProgram(meshProgram_);
@@ -887,6 +887,35 @@ void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye) {
     GLint uM = glGetUniformLocation(meshProgram_, "uMvp"), uB = glGetUniformLocation(meshProgram_, "uBaked");
     GLint uC = glGetUniformLocation(meshProgram_, "uCut"), uA = glGetUniformLocation(meshProgram_, "uAmb");
     glUniform1f(uB, 1.0f);
+    auto parts = [&](const SkelDraw& d) {
+        glUniformMatrix4fv(uM, 1, GL_FALSE, d.mvp);
+        glUniform3f(uA, d.ambient.x, d.ambient.y, d.ambient.z);
+        glBindBuffer(GL_ARRAY_BUFFER, d.vertices);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), nullptr);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), reinterpret_cast<void*>(12));
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), reinterpret_cast<void*>(20));
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, d.indices);
+        for (const MeshDraw::Part& part : d.parts) {
+            if (part.mat.blended() != blended) continue;
+            applyBlend(part.mat);
+            glBindTexture(GL_TEXTURE_2D, part.texture);
+            glUniform1f(uC, part.mat.alphaRef);
+            glDrawElements(GL_TRIANGLES, part.count, GL_UNSIGNED_SHORT, reinterpret_cast<void*>(size_t(part.first) * 2));
+        }
+    };
+    if (blended) {
+        // after every opaque thing, as the engine draws what blends: a part
+        // that writes no depth would have the world drawn over it
+        for (auto& [a, d] : skel_)
+            if (d.drawn) parts(d);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+        return;
+    }
+    for (auto& [a, d] : skel_) d.drawn = false;
     for (Object* a : w.actors) {
         if (a->deleted || w.var(a, "DrawType").i() != 2 || w.flag(a, "bHidden") || !w.obj(a, "Mesh")) continue;
         Vec3 o;
@@ -940,28 +969,15 @@ void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye) {
         model[13] = loc.y;
         model[14] = loc.z;
         model[15] = 1;
-        float m[16];
         for (int c = 0; c < 4; ++c)
             for (int k = 0; k < 4; ++k) {
                 float sum = 0;
                 for (int j = 0; j < 4; ++j) sum += mvp[j * 4 + k] * model[c * 4 + j];
-                m[c * 4 + k] = sum;
+                d.mvp[c * 4 + k] = sum;
             }
-        glUniformMatrix4fv(uM, 1, GL_FALSE, m);
-        glUniform3f(uA, ambient.x, ambient.y, ambient.z);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), nullptr);
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), reinterpret_cast<void*>(12));
-        glEnableVertexAttribArray(2);
-        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), reinterpret_cast<void*>(20));
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, d.indices);
-        for (const MeshDraw::Part& part : d.parts) {
-            applyBlend(part.mat);
-            glBindTexture(GL_TEXTURE_2D, part.texture);
-            glUniform1f(uC, part.mat.alphaRef);
-            glDrawElements(GL_TRIANGLES, part.count, GL_UNSIGNED_SHORT, reinterpret_cast<void*>(size_t(part.first) * 2));
-        }
+        d.ambient = ambient;
+        d.drawn = true;
+        parts(d);
     }
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
@@ -1230,6 +1246,35 @@ void LevelRender::drawProjectors(const float mvp[16], Vec3 eye) {
     glDisable(GL_BLEND);
 }
 
+void LevelRender::drawBsp(const float mvp[16], bool blended) {
+    glUseProgram(program_);
+    glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp);
+    glUniform1i(uTex_, 0);
+    glUniform1i(uLm_, 1);
+    for (const Batch& b : batches_) {
+        if (b.mat.blended() != blended) continue;
+        applyBlend(b.mat);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, b.texture);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, b.lightMap);
+        glUniform1f(uLit_, b.unlit ? 0.0f : 1.0f);
+        glUniform1f(uCut_, b.mat.alphaRef);
+        glBindBuffer(GL_ARRAY_BUFFER, b.buffer);
+        const GLsizei stride = 7 * sizeof(float);
+        glEnableVertexAttribArray(GLuint(aPos_));
+        glVertexAttribPointer(GLuint(aPos_), 3, GL_FLOAT, GL_FALSE, stride, nullptr);
+        glEnableVertexAttribArray(GLuint(aUv_));
+        glVertexAttribPointer(GLuint(aUv_), 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(12));
+        glEnableVertexAttribArray(GLuint(aUv2_));
+        glVertexAttribPointer(GLuint(aUv2_), 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(20));
+        glDrawArrays(GL_TRIANGLES, 0, b.count);
+    }
+    glActiveTexture(GL_TEXTURE0);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+}
+
 void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, float fov) {
     glViewport(0, 0, width, height);
     glClearColor(0.35f, 0.45f, 0.55f, 1);
@@ -1259,32 +1304,12 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
             for (int k = 0; k < 4; ++k) sum += proj[k * 4 + r] * view[c * 4 + k];
             mvp[c * 4 + r] = sum;
         }
-    glUseProgram(program_);
-    glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp);
-    glUniform1i(uTex_, 0);
-    glUniform1i(uLm_, 1);
-    // Opaque first, then the blended, which do not write depth.
-    for (int pass = 0; pass < 2; ++pass) {
-        for (const Batch& b : batches_) {
-            if (b.mat.blended() != (pass == 1)) continue;
-            applyBlend(b.mat);
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, b.texture);
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_2D, b.lightMap);
-            glUniform1f(uLit_, b.unlit ? 0.0f : 1.0f);
-            glUniform1f(uCut_, b.mat.alphaRef);
-            glBindBuffer(GL_ARRAY_BUFFER, b.buffer);
-            const GLsizei stride = 7 * sizeof(float);
-            glEnableVertexAttribArray(GLuint(aPos_));
-            glVertexAttribPointer(GLuint(aPos_), 3, GL_FLOAT, GL_FALSE, stride, nullptr);
-            glEnableVertexAttribArray(GLuint(aUv_));
-            glVertexAttribPointer(GLuint(aUv_), 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(12));
-            glEnableVertexAttribArray(GLuint(aUv2_));
-            glVertexAttribPointer(GLuint(aUv2_), 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(20));
-            glDrawArrays(GL_TRIANGLES, 0, b.count);
-        }
-    }
+    // What is opaque first, the BSP, the terrains, the characters and the
+    // static meshes; then the projectors on it; then what blends over it.
+    // What is opaque first, the BSP, the terrains, the characters and the
+    // static meshes; then the projectors on it; then what blends over it,
+    // which writes no depth and would have what is drawn after it over it.
+    drawBsp(mvp, false);
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
     for (const TerrainDraw& td : terrains_) {
@@ -1311,7 +1336,7 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
             glDrawElements(GL_TRIANGLES, b.count, GL_UNSIGNED_SHORT, nullptr);
         }
     }
-    drawSkeletal(mvp, loc);
+    drawSkeletal(mvp, loc, false);
     // the static meshes, opaque then blended
     glUseProgram(meshProgram_);
     glActiveTexture(GL_TEXTURE0);
@@ -1323,6 +1348,8 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
             // shadows and the like on what is drawn so far, the opaque world,
             // before what blends over it
             drawProjectors(mvp, loc);
+            drawBsp(mvp, true);
+            drawSkeletal(mvp, loc, true);
             glUseProgram(meshProgram_);
             glActiveTexture(GL_TEXTURE0);
         }

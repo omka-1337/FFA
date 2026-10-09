@@ -111,6 +111,16 @@ zone of a ZoneInfo around their middle, among them the two bushes by the pond,
 which the game shows dark green, not black. Those take the zone around their
 middle.
 
+## The order of a frame
+
+What is opaque first: the BSP, the terrains, the characters and the static
+meshes; then the projectors, on that; then what blends, the BSP's, the
+characters' and the static meshes', which writes no depth. A blended part
+drawn before an opaque thing behind it has that thing drawn over it: the
+Fairy Godmother factory's workers, whose suits are textures with an alpha
+channel, Elf's RandSkins HazMat1 to HazMat6, had the conveyors and the floor
+show through them when the characters came before the static meshes.
+
 ## Projectors and shadows
 
 A projector lays its texture over what it covers: the BSP, the terrains and the
