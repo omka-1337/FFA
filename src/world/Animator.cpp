@@ -45,6 +45,134 @@ Object* Animator::objectFor(const MeshAnimation* m) {
     return world.vm.loadObject(m->package->stem + "." + path);
 }
 
+const SkeletalMesh* Animator::skeletal(const ObjectRef& r) {
+    if (!r) return nullptr;
+    auto key = std::make_pair(r.pkg, r.idx);
+    auto it = meshes_.find(key);
+    if (it != meshes_.end()) return it->second.get();
+    std::unique_ptr<SkeletalMesh>& slot = meshes_[key];
+    try {
+        slot = std::make_unique<SkeletalMesh>(*r.pkg, r.idx);
+    } catch (const FormatError&) {
+    }
+    return slot.get();
+}
+
+std::vector<BoneTransform> Animator::pose(Object* a) {
+    AnimState& s = state(a);
+    if (!s.mesh) return {};
+    const SkeletalMesh& m = *s.mesh;
+    auto at = [&](const AnimChannel& c) {
+        size_t si = size_t(c.seq - c.set->sequences.data());
+        float frame = c.frame * float(c.seq->numFrames);
+        return m.locals(*c.set, si, frame);
+    };
+    std::vector<BoneTransform> locals = m.referenceLocals();
+    for (size_t k = 0; k < s.channels.size(); ++k) {
+        const AnimChannel& c = s.channels[k];
+        if (!c.seq || !c.set) continue;
+        float alpha = k == 0 ? 1.0f : c.alpha;
+        if (alpha <= 0) continue;
+        std::vector<BoneTransform> ch = at(c);
+        // from the blend bone down, or the whole skeleton
+        int root = c.bone.empty() || c.bone == "None" ? -1 : m.bone(c.bone);
+        for (size_t i = 0; i < locals.size(); ++i) {
+            bool under = root < 0;
+            for (int j = int(i); !under && j >= 0; j = j == 0 ? -1 : m.bones[size_t(j)].parent)
+                if (j == root) under = true;
+            if (!under) continue;
+            locals[i].q = qnlerp(locals[i].q, ch[i].q, alpha);
+            locals[i].p = lerp(locals[i].p, ch[i].p, alpha);
+        }
+    }
+    return m.compose(locals);
+}
+
+void Animator::meshToWorld(Object* a, float out[3][3], Vec3& origin) {
+    // Location + R S, as the viewer places skeletal meshes; PrePivot is not
+    // settled for them and is left out.
+    int32_t pitch, yaw, roll;
+    world.vm.unrotator(world.var(a, "Rotation"), pitch, yaw, roll);
+    float ax[3][3];
+    rotationAxes(pitch, yaw, roll, ax);
+    float sc = world.var(a, "DrawScale").f();
+    Vec3 s3;
+    world.vm.unvector(world.var(a, "DrawScale3D"), s3.x, s3.y, s3.z);
+    const float k[3] = {sc * s3.x, sc * s3.y, sc * s3.z};
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 3; ++c) out[r][c] = ax[c][r] * k[c];
+    world.vm.unvector(world.var(a, "Location"), origin.x, origin.y, origin.z);
+}
+
+bool Animator::boneWorld(Object* a, const std::string& bone, Vec3& origin, Vec3 axes[3]) {
+    AnimState& s = state(a);
+    if (!s.mesh) return false;
+    int b = s.mesh->bone(bone);
+    if (b < 0) return false;
+    std::vector<BoneTransform> g = pose(a);
+    float m[3][3];
+    Vec3 loc;
+    meshToWorld(a, m, loc);
+    auto toWorld = [&](Vec3 v) {
+        return Vec3{m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z, m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z,
+                    m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z};
+    };
+    const SkeletalMesh& mesh = *s.mesh;
+    origin = loc + toWorld(mesh.toActor(g[size_t(b)].p));
+    // the axes go through the mesh's rotation and the actor's, not its offset
+    const Vec3 unit[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    for (int k = 0; k < 3; ++k) {
+        Vec3 d = toWorld(mesh.toActor(mesh.origin + qrot(g[size_t(b)].q, unit[k])) - mesh.toActor(mesh.origin));
+        float len = length(d);
+        axes[k] = len > 0 ? d * (1 / len) : d;
+    }
+    return true;
+}
+
+// A rotator whose axes are X, Y and Z, the inverse of rotationAxes.
+void rotatorOf(const Vec3 axes[3], int32_t out[3]) {
+    const Vec3& X = axes[0];
+    const Vec3& Y = axes[1];
+    const Vec3& Z = axes[2];
+    float pitch = std::atan2(X.z, std::sqrt(X.x * X.x + X.y * X.y));
+    float yaw = std::atan2(X.y, X.x);
+    // the Y axis of pitch and yaw alone, then the roll that turns it to Y
+    float sy = std::sin(yaw), cy = std::cos(yaw);
+    Vec3 y0{-sy, cy, 0};
+    Vec3 z0 = cross(X, y0);
+    float roll = std::atan2(-dot(Y, z0), dot(Y, y0));
+    (void)Z;
+    const float k = 32768.0f / 3.14159265f;
+    out[0] = int32_t(std::lround(pitch * k)) & 0xFFFF;
+    out[1] = int32_t(std::lround(yaw * k)) & 0xFFFF;
+    out[2] = int32_t(std::lround(roll * k)) & 0xFFFF;
+}
+
+void Animator::attachments() {
+    for (Object* a : world.actors) {
+        if (a->deleted) continue;
+        Name bone = world.var(a, "AttachmentBone").n();
+        Object* base = world.obj(a, "Base");
+        if (bone.isNone() || !base || base->deleted) continue;
+        Vec3 o, ax[3];
+        if (!boneWorld(base, bone.str(), o, ax)) continue;
+        Vec3 rel;
+        world.vm.unvector(world.var(a, "RelativeLocation"), rel.x, rel.y, rel.z);
+        int32_t rr[3];
+        world.vm.unrotator(world.var(a, "RelativeRotation"), rr[0], rr[1], rr[2]);
+        Vec3 at = o + ax[0] * rel.x + ax[1] * rel.y + ax[2] * rel.z;
+        // the attachment's axes: its relative rotation within the bone's
+        float r[3][3];
+        rotationAxes(rr[0], rr[1], rr[2], r);
+        Vec3 axes[3];
+        for (int k = 0; k < 3; ++k) axes[k] = ax[0] * r[k][0] + ax[1] * r[k][1] + ax[2] * r[k][2];
+        int32_t rot[3];
+        rotatorOf(axes, rot);
+        world.var(a, "Location") = world.vm.vector(at.x, at.y, at.z);
+        world.var(a, "Rotation") = world.vm.rotator(rot[0], rot[1], rot[2]);
+    }
+}
+
 const MeshAnimation* Animator::animation(const Object* o) { return animation(refOf(o, "MeshAnimation")); }
 
 void Animator::resolve(Object* a, AnimState& s) {
@@ -52,7 +180,8 @@ void Animator::resolve(Object* a, AnimState& s) {
     // the mesh's default animation, named after its reference skeleton
     ObjectRef mesh = refOf(world.obj(a, "Mesh"), "SkeletalMesh");
     if (mesh && mesh.cls() == "SkeletalMesh") {
-        int32_t ref = skeletalDefaultAnim(*mesh.pkg, mesh.idx);
+        s.mesh = skeletal(mesh);
+        int32_t ref = s.mesh ? s.mesh->defaultAnim : skeletalDefaultAnim(*mesh.pkg, mesh.idx);
         if (ref) s.defaults = animation(library.resolve(*mesh.pkg, ref));
     }
 }
@@ -175,9 +304,11 @@ void Animator::movement(Object* a) {
     };
     float blend = w.var(a, "BlendChangeTime").f();
     auto loop = [&](const std::string& name) {
-        const AnimSequence* seq = find(a, name);
+        const MeshAnimation* set = nullptr;
+        const AnimSequence* seq = find(a, name, &set);
         if (!seq || (ch.seq == seq && ch.looping && ch.animating)) return;
         ch.seq = seq;
+        ch.set = set;
         ch.name = seq->name;
         ch.rate = seq->numFrames > 0 ? seq->rate / float(seq->numFrames) : 0;
         ch.frame = 0;
@@ -219,7 +350,8 @@ void play(NativeCall& c, bool loop) {
     float rate = c.has(1) ? c.f(1) : 1.0f, tween = c.f(2);
     int k = c.i(3);
     AnimChannel& ch = an.channel(c.self, k);
-    const AnimSequence* seq = an.find(c.self, name);
+    const MeshAnimation* set = nullptr;
+    const AnimSequence* seq = an.find(c.self, name, &set);
     if (!seq) {
         ++an.notFound;
         an.missing[c.self->cls->name.str() + "." + name]++;
@@ -228,6 +360,7 @@ void play(NativeCall& c, bool loop) {
     // looping a sequence that already loops only changes its rate
     bool same = ch.seq == seq && ch.looping && ch.animating && loop;
     ch.seq = seq;
+    ch.set = set;
     ch.name = seq->name;
     ch.rate = seq->numFrames > 0 ? rate * seq->rate / float(seq->numFrames) : 0;
     if (!same) {
@@ -255,12 +388,14 @@ void registerAnimationNatives(VM& vm) {
     n["actor.tweenanim"] = [](NativeCall& c) {
         Animator& an = animator(c);
         AnimChannel& ch = an.channel(c.self, c.i(2));
-        const AnimSequence* seq = an.find(c.self, c.n(0).str());
+        const MeshAnimation* set = nullptr;
+        const AnimSequence* seq = an.find(c.self, c.n(0).str(), &set);
         if (!seq) {
             ++an.notFound;
             return Value();
         }
         ch.seq = seq;
+        ch.set = set;
         ch.name = seq->name;
         ch.frame = 0;
         ch.rate = 0;
@@ -374,6 +509,56 @@ void registerAnimationNatives(VM& vm) {
         return Value();
     };
     // AddNotify(AnimSet, Sequence, Frame, EventName): Frame counts in frames.
+    // GetBoneCoords: Coords of Origin and X, Y, Z axes, in the world.
+    n["actor.getbonecoords"] = [](NativeCall& c) {
+        Animator& an = animator(c);
+        Vec3 o, ax[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+        if (!an.boneWorld(c.self, c.n(0).str(), o, ax)) c.vm.unvector(an.world.var(c.self, "Location"), o.x, o.y, o.z);
+        StructType* st = c.vm.linker.findStruct("Coords");
+        if (!st) return Value();
+        Value v = st->make();
+        const char* names[4] = {"Origin", "XAxis", "YAxis", "ZAxis"};
+        const Vec3 vals[4] = {o, ax[0], ax[1], ax[2]};
+        for (int k = 0; k < 4; ++k)
+            if (Prop* f = st->field(Name(names[k]))) v.st().f[size_t(f->slot)] = c.vm.vector(vals[k].x, vals[k].y, vals[k].z);
+        return v;
+    };
+    n["actor.getbonerotation"] = [](NativeCall& c) {
+        Animator& an = animator(c);
+        Vec3 o, ax[3];
+        if (!an.boneWorld(c.self, c.n(0).str(), o, ax)) return an.world.var(c.self, "Rotation");
+        int32_t r[3];
+        rotatorOf(ax, r);
+        return c.vm.rotator(r[0], r[1], r[2]);
+    };
+    // AttachToBone(Attachment, BoneName): it follows the bone from now on, at
+    // its RelativeLocation and RelativeRotation, with this actor its Base.
+    n["actor.attachtobone"] = [](NativeCall& c) {
+        Animator& an = animator(c);
+        Object* att = c.o(0);
+        if (!att || an.state(c.self).mesh == nullptr || an.state(c.self).mesh->bone(c.n(1).str()) < 0)
+            return Value::Bool(false);
+        an.world.var(att, "AttachmentBone") = Value::Nm(c.n(1));
+        an.world.var(att, "Base") = Value::Obj(c.self);
+        an.attachments();
+        return Value::Bool(true);
+    };
+    n["actor.detachfrombone"] = [](NativeCall& c) {
+        Animator& an = animator(c);
+        Object* att = c.o(0);
+        if (!att || an.world.obj(att, "Base") != c.self) return Value::Bool(false);
+        an.world.var(att, "AttachmentBone") = Value::Nm(Name());
+        an.world.var(att, "Base") = Value::Obj(nullptr);
+        return Value::Bool(true);
+    };
+    n["actor.setrelativelocation"] = [](NativeCall& c) {
+        animator(c).world.var(c.self, "RelativeLocation") = c.get(0);
+        return Value::Bool(true);
+    };
+    n["actor.setrelativerotation"] = [](NativeCall& c) {
+        animator(c).world.var(c.self, "RelativeRotation") = c.get(0);
+        return Value::Bool(true);
+    };
     // The MeshAnimation of the actor's that holds a sequence.
     n["actor.getanimobjectbyname"] = [](NativeCall& c) {
         Animator& an = animator(c);

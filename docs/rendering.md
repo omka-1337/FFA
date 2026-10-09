@@ -36,6 +36,11 @@ same way, so what was confirmed by eye there holds here:
   the actor's Skins over the mesh's Materials; lit by the StaticMeshInstance's
   vertex colours × 2 plus the zone's ambient.
 
+- **Skeletal meshes**, each actor drawn as a mesh skinned on the CPU every
+  frame from its pose, its faces by material, the actor's Skins over the
+  mesh's materials; full bright for now. Holding forward on the swamp
+  (`--hold W`), Shrek runs into the pond past the lily pads, arms swinging.
+
 ## Textures and materials
 
 `src/render/Texture.cpp` decodes every texture of the game, P8, RGBA8, DXT1,
@@ -60,5 +65,4 @@ decides over what it wraps.
   the colours are black, and 1955 more are not applied. The engine must
   compute the light from the lights and the masks; the formula is to be found
   from the 40462 pairs whose colours are there.
-- Skeletal meshes, animation, sprites and emitters, fog, translucency sorted
-  by depth.
+- Characters lit, sprites and emitters, fog, translucency sorted by depth.

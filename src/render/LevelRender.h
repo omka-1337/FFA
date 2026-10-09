@@ -31,7 +31,7 @@ public:
     // width by height, with a horizontal field of view in degrees.
     void draw(Vec3 location, const int32_t rotation[3], int width, int height, float fovDegrees);
 
-    size_t triangles = 0, batches = 0, textures = 0, lightMaps = 0, missingTextures = 0, meshes = 0;
+    size_t triangles = 0, batches = 0, textures = 0, lightMaps = 0, missingTextures = 0, meshes = 0, characters = 0;
 
 private:
     struct Batch {
@@ -78,6 +78,18 @@ private:
         };
         std::vector<Part> parts;
     };
+    // Skeletal meshes: per actor its wedges' positions, skinned each frame on
+    // the CPU from the animator's pose, and its faces by material.
+    struct SkelDraw {
+        const SkeletalMesh* mesh = nullptr;
+        unsigned vertices = 0, indices = 0;
+        std::vector<MeshDraw::Part> parts;
+        std::vector<float> scratch;
+        bool failed = false;
+    };
+    void drawSkeletal(const float mvp[16], Vec3 eye);
+    SkelDraw& skelFor(Object* a);
+    std::map<Object*, SkelDraw> skel_;
     std::map<const void*, MeshBuffers> meshBuffers_;
     std::vector<MeshDraw> meshDraws_;
     unsigned meshProgram_ = 0;

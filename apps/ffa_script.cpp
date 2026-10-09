@@ -28,6 +28,7 @@
 #include "script/VM.h"
 #include "render/Texture.h"
 #include "world/Bsp.h"
+#include "world/SkeletalMesh.h"
 #include "world/Collision.h"
 #include "world/Level.h"
 #include "world/Physics.h"
@@ -565,6 +566,28 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
     if (w.frames) {
         std::printf("ran                 %zu frames, %.2f s of level time\n", w.frames, w.time);
         Animator& an = *session.animator;
+        // the posed skin against the collision cylinder: its lowest point
+        // should be the cylinder's bottom, its feet on the ground
+        std::vector<float> feet;
+        for (Object* a : w.actors) {
+            if (a->deleted || !a->isA(w.pawnClass)) continue;
+            const SkeletalMesh* sk = an.state(a).mesh;
+            if (!sk) continue;
+            std::vector<Vec3> pts = sk->skin(an.pose(a));
+            float m[3][3];
+            Vec3 o;
+            an.meshToWorld(a, m, o);
+            float low = 1e30f;
+            for (const Vec3& p : pts) {
+                Vec3 q = sk->toActor(p);
+                low = std::min(low, o.z + m[2][0] * q.x + m[2][1] * q.y + m[2][2] * q.z);
+            }
+            feet.push_back(low - (o.z - w.var(a, "CollisionHeight").f()));
+        }
+        std::sort(feet.begin(), feet.end());
+        if (!feet.empty())
+            std::printf("posed pawns         %zu: lowest skin point above the cylinder's bottom, 10%% %.1f median %.1f 90%% %.1f\n",
+                        feet.size(), feet[feet.size() / 10], feet[feet.size() / 2], feet[feet.size() * 9 / 10]);
         std::printf("animation           %zu sequences started, %zu not found, %zu AnimEnd sent, %zu notifies\n",
                     an.sequencesPlayed, an.notFound, an.animEnds, an.notifiesSent);
         for (auto& [k, n] : an.missing) std::printf("  not found %6zu  %s\n", n, k.c_str());
@@ -917,6 +940,48 @@ int textures(const std::string& gameDir, const char* out) {
     return 0;
 }
 
+// Every skeletal mesh with a default animation, skinned at three of its
+// sequences, the first, the middle and the last, 37 percent of the way
+// through: every 17th point in mesh space, to compare with tools/uanim.py's
+// skin() of the same.
+int poses(const std::string& gameDir, const char* out) {
+    Library lib(gameDir);
+    FILE* f = std::fopen(out, "w");
+    if (!f) throw std::runtime_error(std::string("cannot write ") + out);
+    size_t meshes = 0, posed = 0;
+    std::map<std::string, size_t> problems;
+    for (const std::string& path : lib.files()) {
+        if (path.size() < 4 || path.compare(path.size() - 4, 4, ".ukx") != 0) continue;
+        const Package* p = lib.package(std::filesystem::path(path).stem().string());
+        for (int i = 1; p && i <= int(p->exports.size()); ++i) {
+            if (p->classOf(i) != "SkeletalMesh" || p->exp(i).size <= 0) continue;
+            ++meshes;
+            try {
+                SkeletalMesh m(*p, i);
+                ObjectRef ar = lib.resolve(*p, m.defaultAnim);
+                if (!ar || ar.cls() != "MeshAnimation") continue;
+                MeshAnimation anim(*ar.pkg, ar.idx);
+                size_t n = anim.sequences.size();
+                if (!n) continue;
+                ++posed;
+                for (size_t si : {size_t(0), n / 2, n - 1}) {
+                    float frame = float(anim.sequences[si].numFrames) * 0.37f;
+                    std::vector<Vec3> pts = m.skin(m.compose(m.locals(anim, si, frame)));
+                    for (size_t k = 0; k < pts.size(); k += 17)
+                        std::fprintf(f, "%s\t%s\t%zu\t%zu\t%.4f\t%.4f\t%.4f\n", p->stem.c_str(), p->exp(i).name.c_str(),
+                                     si, k, pts[k].x, pts[k].y, pts[k].z);
+                }
+            } catch (const FormatError& ex) {
+                problems[ex.what()]++;
+            }
+        }
+    }
+    std::fclose(f);
+    std::printf("skeletal meshes     %zu, %zu posed with their default animation\n", meshes, posed);
+    for (auto& [m, k] : problems) std::printf("  %6zu  %s\n", k, m.c_str());
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) return usage();
     std::string cmd = argv[1], dir = argv[2];
@@ -924,6 +989,7 @@ int main(int argc, char** argv) {
         if (cmd == "check") return check(dir);
         if (cmd == "smoke") return smoke(dir);
         if (cmd == "textures" && argc >= 4) return textures(dir, argv[3]);
+        if (cmd == "poses" && argc >= 4) return poses(dir, argv[3]);
         if (cmd == "collide" && argc >= 4) return collide(dir, std::vector<std::string>(argv + 3, argv + argc));
         if (cmd == "start" && argc >= 4) return start(dir, argv[3], 0.0f);
         if (cmd == "run" && argc >= 5) {

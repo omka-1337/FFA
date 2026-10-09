@@ -217,10 +217,11 @@ void World::tick(float dt) {
     // PlayerCalcView does).
     bool parity = frames & 1;
     // Animation first, so that a sequence ending this frame ends FinishAnim
-    // before the state code that waits on it runs.
+    // before the state code that waits on it runs; then what hangs on bones.
     if (animator) {
         try {
             animator->tick(dt);
+            animator->attachments();
         } catch (const std::exception& ex) {
             failed["animation"]++;
             failures[std::string("animation: ") + ex.what()]++;

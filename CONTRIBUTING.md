@@ -199,9 +199,12 @@ Engine:
 - [x] Animation timing: channels, PlayAnim, LoopAnim, TweenAnim, FinishAnim,
   AnimEnd, blending alphas, AddNotify, the default animation of a mesh, and
   the engine's own movement animation of pawns.
-- [ ] Poses: sampling the tracks, bone transforms, GetBoneCoords and
-  AttachToBone; then skeletal meshes in the window. Turning in place
-  (TurnLeftAnim, TurnRightAnim) and the walking rate.
+- [x] Poses: tracks sampled, bones composed and skinned, agreeing with the
+  Python on every skeletal mesh; GetBoneCoords, AttachToBone and attachments;
+  characters in the window.
+- [ ] Bone controllers (SetBoneRotation and the rest), tweening between
+  sequences, turning in place (TurnLeftAnim, TurnRightAnim), the walking rate,
+  and lighting characters.
 - [ ] Sprites and emitters.
 
 Open questions, written up in the format document with the measurements so

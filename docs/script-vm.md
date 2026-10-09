@@ -362,6 +362,26 @@ and blinks on channel 34. Twenty seconds of every level start 10605 sequences,
 send 89681 AnimEnd and 1147 notifies, with no script error; the 384 sequences
 not found are asked for by name None, or are not in the data.
 
+**Poses.** `src/world/SkeletalMesh.cpp` reads a skeletal mesh's header,
+reference skeleton, default animation and first LOD model, and poses it the way
+tools/uanim.py measured: keys interpolated linearly, a zero rotation key the
+reference's, the root's rotation taken as it is and every other bone's
+conjugated, each point moved by the weighted sum of its bones' change from the
+reference pose. `ffa-script poses` checks it against the Python: every
+skeletal mesh with a default animation, 138 of 141, at three sequences each,
+skinned 37 percent of the way through, every 17th point, 5941 points, all
+within 0.0004 units of tools/uanim.py's skin(), the rounding of the print.
+
+An actor's pose is its channel 0 sequence, with each channel above that has an
+alpha laid over it, from its blend bone down or over the whole skeleton.
+GetBoneCoords and GetBoneRotation give a bone in the world, through the mesh's
+RotOrigin, MeshOrigin and MeshScale and the actor's Location, Rotation and
+scale; PrePivot is left out, as it is not settled for skeletal meshes.
+AttachToBone makes the actor the attachment's Base with its AttachmentBone
+set, and each frame, after the animation, an attachment is put on its bone at
+its RelativeLocation and RelativeRotation. A rotator is made from axes by the
+inverse of rotationAxes, which the tests take round trips through.
+
 **Input.** `run ... --hold MoveForward` holds a key for the whole run, by its
 alias in DefUser.ini: `Axis aBaseY Speed=+1200`. Each frame, before the
 controller's PlayerTick, every controller variable declared `input` is set to

@@ -33,6 +33,7 @@ add_library(ffa_script
   src/world/Level.cpp
   src/world/Physics.cpp
   src/world/Session.cpp
+  src/world/SkeletalMesh.cpp
   src/world/StaticMesh.cpp
   src/world/Sweep.cpp
   src/world/Terrain.cpp

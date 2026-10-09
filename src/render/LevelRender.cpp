@@ -13,6 +13,7 @@
 #include <tuple>
 
 #include "script/Tagged.h"
+#include "world/Animator.h"
 
 namespace ffa {
 
@@ -622,6 +623,111 @@ void applyBlend(const SurfaceMaterial& m) {
 
 }  // namespace
 
+LevelRender::SkelDraw& LevelRender::skelFor(Object* a) {
+    SkelDraw& d = skel_[a];
+    if (d.mesh || d.failed) return d;
+    Animator& an = *session_.animator;
+    const SkeletalMesh* m = an.state(a).mesh;
+    if (!m || m->wedges.size() > 65535) {
+        d.failed = true;
+        return d;
+    }
+    d.mesh = m;
+    glGenBuffers(1, &d.vertices);
+    glBindBuffer(GL_ARRAY_BUFFER, d.vertices);
+    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(m->wedges.size() * 5 * sizeof(float)), nullptr, GL_DYNAMIC_DRAW);
+    // faces by material: the actor's Skins over the mesh's materials
+    World& w = *session_.world;
+    const Value& skins = w.var(a, "Skins");
+    std::map<uint16_t, std::vector<uint16_t>> byMat;
+    for (const SkeletalMesh::Face& f : m->faces) byMat[f.material].insert(byMat[f.material].end(), f.wedge, f.wedge + 3);
+    std::vector<uint16_t> idx;
+    for (auto& [mi, list] : byMat) {
+        SurfaceMaterial mat;
+        Object* skin = skins.isArr() && mi < skins.arr().size() ? skins.arr()[mi].o() : nullptr;
+        ObjectRef sk = refOf(skin);
+        if (sk) mat = materials_.resolve(*sk.pkg, sk.idx);
+        else if (mi < m->materials.size()) mat = materials_.resolve(*m->package, m->materials[mi]);
+        if (mat.blend == Blend::Invisible) continue;
+        int tw, th;
+        unsigned tex = textureFor(mat, tw, th);
+        d.parts.push_back({int(idx.size()), int(list.size()), tex, mat});
+        idx.insert(idx.end(), list.begin(), list.end());
+    }
+    glGenBuffers(1, &d.indices);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, d.indices);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(idx.size() * 2), idx.data(), GL_STATIC_DRAW);
+    d.scratch.resize(m->wedges.size() * 5);
+    ++characters;
+    return d;
+}
+
+void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye) {
+    World& w = *session_.world;
+    Animator& an = *session_.animator;
+    glUseProgram(meshProgram_);
+    glActiveTexture(GL_TEXTURE0);
+    GLint uM = glGetUniformLocation(meshProgram_, "uMvp"), uB = glGetUniformLocation(meshProgram_, "uBaked");
+    GLint uC = glGetUniformLocation(meshProgram_, "uCut");
+    glUniform1f(uB, 0.0f);
+    glDisableVertexAttribArray(2);
+    for (Object* a : w.actors) {
+        if (a->deleted || w.var(a, "DrawType").i() != 2 || w.flag(a, "bHidden") || !w.obj(a, "Mesh")) continue;
+        Vec3 o;
+        w.vm.unvector(w.var(a, "Location"), o.x, o.y, o.z);
+        if (length(o - eye) > 8000) continue;
+        SkelDraw& d = skelFor(a);
+        if (!d.mesh) continue;
+        // the pose, skinned, into the actor's space; the actor's transform
+        // goes to the shader
+        std::vector<Vec3> pts = d.mesh->skin(an.pose(a));
+        for (Vec3& p : pts) p = d.mesh->toActor(p);
+        for (size_t i = 0; i < d.mesh->wedges.size(); ++i) {
+            const SkeletalMesh::Wedge& wd = d.mesh->wedges[i];
+            const Vec3& p = pts[wd.point];
+            float* v = &d.scratch[i * 5];
+            v[0] = p.x;
+            v[1] = p.y;
+            v[2] = p.z;
+            v[3] = wd.u;
+            v[4] = wd.v;
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, d.vertices);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(d.scratch.size() * sizeof(float)), d.scratch.data());
+        float r[3][3], model[16] = {0};
+        Vec3 loc;
+        an.meshToWorld(a, r, loc);
+        for (int c = 0; c < 3; ++c)
+            for (int k = 0; k < 3; ++k) model[c * 4 + k] = r[k][c];
+        model[12] = loc.x;
+        model[13] = loc.y;
+        model[14] = loc.z;
+        model[15] = 1;
+        float m[16];
+        for (int c = 0; c < 4; ++c)
+            for (int k = 0; k < 4; ++k) {
+                float sum = 0;
+                for (int j = 0; j < 4; ++j) sum += mvp[j * 4 + k] * model[c * 4 + j];
+                m[c * 4 + k] = sum;
+            }
+        glUniformMatrix4fv(uM, 1, GL_FALSE, m);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), nullptr);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), reinterpret_cast<void*>(12));
+        glVertexAttrib3f(2, 0.5f, 0.5f, 0.5f);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, d.indices);
+        for (const MeshDraw::Part& part : d.parts) {
+            applyBlend(part.mat);
+            glBindTexture(GL_TEXTURE_2D, part.texture);
+            glUniform1f(uC, part.mat.alphaRef);
+            glDrawElements(GL_TRIANGLES, part.count, GL_UNSIGNED_SHORT, reinterpret_cast<void*>(size_t(part.first) * 2));
+        }
+    }
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+}
+
 void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, float fov) {
     glViewport(0, 0, width, height);
     glClearColor(0.35f, 0.45f, 0.55f, 1);
@@ -705,6 +811,7 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
             glDrawElements(GL_TRIANGLES, b.count, GL_UNSIGNED_SHORT, nullptr);
         }
     }
+    drawSkeletal(mvp, loc);
     // the static meshes, opaque then blended
     glUseProgram(meshProgram_);
     glActiveTexture(GL_TEXTURE0);

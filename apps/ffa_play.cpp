@@ -2,6 +2,7 @@
 //
 //   ffa-play <System dir> <map.unr>                        play it
 //   ffa-play <System dir> <map.unr> --shot <png> <seconds> run that long, save a frame, quit
+//   ... --hold <key>                                       hold a key from the start, as W
 //
 // The level begins as the engine begins it (world/Session.h), the world ticks
 // at a fixed thirty frames a second, the keys held are given to the player's
@@ -53,11 +54,14 @@ int main(int argc, char** argv) {
     std::string sys = argv[1], map = argv[2];
     const char* shot = nullptr;
     float shotAt = 0;
-    for (int i = 3; i + 2 < argc + 1; ++i)
+    std::vector<std::string> holdKeys;
+    for (int i = 3; i < argc; ++i) {
         if (std::string(argv[i]) == "--shot" && i + 2 < argc) {
             shot = argv[i + 1];
             shotAt = std::stof(argv[i + 2]);
         }
+        if (std::string(argv[i]) == "--hold" && i + 1 < argc) holdKeys.push_back(argv[i + 1]);
+    }
     try {
         if (SDL_Init(SDL_INIT_VIDEO) != 0) throw std::runtime_error(SDL_GetError());
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -84,10 +88,11 @@ int main(int argc, char** argv) {
                     "%zu lightmaps\n",
                     render.triangles, render.batches, render.meshes, render.textures, render.missingTextures,
                     render.lightMaps);
+        std::printf("characters          drawn as they come into view\n");
 
         World& w = *session.world;
         std::map<std::string, std::vector<std::pair<std::string, float>>> bindings;
-        std::set<std::string> down;
+        std::set<std::string> down(holdKeys.begin(), holdKeys.end());
         const float step = 1.0f / 30.0f;
         Uint64 last = SDL_GetPerformanceCounter();
         double behind = 0;

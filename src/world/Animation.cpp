@@ -19,11 +19,20 @@ void skip(Reader& r, size_t n) {
     r.p += n;
 }
 
-void track(Reader& r) {
+AnimTrack track(Reader& r) {
+    AnimTrack t;
     r.u32();
-    skip(r, size_t(count(r, 16)) * 16);
-    skip(r, size_t(count(r, 12)) * 12);
-    skip(r, size_t(count(r, 4)) * 4);
+    for (int32_t i = 0, n = count(r, 16); i < n; ++i) {
+        Quat q;
+        q.x = r.f32();
+        q.y = r.f32();
+        q.z = r.f32();
+        q.w = r.f32();
+        t.rotations.push_back(q);
+    }
+    for (int32_t i = 0, n = count(r, 12) * 3; i < n; ++i) t.positions.push_back(r.f32());
+    for (int32_t i = 0, n = count(r, 4); i < n; ++i) t.times.push_back(r.f32());
+    return t;
 }
 
 std::string nameAt(const Package& p, int32_t i) {
@@ -45,13 +54,16 @@ MeshAnimation::MeshAnimation(const Package& p, int idx) : package(&p), index(idx
         r.i32();
     }
     for (int32_t i = 0, n = count(r, 1); i < n; ++i) {
-        skip(r, 16);                        // RootSpeed3D, TrackTime
+        AnimChunk c;
+        skip(r, 12);                        // RootSpeed3D
+        c.trackTime = r.f32();
         r.i32();
         r.u32();                            // StartBone, Flags
-        skip(r, size_t(count(r, 4)) * 4);   // bone indices
-        for (int32_t k = 0, t = count(r, 1); k < t; ++k) track(r);
+        for (int32_t k = 0, m = count(r, 4); k < m; ++k) c.boneIndices.push_back(r.i32());
+        for (int32_t k = 0, t = count(r, 1); k < t; ++k) c.tracks.push_back(track(r));
         track(r);                           // the root
         if (version >= 4) r.idx();
+        chunks.push_back(std::move(c));
     }
     for (int32_t i = 0, n = count(r, 1); i < n; ++i) {
         AnimSequence s;

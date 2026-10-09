@@ -23,6 +23,7 @@
 
 #include "core/Library.h"
 #include "world/Animation.h"
+#include "world/SkeletalMesh.h"
 #include "world/Geometry.h"
 #include "world/World.h"
 
@@ -30,6 +31,7 @@ namespace ffa {
 
 struct AnimChannel {
     const AnimSequence* seq = nullptr;
+    const MeshAnimation* set = nullptr;     // the animation the sequence is in
     std::string name;               // the sequence asked for
     float frame = 0;                // 0 to 1
     float rate = 0;                 // of the sequence a second
@@ -41,6 +43,7 @@ struct AnimChannel {
 
 struct AnimState {
     bool resolved = false;
+    const SkeletalMesh* mesh = nullptr;
     const MeshAnimation* defaults = nullptr;
     std::vector<const MeshAnimation*> linked;
     std::vector<AnimChannel> channels;
@@ -75,6 +78,18 @@ public:
     // A MeshAnimation by an object script holds, or by reference.
     const MeshAnimation* animation(const Object* o);
     const MeshAnimation* animation(const ObjectRef& r);
+    // The actor's bones now, bone to mesh: channel 0's sequence, and over it
+    // each channel above with an alpha, from its blend bone down, or all of it.
+    std::vector<BoneTransform> pose(Object* a);
+    // A bone in the world: its origin and its X, Y and Z axes. False when the
+    // actor has no such bone.
+    bool boneWorld(Object* a, const std::string& bone, Vec3& origin, Vec3 axes[3]);
+    // The actor's transform out of its mesh's space into the world.
+    void meshToWorld(Object* a, float m[3][3], Vec3& origin);
+    // Put the actors attached to bones where their bones are.
+    void attachments();
+    const SkeletalMesh* skeletal(const ObjectRef& r);
+
     // The object script knows a MeshAnimation by, made through the VM's
     // object loading when it has none.
     Object* objectFor(const MeshAnimation* m);
@@ -91,8 +106,12 @@ private:
     ObjectRef refOf(const Object* o, const char* cls);
     std::map<Object*, AnimState> states_;
     std::map<std::pair<const Package*, int>, std::unique_ptr<MeshAnimation>> anims_;
+    std::map<std::pair<const Package*, int>, std::unique_ptr<SkeletalMesh>> meshes_;
 };
 
 void registerAnimationNatives(VM& vm);
+
+// A rotator whose axes, as rotationAxes gives them, are X, Y and Z.
+void rotatorOf(const Vec3 axes[3], int32_t out[3]);
 
 }  // namespace ffa

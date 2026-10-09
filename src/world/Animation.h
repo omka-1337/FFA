@@ -42,6 +42,26 @@ struct AnimSequence {
     std::vector<AnimNotifyKey> notifies;
 };
 
+struct Quat {
+    float x = 0, y = 0, z = 0, w = 1;
+};
+
+// A bone's motion through a sequence: rotation and position keys at times
+// counted in frames. A zero quaternion is a key with no rotation.
+struct AnimTrack {
+    std::vector<Quat> rotations;
+    std::vector<float> positions;   // x y z each
+    std::vector<float> times;
+};
+
+// One sequence's motion: a track per animated bone, by bone index when the
+// chunk lists them, else in bone order.
+struct AnimChunk {
+    float trackTime = 0;
+    std::vector<int32_t> boneIndices;
+    std::vector<AnimTrack> tracks;
+};
+
 class MeshAnimation {
 public:
     // Throws FormatError when the record does not read to its exact end.
@@ -50,6 +70,7 @@ public:
     const Package* package;
     int index;
     std::vector<std::string> bones;
+    std::vector<AnimChunk> chunks;  // one a sequence, in order
     std::vector<AnimSequence> sequences;
 
     const AnimSequence* find(const std::string& name) const;

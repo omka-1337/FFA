@@ -2,11 +2,13 @@
 // exercises one part of the language and has a result known in advance.
 //
 // Usage: test-vm <fixtures dir>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <memory>
 
 #include "script/VM.h"
+#include "world/Animator.h"
 
 using namespace ffa;
 
@@ -45,11 +47,33 @@ std::string throws(F f) {
 
 }  // namespace
 
+// Rotators to axes and back, through the engine's rotationAxes and the
+// animator's rotatorOf: bones give axes, attachments need rotators.
+void rotatorRoundTrip() {
+    const int32_t cases[][3] = {{0, 0, 0}, {0, 16384, 0}, {4000, 30000, 0}, {-8000, 1000, 12000},
+                                {2048, 49152, -3000}, {12000, -20000, 30000}};
+    for (const auto& r : cases) {
+        float m[3][3];
+        rotationAxes(r[0], r[1], r[2], m);
+        Vec3 axes[3] = {{m[0][0], m[0][1], m[0][2]}, {m[1][0], m[1][1], m[1][2]}, {m[2][0], m[2][1], m[2][2]}};
+        int32_t back[3];
+        rotatorOf(axes, back);
+        float m2[3][3];
+        rotationAxes(back[0], back[1], back[2], m2);
+        float worst = 0;
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j) worst = std::max(worst, std::fabs(m[i][j] - m2[i][j]));
+        check(worst < 1e-3f, "rotator to axes and back", std::to_string(r[0]) + " " + std::to_string(r[1]) + " " +
+                                                             std::to_string(r[2]) + ": off by " + std::to_string(worst));
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr, "usage: test-vm <fixtures dir>\n");
         return 2;
     }
+    rotatorRoundTrip();
     std::string dir = argv[1];
     Linker lk({dir + "/Core.u", dir + "/Game.u"});
     VM vm(lk);
