@@ -109,13 +109,29 @@ void landed(World& w, Object* a, const TraceHit& h) {
 }
 
 // Turning: toward DesiredRotation at RotationRate, or at RotationRate for ever.
+// The player's pawn turns toward its controller's DesiredRotation instead, in
+// yaw: the game's scripts set that one to turn it (KWHeroController's
+// UpdateRotation sets it to the camera's rotation each frame, BaseCam's
+// ApplyMouseXToDestYaw adds the mouse to it), so Shrek comes round to face
+// where the camera looks, at his RotationRate. Other controllers are left to
+// their pawns' own, as their native rotation is not done yet.
 void physicsRotation(World& w, Object* a, float dt) {
     int32_t r[3], rate[3], want[3];
     w.vm.unrotator(w.var(a, "Rotation"), r[0], r[1], r[2]);
     w.vm.unrotator(w.var(a, "RotationRate"), rate[0], rate[1], rate[2]);
     bool toDesired = w.flag(a, "bRotateToDesired"), fixed = w.flag(a, "bFixedRotationDir");
-    if (!toDesired && !fixed) return;
+    Object* ctl = w.pawnClass && a->isA(w.pawnClass) ? controllerOf(w, a) : nullptr;
+    bool player = ctl && !ctl->deleted && w.playerControllerClass && ctl->isA(w.playerControllerClass);
+    if (!toDesired && !fixed && !player) return;
     w.vm.unrotator(w.var(a, "DesiredRotation"), want[0], want[1], want[2]);
+    if (player) {
+        int32_t cw[3];
+        w.vm.unrotator(w.var(ctl, "DesiredRotation"), cw[0], cw[1], cw[2]);
+        want[1] = cw[1];
+        if (!toDesired) want[0] = r[0], want[2] = r[2];
+        toDesired = true;
+        fixed = false;
+    }
     for (int k = 0; k < 3; ++k) {
         int32_t step = int32_t(float(rate[k]) * dt);
         if (toDesired) {

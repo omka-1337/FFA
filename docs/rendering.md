@@ -23,7 +23,12 @@ here a frame's movement is taken over the frame's time, scaled so that 600
 pixels a second turn Shrek's camera some 90 degrees a second, a value tuned
 and not measured. From there the game's script does it: ShPlayerInput gives
 savedATurn, and the camera, ShCam in StateStandardCam, turns its destination
-by it times its set's fRotSpeed, 8 for Shrek. Tab lets the mouse go.
+by it times its set's fRotSpeed, 8 for Shrek. Shrek turns with it, as in the
+game, where the camera does not go round him freely: KWHeroController's
+UpdateRotation sets the controller's DesiredRotation to the camera's every
+frame, and the engine turns the pawn toward its controller's DesiredRotation
+at its RotationRate, 80000 a second in yaw for a KWPawn (world/Physics.cpp).
+Tab lets the mouse go.
 
 ## The camera
 
@@ -62,12 +67,17 @@ adds the ambient to the baked light:
   frame from its pose, its faces by material, the actor's Skins over the
   mesh's materials. Lit by its MaxLights lights strongest where it stands,
   with the same falloff as the static meshes' baked light, but evenly, as the
-  game's frames show its characters: three times the zone's ambient and
-  AmbientGlow, and a tenth of each light by half Lambert. Tuned to frames of
-  Shrek on his swamp, not taken from the data: his shirt there is 160 and 150
-  on its two sides and his skirt 178, about 0.8 of their texture in every
-  channel; this model gives 157 and 177, and 174. Plain N.L, as the static
-  meshes take light, gave 130 and 226, and yellow. bUnlit full bright. The normals come from the posed faces,
+  game's frames show its characters: three times the zone's ambient, the
+  AmbientGlow once, and by half Lambert a tenth of a Sunlight's brightness
+  and 1.2 of a point light's. Tuned to two sets of frames, not taken from the
+  data. On the swamp, lit by its ambient and two suns, Shrek's shirt is 160
+  and 150 on its two sides and his skirt 178, about 0.8 of their texture in
+  every channel; this model gives 157 and 177, and 174, where plain N.L, as
+  the static meshes take light, gave 130 and 226, and yellow. In the Fairy
+  Godmother's office, with no ambient and point lights of 150 to 255, the
+  citizens' red clothes are about their texture's own brightness; this gives
+  1.0 to 1.3, where a tenth for every light, as first tuned on the swamp alone,
+  drew them black. bUnlit full bright. The normals come from the posed faces,
   turned to face away from the mesh's middle, as the winding is not settled. Holding forward on the swamp
   (`--hold W`), Shrek runs into the pond past the lily pads, arms swinging.
 
