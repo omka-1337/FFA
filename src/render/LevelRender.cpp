@@ -91,6 +91,17 @@ unsigned upload(const Image& img, bool mipmaps) {
 // A zone's ambient light, 0 to 1: AmbientHue, AmbientSaturation and
 // AmbientBrightness as plain HSV, saturation 255 being white, as the viewer
 // reads them (tools/uview.py).
+// The zone an actor is lit by: the one its Region names, which the engine
+// wrote for a placed actor and keeps as one moves. A mesh's origin can sit
+// inside the ground, where a walk from it finds the zone outside the level.
+Object* zoneOf(World& w, Object* a) {
+    const Value& r = w.var(a, "Region");
+    if (r.isStruct())
+        if (Prop* zf = r.st().type->field(Name("Zone")))
+            if (Object* z = r.st().f[size_t(zf->slot)].o()) return z;
+    return w.info;
+}
+
 Vec3 ambientOf(World& w, Object* zone) {
     float h = float(w.var(zone, "AmbientHue").i()) / 255.0f;
     float s = 1.0f - float(w.var(zone, "AmbientSaturation").i()) / 255.0f;
@@ -440,7 +451,9 @@ varying vec2 vUv;
 varying vec3 vLight;
 void main() {
     vUv = aUv;
-    vLight = uBaked > 0.5 ? aColor * 2.0 + uAmb : vec3(1.0);
+    // the colour and the ambient together doubled, which the game's frames
+    // agree with better than the colour alone doubled
+    vLight = uBaked > 0.5 ? (aColor + uAmb) * 2.0 : vec3(1.0);
     gl_Position = uMvp * vec4(aPos, 1.0);
 }
 )";
@@ -539,7 +552,6 @@ ObjectRef LevelRender::refOf(const Object* o) {
 void LevelRender::buildMeshes() {
     World& w = *session_.world;
     Collision& col = *session_.collision;
-    const BspModel& bsp = col.bsp;
     meshProgram_ = glCreateProgram();
     glAttachShader(meshProgram_, compile(GL_VERTEX_SHADER, kMeshVertex));
     glAttachShader(meshProgram_, compile(GL_FRAGMENT_SHADER, kMeshFragment));
@@ -639,11 +651,7 @@ void LevelRender::buildMeshes() {
                 }
             }
         }
-        BspModel::Region rg = bsp.regionAt(loc);
-        if (rg.zone >= 0 && size_t(rg.zone) < bsp.zoneActors.size()) {
-            auto it = w.actorAt.find(bsp.zoneActors[size_t(rg.zone)]);
-            d.ambient = ambientOf(w, it != w.actorAt.end() ? it->second : w.info);
-        }
+        d.ambient = ambientOf(w, zoneOf(w, a));
         // a texture a section: the mesh's Materials, an actor's Skins over them
         ObjectRef meshRef = refOf(mo);
         std::vector<std::vector<TagEntry>> items;
@@ -862,12 +870,7 @@ void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye) {
         // the zone's ambient and the actor's own glow; unlit, full bright
         Vec3 ambient{};
         {
-            const BspModel& bsp = session_.collision->bsp;
-            BspModel::Region rg = bsp.regionAt(o);
-            if (rg.zone >= 0 && size_t(rg.zone) < bsp.zoneActors.size()) {
-                auto it = w.actorAt.find(bsp.zoneActors[size_t(rg.zone)]);
-                ambient = ambientOf(w, it != w.actorAt.end() ? it->second : w.info);
-            }
+            ambient = ambientOf(w, zoneOf(w, a));
             float glow = float(w.var(a, "AmbientGlow").i()) / 255.0f;
             ambient = ambient + Vec3{glow, glow, glow};
         }
@@ -1049,6 +1052,7 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
                 applyBlend(part.mat);
                 glBindTexture(GL_TEXTURE_2D, part.texture);
                 glUniform1f(uC, part.mat.alphaRef);
+                glUniform1f(uB, d.colors && !part.mat.blended() ? 1.0f : 0.0f);
                 glDrawElements(GL_TRIANGLES, part.count, GL_UNSIGNED_SHORT,
                                reinterpret_cast<void*>(size_t(part.first) * 2));
             }

@@ -49,6 +49,27 @@ same way, so what was confirmed by eye there holds here:
   turned to face away from the mesh's middle, as the winding is not settled. Holding forward on the swamp
   (`--hold W`), Shrek runs into the pond past the lily pads, arms swinging.
 
+## How meshes are lit: measured against the game's frames
+
+The first reading, the baked colour doubled plus the zone's ambient, drew the
+swamp's foliage nearly black, where the game draws it bright green (frames from
+play, of the swamp's start). Two changes bring it near the game, both found by
+comparing frames, not settled by the data:
+
+- **Colour and ambient doubled together**, light = 2 (colour + ambient): the
+  STAY OUT sign comes to 0.77, 0.70, 0.61 of its texture against the game's
+  0.69, 0.62, 0.53, where it was 0.51, 0.45, 0.36.
+- **Blended materials unlit.** Every mesh part drawn blended, the FinalBlend
+  foliage, grass, cattails, hanging moss and light beams, is drawn at the
+  texture's own brightness. Their baked colours are dark, a mean of 10 to 30
+  of 255, and some stand in the LevelInfo's zone with no ambient, yet in the
+  game they are as bright as the texture, while the opaque meshes, the sign,
+  the trunks, the rocks, are shaded.
+
+A mesh takes the ambient of the zone its Region names, which the engine wrote;
+a walk from its origin, which can sit inside the ground, found the zone outside
+the level for some.
+
 ## Textures and materials
 
 `src/render/Texture.cpp` decodes every texture of the game, P8, RGBA8, DXT1,
