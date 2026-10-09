@@ -386,6 +386,7 @@ void registerWorldNatives(VM& vm) {
     n["actor.setcollision"] = [](NativeCall& c) {
         World& w = world(c);
         // a left out argument keeps the flag as it is
+        ++w.collisionChanges;
         if (c.has(0)) w.var(c.self, "bCollideActors") = Value::Bool(c.b(0));
         if (c.has(1)) w.var(c.self, "bBlockActors") = Value::Bool(c.b(1));
         if (c.has(2)) w.var(c.self, "bBlockPlayers") = Value::Bool(c.b(2));

@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "script/VM.h"
+#include "world/Geometry.h"
 #include "world/Level.h"
 
 namespace ffa {
@@ -51,6 +52,12 @@ public:
     std::unordered_set<Object*> projectors;
     // The AI's view of the level's paths, built when first asked (world/AI.cpp).
     std::shared_ptr<void> ai;
+    // Where a walking pawn last found its floor, standing on the world: a pawn
+    // that has not moved since need not look for it again (world/Physics.cpp).
+    std::unordered_map<const Object*, Vec3> restingAt;
+    // Counted up by SetCollision, so that what keeps a list of the actors
+    // that collide knows it is out of date.
+    size_t collisionChanges = 0;
 
     // The world a VM's natives act on; null when none is attached.
     static World* of(VM& vm) { return static_cast<World*>(vm.host); }

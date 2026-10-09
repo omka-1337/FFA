@@ -61,6 +61,7 @@ const SkeletalMesh* Animator::skeletal(const ObjectRef& r) {
 std::vector<BoneTransform> Animator::pose(Object* a) {
     AnimState& s = state(a);
     if (!s.mesh) return {};
+    if (s.poseVersion == s.version) return s.poseCache;
     const SkeletalMesh& m = *s.mesh;
     auto at = [&](const AnimChannel& c) {
         std::vector<BoneTransform> now = channelLocals(s, c);
@@ -91,7 +92,9 @@ std::vector<BoneTransform> Animator::pose(Object* a) {
             locals[i].p = lerp(locals[i].p, ch[i].p, alpha);
         }
     }
-    return m.compose(locals);
+    s.poseCache = m.compose(locals);
+    s.poseVersion = s.version;
+    return s.poseCache;
 }
 
 std::vector<BoneTransform> Animator::channelLocals(const AnimState& s, const AnimChannel& c) const {
@@ -229,6 +232,7 @@ const MeshAnimation* Animator::animation(const Object* o) { return animation(ref
 
 void Animator::resolve(Object* a, AnimState& s) {
     s.resolved = true;
+    ++s.version;
     // the mesh's default animation, named after its reference skeleton
     ObjectRef mesh = refOf(world.obj(a, "Mesh"), "SkeletalMesh");
     if (mesh && mesh.cls() == "SkeletalMesh") {
@@ -252,6 +256,7 @@ AnimState& Animator::state(Object* a) {
 
 AnimChannel& Animator::channel(Object* a, int k) {
     AnimState& s = state(a);
+    ++s.version;      // whoever asks may change it
     k = std::clamp(k, 0, 63);
     if (s.channels.size() <= size_t(k)) {
         size_t was = s.channels.size();
@@ -296,8 +301,10 @@ void Animator::tick(float dt) {
     for (auto it = states_.begin(); it != states_.end(); ++it) {
         Object* a = it->first;
         AnimState& s = it->second;
+        ++s.version;
         if (!a->deleted && world.pawnClass && a->isA(world.pawnClass)) movement(a);
         for (size_t k = 0; k < s.channels.size() && !a->deleted; ++k) {
+            ++s.version;
             {
                 AnimChannel& c = s.channels[k];
                 if (c.blendLeft > 0) {

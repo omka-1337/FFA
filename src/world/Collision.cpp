@@ -108,9 +108,16 @@ Collision::Collision(World& w, int mapPkg, int32_t model, const std::string& gam
         pl.line = line;
         pl.box = box;
         if (line) ++meshActors;
+        pl.meshLo = {1e30f, 1e30f, 1e30f};
+        pl.meshHi = {-1e30f, -1e30f, -1e30f};
+        for (const Vec3& v : c->positions) {
+            pl.meshLo = {std::min(pl.meshLo.x, v.x), std::min(pl.meshLo.y, v.y), std::min(pl.meshLo.z, v.z)};
+            pl.meshHi = {std::max(pl.meshHi.x, v.x), std::max(pl.meshHi.y, v.y), std::max(pl.meshHi.z, v.z)};
+        }
         update(pl);
         placed_.push_back(pl);
     }
+    buildLineCells();
     buildStatics();
     buildBrushes();
 }
@@ -272,7 +279,7 @@ TraceHit Collision::boxCheck(Vec3 a, Vec3 b, Vec3 extent, const Object* ignore) 
     }
     // The cylinders of the actors that block, as boxes: summed with the
     // moving box they are a larger box the segment enters.
-    for (Object* o : world.actors) {
+    for (Object* o : colliders()) {
         if (!blocks(o, ignore)) continue;
         Vec3 c;
         world.vm.unvector(world.var(o, "Location"), c.x, c.y, c.z);
@@ -444,11 +451,7 @@ void Collision::update(Placed& pl) {
     pl.origin = t.origin;
     pl.invertible = invert(pl.m, pl.inv);
     // the mesh's box, carried into the world by its eight corners
-    Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
-    for (const Vec3& v : pl.mesh->positions) {
-        lo = {std::min(lo.x, v.x), std::min(lo.y, v.y), std::min(lo.z, v.z)};
-        hi = {std::max(hi.x, v.x), std::max(hi.y, v.y), std::max(hi.z, v.z)};
-    }
+    const Vec3 lo = pl.meshLo, hi = pl.meshHi;
     pl.lo = {1e30f, 1e30f, 1e30f};
     pl.hi = {-1e30f, -1e30f, -1e30f};
     for (int k = 0; k < 8; ++k) {
@@ -514,9 +517,67 @@ float cylinder(Vec3 a, Vec3 b, Vec3 c, float r, float h, Vec3& normal) {
 
 }  // namespace
 
+void Collision::buildLineCells() {
+    lineStamp_.assign(placed_.size(), 0);
+    for (uint32_t i = 0; i < placed_.size(); ++i) {
+        const Placed& pl = placed_[i];
+        if (!pl.line) continue;
+        if (!pl.fixed) {
+            lineMoving_.push_back(i);
+            continue;
+        }
+        int x0 = int(std::floor(pl.lo.x / kCell)), x1 = int(std::floor(pl.hi.x / kCell));
+        int y0 = int(std::floor(pl.lo.y / kCell)), y1 = int(std::floor(pl.hi.y / kCell));
+        if ((int64_t(x1) - x0 + 1) * (int64_t(y1) - y0 + 1) > 4096) {
+            lineMoving_.push_back(i);        // too big for cells: asked always
+            continue;
+        }
+        for (int x = x0; x <= x1; ++x)
+            for (int y = y0; y <= y1; ++y) lineCells_[int64_t(x) * 1000003 + y].push_back(i);
+    }
+}
+
+const std::vector<Object*>& Collision::colliders() {
+    if (collidersFrame_ != world.frames || collidersCount_ != world.actors.size() ||
+        collidersChanges_ != world.collisionChanges) {
+        collidersFrame_ = world.frames;
+        collidersCount_ = world.actors.size();
+        collidersChanges_ = world.collisionChanges;
+        colliders_.clear();
+        for (Object* o : world.actors)
+            if (!o->deleted && o != world.info && world.flag(o, "bCollideActors")) colliders_.push_back(o);
+    }
+    return colliders_;
+}
+
 void Collision::meshHits(Vec3 a, Vec3 b, const Object* ignore, bool worldOnly, std::vector<TraceHit>* all,
                          TraceHit& best) {
-    for (Placed& pl : placed_) {
+    // the meshes whose cells the segment's box covers, each once, and the
+    // moving ones; a long segment asks them all
+    std::vector<uint32_t> ask;
+    int x0 = int(std::floor(std::min(a.x, b.x) / kCell)), x1 = int(std::floor(std::max(a.x, b.x) / kCell));
+    int y0 = int(std::floor(std::min(a.y, b.y) / kCell)), y1 = int(std::floor(std::max(a.y, b.y) / kCell));
+    if ((int64_t(x1) - x0 + 1) * (int64_t(y1) - y0 + 1) > 64) {
+        for (uint32_t i = 0; i < placed_.size(); ++i) ask.push_back(i);
+    } else {
+        if (++stamp_ == 0) {
+            std::fill(lineStamp_.begin(), lineStamp_.end(), 0);
+            stamp_ = 1;
+        }
+        for (int x = x0; x <= x1; ++x)
+            for (int y = y0; y <= y1; ++y) {
+                auto it = lineCells_.find(int64_t(x) * 1000003 + y);
+                if (it == lineCells_.end()) continue;
+                for (uint32_t i : it->second)
+                    if (lineStamp_[i] != stamp_) {
+                        lineStamp_[i] = stamp_;
+                        ask.push_back(i);
+                    }
+            }
+        ask.insert(ask.end(), lineMoving_.begin(), lineMoving_.end());
+    }
+    for (uint32_t i : ask) {
+        Placed& pl = placed_[i];
         if (!pl.line || pl.actor == ignore || pl.actor->deleted || (worldOnly && !pl.world)) continue;
         if (!pl.fixed) update(pl);
         if (!pl.invertible || !segmentMeetsBox(a, b, pl.lo, pl.hi)) continue;
@@ -564,7 +625,7 @@ TraceHit Collision::lineCheck(Vec3 a, Vec3 b, const Object* ignore, bool actors,
         });
     }
     if (actors) {
-        for (Object* o : world.actors) {
+        for (Object* o : colliders()) {
             if (o == ignore || o->deleted || o == world.info) continue;
             if (!world.flag(o, "bCollideActors") || !world.flag(o, "bBlockZeroExtentTraces")) continue;
             if (world.var(o, "DrawType").i() == DT_StaticMesh && !world.flag(o, "bUseCylinderCollision")) continue;
@@ -597,7 +658,7 @@ std::vector<TraceHit> Collision::multiLineCheck(Vec3 a, Vec3 b, const Object* ig
         t.actor = terrainActors[i];
         all.push_back(t);
     }
-    for (Object* o : world.actors) {
+    for (Object* o : colliders()) {
         if (o == ignore || o->deleted || o == world.info) continue;
         if (!world.flag(o, "bCollideActors")) continue;
         if (world.var(o, "DrawType").i() == DT_StaticMesh && !world.flag(o, "bUseCylinderCollision")) continue;

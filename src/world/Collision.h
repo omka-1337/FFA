@@ -6,6 +6,7 @@
 #pragma once
 
 #include <map>
+#include <unordered_map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -81,9 +82,22 @@ private:
         bool line, box;             // blocks lines, boxes
         float m[3][3], inv[3][3];
         Vec3 origin, lo, hi;        // and its box in the world
+        Vec3 meshLo, meshHi;        // its box in the mesh, found once
         bool invertible = false;
     };
     void update(Placed& pl);
+    // The fixed meshes that block lines, by cells of the ground they cover,
+    // and the others, asked one by one.
+    static constexpr float kCell = 1024;
+    std::unordered_map<int64_t, std::vector<uint32_t>> lineCells_;
+    std::vector<uint32_t> lineMoving_, lineStamp_;
+    uint32_t stamp_ = 0;
+    void buildLineCells();
+    // The actors whose collision is on, kept for a frame, until one is
+    // spawned or SetCollision is called.
+    const std::vector<Object*>& colliders();
+    std::vector<Object*> colliders_;
+    size_t collidersFrame_ = ~size_t(0), collidersCount_ = 0, collidersChanges_ = 0;
     void meshHits(Vec3 a, Vec3 b, const Object* ignore, bool worldOnly, std::vector<TraceHit>* all,
                   TraceHit& best);
     // An actor's mesh to world transform: world = origin + M v.

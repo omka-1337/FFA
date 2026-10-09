@@ -236,9 +236,20 @@ void physWalking(World& w, Object* a, float dt) {
         Vec3 vv = vget(w, a, "Velocity");
         vset(w, a, "Velocity", Vec3{moved.x / dt, moved.y / dt, vv.z});
     }
-    // The floor: keep to it, or fall when it is gone.
+    // The floor: keep to it, or fall when it is gone. A pawn standing where
+    // it found it last frame, on the level or on an actor that is not a
+    // mover and is still there, is on it still: the factory's 25 idle workers
+    // took 10 ms a frame looking for it again.
     Collision& c = *w.collision;
     Vec3 at = vget(w, a, "Location");
+    {
+        auto rest = w.restingAt.find(a);
+        Object* base = w.obj(a, "Base");
+        bool still = rest != w.restingAt.end() && length(rest->second - at) < 0.01f;
+        bool solid = base == w.info || (base && !base->deleted && !base->isA(w.linker.findClass("Mover")));
+        if (still && solid) return;
+        w.restingAt.erase(a);
+    }
     float probe = MaxStepHeight + MaxFloorDist;
     TraceHit floor = c.boxCheck(at, at - Vec3{0, 0, probe}, extentOf(w, a), a);
     if (!floor || floor.normal.z < MinFloorZ) {
@@ -254,6 +265,7 @@ void physWalking(World& w, Object* a, float dt) {
     }
     if (floor.actor && floor.actor->cls->name != Name("TerrainInfo")) setBase(w, a, floor.actor);
     else setBase(w, a, w.info);
+    w.restingAt[a] = vget(w, a, "Location");
 }
 
 // Flying: acceleration up to AirSpeed, no gravity, sliding along what it meets.
