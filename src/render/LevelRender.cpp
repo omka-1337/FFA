@@ -877,8 +877,11 @@ std::vector<Vec3> LevelRender::characterLight(Object* a, const SkeletalMesh& mes
                 k = (1 - x * x) * (1 - x * x) * (0.5f + 0.5f * dot(wn, d) / dist);
             }
             // once the shader doubles it, a tenth of a sun's brightness and
-            // 1.2 of a point light's
-            c = c + li.col * ((li.sun ? 0.05f : 0.6f) * li.bright / 255.0f * k);
+            // 1.2 of a point light's, white: the game's frames show its
+            // characters in their own colours under coloured light, Shrek's
+            // shirt neutral under the swamp's warm suns and the factory's
+            // purple lamps alike, where the lights' colour made it purple
+            c = c + Vec3{1, 1, 1} * ((li.sun ? 0.05f : 0.6f) * li.bright / 255.0f * k);
         }
         out[i] = {std::min(c.x, 1.0f), std::min(c.y, 1.0f), std::min(c.z, 1.0f)};
     }

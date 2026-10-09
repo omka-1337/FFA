@@ -77,7 +77,12 @@ adds the ambient to the baked light:
   Godmother's office, with no ambient and point lights of 150 to 255, the
   citizens' red clothes are about their texture's own brightness; this gives
   1.0 to 1.3, where a tenth for every light, as first tuned on the swamp alone,
-  drew them black. bUnlit full bright. The normals come from the posed faces,
+  drew them black. The lights are taken white, their brightness without
+  their colour: in the game Shrek's shirt is neutral under the swamp's warm
+  suns and under the factory's purple lamps, 129, 127, 119 there, where their
+  colour made it 90, 66, 188. Against the swamp's frame from the start, his
+  sleeves and skirt are now within 8 of the game's in every channel.
+  bUnlit full bright. The normals come from the posed faces,
   turned to face away from the mesh's middle, as the winding is not settled. Holding forward on the swamp
   (`--hold W`), Shrek runs into the pond past the lily pads, arms swinging.
 

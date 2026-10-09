@@ -3,6 +3,7 @@
 //   ffa-play <System dir> <map.unr>                        play it
 //   ffa-play <System dir> <map.unr> --shot <png> <seconds> run that long, save a frame, quit
 //   ... --hold <key>                                       hold a key from the start, as W
+//   ... --exec <seconds>=<command>                         run a command once, as BypassCutscene
 //
 // The level begins as the engine begins it (world/Session.h), the world ticks
 // once a frame drawn by the time it took, the keys held are given to the player's
@@ -58,12 +59,18 @@ int main(int argc, char** argv) {
     const char* shot = nullptr;
     float shotAt = 0;
     std::vector<std::string> holdKeys;
+    std::vector<std::pair<float, std::string>> execs;
     for (int i = 3; i < argc; ++i) {
         if (std::string(argv[i]) == "--shot" && i + 2 < argc) {
             shot = argv[i + 1];
             shotAt = std::stof(argv[i + 2]);
         }
         if (std::string(argv[i]) == "--hold" && i + 1 < argc) holdKeys.push_back(argv[i + 1]);
+        if (std::string(argv[i]) == "--exec" && i + 1 < argc) {
+            std::string e = argv[i + 1];
+            size_t eq = e.find('=');
+            if (eq != std::string::npos) execs.emplace_back(std::stof(e.substr(0, eq)), e.substr(eq + 1));
+        }
     }
     try {
         if (SDL_Init(SDL_INIT_VIDEO) != 0) throw std::runtime_error(SDL_GetError());
@@ -175,6 +182,11 @@ int main(int argc, char** argv) {
             // second exactly, as fast as it can.
             float dt = shot ? step : float(std::min(behind, 0.1));
             behind = 0;
+            for (auto& [t, command] : execs)
+                if (!command.empty() && w.time >= t) {
+                    session.exec(command);
+                    command.clear();
+                }
             w.tick(dt);
             Vec3 loc;
             int32_t rot[3] = {0, 0, 0};
