@@ -1691,6 +1691,13 @@ budget per record. Run bulk passes under an external memory cap.
 - The u32 at the end of each BSP lightmap.
 - Which of a static mesh's two collision forms, its triangle tree or its
   collision model, the engine uses for which kind of check.
+- KnowWonder's CollideType: CT_Cylinder, 0, the engine's cylinder, and CT_Box,
+  1, a box turned with the actor's yaw, CollisionRadius along its X,
+  CollisionWidth along its Y and CollisionHeight up, from its Location. Read
+  off the factory's conveyors, conveyor_belt_base, 170 by 49 by 40 from its
+  middle at DrawScale3D 1.25, where its CT_Box is 176 by 52 by 48; as a
+  cylinder of radius 176 to 320 it walled the level off for Puss. Whether the
+  box turns with pitch and roll too no actor of the game says.
 - Version 2 lip sync after a sound, the curves that move the characters'
   mouths in the dialogue.
 

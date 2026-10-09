@@ -422,9 +422,17 @@ void updateTouching(World& w, Object* a) {
             w.flag(o, "bStatic"))
             continue;   // level decoration touches through its triangles, not done
         if (blocksA && w.flag(o, "bBlockActors")) continue;
-        Vec3 q = vget(w, o, "Location");
-        float dr = r + w.var(o, "CollisionRadius").f(), dh = h + w.var(o, "CollisionHeight").f();
-        bool over = std::fabs(q.z - p.z) <= dh && (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y) <= dr * dr;
+        ActorShape sh = shapeOf(w, o);
+        Vec3 q = sh.center;
+        float dr = r + sh.radius, dh = h + sh.height;
+        bool over;
+        if (sh.box) {
+            // a cylinder against a box, as a box of its radius
+            Vec3 l = sh.local(p);
+            over = std::fabs(l.x) <= sh.radius + r && std::fabs(l.y) <= sh.width + r && std::fabs(l.z) <= dh;
+        } else {
+            over = std::fabs(q.z - p.z) <= dh && (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y) <= dr * dr;
+        }
         bool was = touching(a, o);
         if (over && !was) {
             add(a, o);

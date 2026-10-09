@@ -281,9 +281,20 @@ TraceHit Collision::boxCheck(Vec3 a, Vec3 b, Vec3 extent, const Object* ignore) 
     // moving box they are a larger box the segment enters.
     for (Object* o : colliders()) {
         if (!blocks(o, ignore)) continue;
-        Vec3 c;
-        world.vm.unvector(world.var(o, "Location"), c.x, c.y, c.z);
-        float r = world.var(o, "CollisionRadius").f(), h = world.var(o, "CollisionHeight").f();
+        ActorShape sh = shapeOf(world, o);
+        if (sh.box) {
+            Vec3 n;
+            float t = enterBox(sh, a, d, extent, n);
+            // already overlapping: let it move apart
+            if (t < 0 || t > 1 || t >= best.time) continue;
+            best.time = t;
+            best.normal = n;
+            best.actor = o;
+            best.startSolid = false;
+            continue;
+        }
+        Vec3 c = sh.center;
+        float r = sh.radius, h = sh.height;
         Vec3 bl = c - Vec3{r + extent.x, r + extent.y, h + extent.z}, bh = c + Vec3{r + extent.x, r + extent.y, h + extent.z};
         float enter = -1e30f, exit = 1e30f;
         Vec3 axis{};
@@ -484,6 +495,57 @@ bool segmentMeetsBox(Vec3 a, Vec3 b, Vec3 lo, Vec3 hi) {
 }
 
 // Where the segment a..b first meets an upright cylinder, or 1.
+}  // namespace
+
+ActorShape shapeOf(World& w, Object* a) {
+    ActorShape sh;
+    w.vm.unvector(w.var(a, "Location"), sh.center.x, sh.center.y, sh.center.z);
+    sh.radius = w.var(a, "CollisionRadius").f();
+    sh.height = w.var(a, "CollisionHeight").f();
+    if (Prop* p = a->cls->findProp(Name("CollideType")); p && a->props[size_t(p->slot)].i() == 1) {
+        sh.box = true;
+        sh.width = w.var(a, "CollisionWidth").f();
+        int32_t pitch, yaw, roll;
+        w.vm.unrotator(w.var(a, "Rotation"), pitch, yaw, roll);
+        float ang = float(yaw) * 3.14159265f / 32768.0f;
+        sh.c = std::cos(ang);
+        sh.s = std::sin(ang);
+    }
+    return sh;
+}
+
+float enterBox(const ActorShape& sh, Vec3 a, Vec3 d, Vec3 extent, Vec3& normal) {
+    // in the box's frame, the moving box's extent turned with it, made
+    // square to its axes
+    Vec3 la = sh.local(a), ld{sh.c * d.x + sh.s * d.y, -sh.s * d.x + sh.c * d.y, d.z};
+    float ac = std::fabs(sh.c), as = std::fabs(sh.s);
+    Vec3 e{ac * extent.x + as * extent.y, as * extent.x + ac * extent.y, extent.z};
+    const float half[3] = {sh.radius + e.x, sh.width + e.y, sh.height + e.z};
+    const float pa[3] = {la.x, la.y, la.z}, pd[3] = {ld.x, ld.y, ld.z};
+    float enter = -1e30f, exit = 1e30f;
+    Vec3 axis{};
+    for (int k = 0; k < 3; ++k) {
+        if (std::fabs(pd[k]) < 1e-9f) {
+            if (pa[k] < -half[k] || pa[k] > half[k]) return 2;
+            continue;
+        }
+        float t0 = (-half[k] - pa[k]) / pd[k], t1 = (half[k] - pa[k]) / pd[k];
+        if (t0 > t1) std::swap(t0, t1);
+        if (t0 > enter) {
+            enter = t0;
+            axis = {};
+            (&axis.x)[k] = pd[k] > 0 ? -1.0f : 1.0f;
+        }
+        exit = std::min(exit, t1);
+        if (enter > exit) return 2;
+    }
+    if (exit < 0) return 2;
+    normal = sh.world(axis);
+    return enter;
+}
+
+namespace {
+
 float cylinder(Vec3 a, Vec3 b, Vec3 c, float r, float h, Vec3& normal) {
     Vec3 d = b - a, o = a - c;
     float best = 1;
@@ -629,10 +691,10 @@ TraceHit Collision::lineCheck(Vec3 a, Vec3 b, const Object* ignore, bool actors,
             if (o == ignore || o->deleted || o == world.info) continue;
             if (!world.flag(o, "bCollideActors") || !world.flag(o, "bBlockZeroExtentTraces")) continue;
             if (world.var(o, "DrawType").i() == DT_StaticMesh && !world.flag(o, "bUseCylinderCollision")) continue;
-            Vec3 c, n;
-            world.vm.unvector(world.var(o, "Location"), c.x, c.y, c.z);
-            float t = cylinder(a, b, c, world.var(o, "CollisionRadius").f(), world.var(o, "CollisionHeight").f(), n);
-            if (t >= best.time) continue;
+            ActorShape sh = shapeOf(world, o);
+            Vec3 n;
+            float t = sh.box ? enterBox(sh, a, b - a, {}, n) : cylinder(a, b, sh.center, sh.radius, sh.height, n);
+            if (t < 0 || t >= best.time) continue;
             best.time = t;
             best.location = lerp(a, b, t);
             best.normal = n;
@@ -662,10 +724,10 @@ std::vector<TraceHit> Collision::multiLineCheck(Vec3 a, Vec3 b, const Object* ig
         if (o == ignore || o->deleted || o == world.info) continue;
         if (!world.flag(o, "bCollideActors")) continue;
         if (world.var(o, "DrawType").i() == DT_StaticMesh && !world.flag(o, "bUseCylinderCollision")) continue;
-        Vec3 c, n;
-        world.vm.unvector(world.var(o, "Location"), c.x, c.y, c.z);
-        float t = cylinder(a, b, c, world.var(o, "CollisionRadius").f(), world.var(o, "CollisionHeight").f(), n);
-        if (t >= 1) continue;
+        ActorShape sh = shapeOf(world, o);
+        Vec3 n;
+        float t = sh.box ? enterBox(sh, a, b - a, {}, n) : cylinder(a, b, sh.center, sh.radius, sh.height, n);
+        if (t < 0 || t >= 1) continue;
         TraceHit h;
         h.time = t;
         h.location = lerp(a, b, t);

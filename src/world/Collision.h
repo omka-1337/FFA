@@ -125,6 +125,27 @@ private:
     std::map<const Object*, std::unique_ptr<std::vector<BrushPolygon>>> brushes_;
 };
 
+// An actor's collision shape, KnowWonder's CollideType: CT_Cylinder, the
+// engine's cylinder of CollisionRadius and CollisionHeight about Location, or
+// CT_Box, a box turned with the actor's yaw whose half sizes are
+// CollisionRadius along its X, CollisionWidth along its Y and CollisionHeight
+// up. A conveyor of the factory, conveyor_belt_base at DrawScale3D 1.25, is
+// 170 by 49 by 40 from its middle, and its CT_Box is 176 by 52 by 48.
+struct ActorShape {
+    Vec3 center;
+    float radius = 0, width = 0, height = 0;
+    bool box = false;
+    float c = 1, s = 0;                 // the yaw's cosine and sine, for a box
+    // a point of the world in the box's frame, and a direction back out
+    Vec3 local(Vec3 p) const { Vec3 d = p - center; return {c * d.x + s * d.y, -s * d.x + c * d.y, d.z}; }
+    Vec3 world(Vec3 v) const { return {c * v.x - s * v.y, s * v.x + c * v.y, v.z}; }
+};
+ActorShape shapeOf(World& w, Object* a);
+// The time a box of half size `extent` moving from a by d enters a box shape,
+// or 1 or more for none; less than 0 when it starts inside. The normal is the
+// face it enters by.
+float enterBox(const ActorShape& sh, Vec3 a, Vec3 d, Vec3 extent, Vec3& normal);
+
 // Trace, FastTrace, TraceActors and SetLocation, on the World's Collision.
 void registerCollisionNatives(VM& vm);
 
