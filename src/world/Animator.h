@@ -7,7 +7,8 @@
 // its frame count. Playing once, it stops at 1; looping, it goes round. At the
 // end of a play or of a round, AnimEnd(channel) goes to the actor when the
 // channel's notify is on, channel 0's by default. A tween holds the first frame
-// for its time. FinishAnim waits for the channel to stop, ending a loop at the
+// for its time; PlayAnim's and LoopAnim's tween time blends the new sequence
+// in from the pose before, as it plays. FinishAnim waits for the channel to stop, ending a loop at the
 // end of its round. Notifies added by AddNotify call the actor's function of
 // that name as the frame passes them; the game's animations carry none of
 // their own.
@@ -39,6 +40,10 @@ struct AnimChannel {
     bool looping = false, animating = false, notify = false, stopAtEnd = false;
     float alpha = 1, alphaTarget = 1, alphaRate = 0;   // blending, AnimBlendParams
     std::string bone;
+    // A sequence started with a tween time blends in from the pose the
+    // channel had, over that time, while it plays.
+    std::vector<BoneTransform> from;
+    float blendTime = 0, blendLeft = 0;
 };
 
 struct AnimState {
@@ -73,6 +78,10 @@ public:
 
     AnimState& state(Object* a);
     AnimChannel& channel(Object* a, int k);
+    // Start a channel's blend from its pose now, over time seconds.
+    void startBlend(Object* a, int k, float time);
+    // A channel's own pose, bone by bone, without the blend from before.
+    std::vector<BoneTransform> channelLocals(const AnimState& s, const AnimChannel& c) const;
     // A sequence of the actor's animations by name, and the set it is in.
     const AnimSequence* find(Object* a, const std::string& name, const MeshAnimation** set = nullptr);
     // A MeshAnimation by an object script holds, or by reference.

@@ -3,7 +3,9 @@
 `ffa-play <System> <map.unr>` plays a level in a window: SDL2 for the window
 and input, OpenGL ES 2 to draw, what every PortMaster handheld has. The level
 begins as the engine begins it (`src/world/Session.cpp`, see
-docs/script-vm.md), the world ticks at a fixed thirty frames a second, and the
+docs/script-vm.md), the world ticks once a frame drawn, by the time the frame
+took, as the engine does (a fixed thirty a second drew every second frame
+twice, characters and camera stepping), and the
 keys held reach the player's controller through the game's own bindings in
 DefUser.ini. `--shot <png> <seconds>` runs that long in a hidden window, saves
 the frame and quits, which is how the pictures here were checked.

@@ -216,7 +216,8 @@ const std::vector<int>& SkeletalMesh::trackMap(const MeshAnimation& anim, size_t
     return map;
 }
 
-std::vector<BoneTransform> SkeletalMesh::locals(const MeshAnimation& anim, size_t sequence, float frame) const {
+std::vector<BoneTransform> SkeletalMesh::locals(const MeshAnimation& anim, size_t sequence, float frame, bool loop,
+                                                float end) const {
     std::vector<BoneTransform> out = referenceLocals();
     if (sequence >= anim.chunks.size()) return out;
     const AnimChunk& chunk = anim.chunks[sequence];
@@ -236,6 +237,8 @@ std::vector<BoneTransform> SkeletalMesh::locals(const MeshAnimation& anim, size_
             auto t = [&](size_t k) { return tr->times.size() == n ? tr->times[k] : float(k); };
             if (frame <= t(0) || n == 1) {
                 out[i].q = q(0);
+            } else if (loop && frame > t(n - 1) && end > t(n - 1)) {
+                out[i].q = qnlerp(q(n - 1), q(0), (frame - t(n - 1)) / (end - t(n - 1)));
             } else {
                 out[i].q = q(n - 1);
                 for (size_t k = 1; k < n; ++k)
@@ -252,6 +255,8 @@ std::vector<BoneTransform> SkeletalMesh::locals(const MeshAnimation& anim, size_
             auto t = [&](size_t k) { return tr->times.size() == n ? tr->times[k] : float(k); };
             if (frame <= t(0) || n == 1) {
                 out[i].p = pk(0);
+            } else if (loop && frame > t(n - 1) && end > t(n - 1)) {
+                out[i].p = lerp(pk(n - 1), pk(0), (frame - t(n - 1)) / (end - t(n - 1)));
             } else {
                 out[i].p = pk(n - 1);
                 for (size_t k = 1; k < n; ++k)

@@ -63,9 +63,15 @@ std::vector<BoneTransform> Animator::pose(Object* a) {
     if (!s.mesh) return {};
     const SkeletalMesh& m = *s.mesh;
     auto at = [&](const AnimChannel& c) {
-        size_t si = size_t(c.seq - c.set->sequences.data());
-        float frame = c.frame * float(c.seq->numFrames);
-        return m.locals(*c.set, si, frame);
+        std::vector<BoneTransform> now = channelLocals(s, c);
+        if (c.blendLeft > 0 && c.blendTime > 0 && c.from.size() == now.size()) {
+            float t = 1 - c.blendLeft / c.blendTime;
+            for (size_t i = 0; i < now.size(); ++i) {
+                now[i].q = qnlerp(c.from[i].q, now[i].q, t);
+                now[i].p = lerp(c.from[i].p, now[i].p, t);
+            }
+        }
+        return now;
     };
     std::vector<BoneTransform> locals = m.referenceLocals();
     for (size_t k = 0; k < s.channels.size(); ++k) {
@@ -86,6 +92,35 @@ std::vector<BoneTransform> Animator::pose(Object* a) {
         }
     }
     return m.compose(locals);
+}
+
+std::vector<BoneTransform> Animator::channelLocals(const AnimState& s, const AnimChannel& c) const {
+    if (!s.mesh || !c.seq || !c.set) return s.mesh ? s.mesh->referenceLocals() : std::vector<BoneTransform>{};
+    size_t si = size_t(c.seq - c.set->sequences.data());
+    float frames = float(c.seq->numFrames);
+    return s.mesh->locals(*c.set, si, c.frame * frames, c.looping, frames);
+}
+
+void Animator::startBlend(Object* a, int k, float time) {
+    AnimState& s = state(a);
+    AnimChannel& c = channel(a, k);
+    if (time <= 0 || !c.seq || !s.mesh) {
+        c.blendLeft = c.blendTime = 0;
+        c.from.clear();
+        return;
+    }
+    // from where the channel is, blend included, so that a blend cut short
+    // does not jump either
+    std::vector<BoneTransform> now = channelLocals(s, c);
+    if (c.blendLeft > 0 && c.blendTime > 0 && c.from.size() == now.size()) {
+        float t = 1 - c.blendLeft / c.blendTime;
+        for (size_t i = 0; i < now.size(); ++i) {
+            now[i].q = qnlerp(c.from[i].q, now[i].q, t);
+            now[i].p = lerp(c.from[i].p, now[i].p, t);
+        }
+    }
+    c.from = std::move(now);
+    c.blendTime = c.blendLeft = time;
 }
 
 void Animator::meshToWorld(Object* a, float out[3][3], Vec3& origin) {
@@ -235,6 +270,13 @@ void Animator::tick(float dt) {
         for (size_t k = 0; k < s.channels.size() && !a->deleted; ++k) {
             {
                 AnimChannel& c = s.channels[k];
+                if (c.blendLeft > 0) {
+                    c.blendLeft -= dt;
+                    if (c.blendLeft <= 0) {
+                        c.blendLeft = 0;
+                        c.from.clear();
+                    }
+                }
                 if (c.alphaRate != 0) {
                     c.alpha += c.alphaRate * dt;
                     if ((c.alphaRate > 0 && c.alpha >= c.alphaTarget) || (c.alphaRate < 0 && c.alpha <= c.alphaTarget)) {
@@ -307,12 +349,14 @@ void Animator::movement(Object* a) {
         const MeshAnimation* set = nullptr;
         const AnimSequence* seq = find(a, name, &set);
         if (!seq || (ch.seq == seq && ch.looping && ch.animating)) return;
+        startBlend(a, 0, blend);
+        AnimChannel& ch = channel(a, 0);
         ch.seq = seq;
         ch.set = set;
         ch.name = seq->name;
         ch.rate = seq->numFrames > 0 ? seq->rate / float(seq->numFrames) : 0;
         ch.frame = 0;
-        ch.tween = blend;
+        ch.tween = 0;
         ch.looping = true;
         ch.stopAtEnd = false;
         ch.animating = true;
@@ -359,17 +403,21 @@ void play(NativeCall& c, bool loop) {
     }
     // looping a sequence that already loops only changes its rate
     bool same = ch.seq == seq && ch.looping && ch.animating && loop;
-    ch.seq = seq;
-    ch.set = set;
-    ch.name = seq->name;
-    ch.rate = seq->numFrames > 0 ? rate * seq->rate / float(seq->numFrames) : 0;
+    if (!same) an.startBlend(c.self, k, tween);
+    AnimChannel& chn = an.channel(c.self, k);
+    (void)ch;
+    AnimChannel& ch2 = chn;
+    ch2.seq = seq;
+    ch2.set = set;
+    ch2.name = seq->name;
+    ch2.rate = seq->numFrames > 0 ? rate * seq->rate / float(seq->numFrames) : 0;
     if (!same) {
-        ch.frame = 0;
-        ch.tween = tween > 0 ? tween : 0;
+        ch2.frame = 0;
+        ch2.tween = 0;
     }
-    ch.looping = loop;
-    ch.stopAtEnd = false;
-    ch.animating = true;
+    ch2.looping = loop;
+    ch2.stopAtEnd = false;
+    ch2.animating = true;
     ++an.sequencesPlayed;
 }
 

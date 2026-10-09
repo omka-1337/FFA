@@ -5,12 +5,13 @@
 //   ... --hold <key>                                       hold a key from the start, as W
 //
 // The level begins as the engine begins it (world/Session.h), the world ticks
-// at a fixed thirty frames a second, the keys held are given to the player's
+// once a frame drawn by the time it took, the keys held are given to the player's
 // controller through the game's own bindings in DefUser.ini, and the view is
 // the one the controller's PlayerCalcView gives. Escape quits.
 #include <SDL2/SDL.h>
 #include <GLES2/gl2.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -125,11 +126,12 @@ int main(int argc, char** argv) {
             Uint64 now = SDL_GetPerformanceCounter();
             behind += double(now - last) / double(SDL_GetPerformanceFrequency());
             last = now;
-            if (shot) behind = step;    // a shot runs as fast as it can, frame by frame
-            for (int n = 0; behind >= step && n < 5; ++n) {
-                w.tick(step);
-                behind -= step;
-            }
+            // The engine ticks once a frame drawn, by the time the frame took,
+            // as long as it is not too long; a shot runs at thirty frames a
+            // second exactly, as fast as it can.
+            float dt = shot ? step : float(std::min(behind, 0.1));
+            behind = 0;
+            w.tick(dt);
             Vec3 loc;
             int32_t rot[3] = {0, 0, 0};
             session.view(loc, rot);

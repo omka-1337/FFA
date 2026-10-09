@@ -340,7 +340,11 @@ the linked ones, through `VM::loadObject`.
 PlayAnim and LoopAnim run a channel's frame from 0 to 1 at Rate times the
 sequence's frames a second over its frame count; looping a sequence that
 already loops changes only its rate. A tween holds the first frame for its
-time. At the end of a play or of a round AnimEnd(channel) goes to the actor
+time; PlayAnim's and LoopAnim's own tween time does not hold anything but
+blends the new sequence in from the channel's pose before, while it already
+plays, and the engine's movement animation blends over BlendChangeTime the same
+way. A looping sequence goes from its last key back to its first by its end.
+At the end of a play or of a round AnimEnd(channel) goes to the actor
 when the channel's notify is on, channel 0's from the start. FinishAnim waits
 for the channel to stop, ending a loop at the end of its round, and the data
 settles one thing about it: KnowWonder's BounceController plays its pawn's

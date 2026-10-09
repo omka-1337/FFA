@@ -83,7 +83,10 @@ public:
     // Each bone's own transform at a frame, counted in frames, of a sequence:
     // bones are matched to tracks by name, and one not animated keeps its
     // reference.
-    std::vector<BoneTransform> locals(const MeshAnimation& anim, size_t sequence, float frame) const;
+    // Looping, past the last key the pose goes back to the first one by the
+    // sequence's end, its frame count.
+    std::vector<BoneTransform> locals(const MeshAnimation& anim, size_t sequence, float frame, bool loop = false,
+                                      float end = 0) const;
     // The points in mesh space, posed by bone to mesh transforms.
     std::vector<Vec3> skin(const std::vector<BoneTransform>& global) const;
     // A point of mesh space into the actor's: RotOrigin ((p - MeshOrigin) x MeshScale).
