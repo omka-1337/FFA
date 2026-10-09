@@ -157,6 +157,13 @@ int main(int argc, char** argv) {
         expect(vm.call(b, "DefaultTest"), I(553), "default., class'X'.default. and static calls");
         expect(vm.call(b, "DelegateTest"), I(17), "delegate: own body, then the assigned function");
 
+        // the engine's classes that no script declares
+        Class* skel = lk.findClass("SkeletalMesh");
+        check(skel && skel == lk.nativeClass("skeletalmesh"), "a native class without script is made once");
+        check(skel && skel->isChildOf(lk.findClass("Mesh")) && skel->isChildOf(lk.findClass("Object")),
+              "a native class without script is under its engine parent");
+        check(!lk.findClass("NoSuchClass"), "an unknown class is still none");
+
         std::string e = throws([&] { vm.call(b, "Loop"); });
         check(e.find("runaway") != std::string::npos, "an endless loop is stopped", e);
         e = throws([&] { vm.call(b, "Rec", {I(0)}); });

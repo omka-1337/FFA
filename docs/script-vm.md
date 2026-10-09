@@ -348,7 +348,20 @@ reference skeleton: 138 of the game's 141 do, 126 of them one of the same
 name. A path names more than one object here, Shrek being both a SkeletalMesh
 and a MeshAnimation in ShrekCharacters.ukx, so a lookup by path matches the
 class as well. DynamicLoadObject reaches every package of the game, not only
-the linked ones, through `VM::loadObject`.
+the linked ones, through `VM::loadObject`, and takes the object of the class
+it is asked for: CitFemale is both a mesh and an animation.
+
+Some of the engine's classes have no script at all, Mesh, SkeletalMesh,
+StaticMesh, MeshAnimation, Sound and Font among them: the game's packages
+import them, and none exports them. Script names them all the same, in casts
+above all, and a cast to a class that is not there gives None. KWPawn's
+SetActorMeshes loads a mesh as `Mesh(DynamicLoadObject(name, class'Mesh'))`
+and links it, which is how the citizens in the Fairy Godmother's office take
+the mesh their citizenType names, two women and two kinds of men; with the
+cast giving None they all kept their class's default, the same man in red.
+The linker makes each of these classes once, empty, under its parent in the
+engine's own hierarchy (SkeletalMesh under Mesh under Primitive under Object),
+for a cast, an import and an object's class alike.
 
 PlayAnim and LoopAnim run a channel's frame from 0 to 1 at Rate times the
 sequence's frames a second over its frame count; looping a sequence that

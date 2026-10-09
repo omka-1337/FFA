@@ -121,9 +121,10 @@ public:
     std::unordered_map<std::string, size_t> missingCalls;   // and how often each was
     std::vector<std::unique_ptr<Object>> objects;
     void* host = nullptr;           // what the engine's natives act on: a World
-    // Objects of packages the linker does not hold, by path: DynamicLoadObject
-    // asks it when the linker has none.
-    std::function<Object*(const std::string& path)> loadObject;
+    // Objects of packages the linker does not hold, by path and, when given,
+    // the class they must be of: DynamicLoadObject asks it when the linker has
+    // none.
+    std::function<Object*(const std::string& path, const Class* want)> loadObject;
 
     void write(const std::string& tag, const std::string& text);
     void warn(const Frame* f, const Ins* at, const std::string& msg);

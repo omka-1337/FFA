@@ -56,9 +56,10 @@ public:
     // Where the player looks from, by the controller's own PlayerCalcView.
     bool view(Vec3& location, int32_t rotation[3]);
 
-    // An object of any package of the game, by its path, made for script:
-    // its outers as plain objects, its class the linker's of that name.
-    Object* loadObject(const std::string& path);
+    // An object of any package of the game, by its path and, when given, the
+    // class it must be of, made for script: its outers as plain objects, its
+    // class the linker's of that name.
+    Object* loadObject(const std::string& path, const Class* want = nullptr);
 
     // A key of an .ini file in the System directory, or empty.
     std::string ini(const std::string& file, const std::string& section, const std::string& key) const;

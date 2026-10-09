@@ -42,7 +42,7 @@ Object* Animator::objectFor(const MeshAnimation* m) {
     std::string path;
     for (int k = m->index; k > 0; k = m->package->exp(k).outer)
         path = m->package->exp(k).name + (path.empty() ? "" : "." + path);
-    return world.vm.loadObject(m->package->stem + "." + path);
+    return world.vm.loadObject(m->package->stem + "." + path, world.vm.linker.findClass("MeshAnimation"));
 }
 
 const SkeletalMesh* Animator::skeletal(const ObjectRef& r) {
@@ -549,6 +549,28 @@ void registerAnimationNatives(VM& vm) {
         if (const MeshAnimation* m = an.animation(c.o(0))) {
             s.linked.erase(std::remove(s.linked.begin(), s.linked.end(), m), s.linked.end());
             s.linked.insert(s.linked.begin(), m);
+        }
+        return Value();
+    };
+    // MakeSkins: the actor's Skins filled from its mesh's materials where they
+    // are none, so that script can read them, as Knight keeps Skins[1] to put
+    // back after its freeze.
+    n["actor.makeskins"] = [](NativeCall& c) {
+        Animator& an = animator(c);
+        const SkeletalMesh* m = an.state(c.self).mesh;
+        if (!m || !an.world.vm.loadObject) return Value();
+        Value& skins = an.world.var(c.self, "Skins");
+        if (!skins.isArr()) skins = Value::Arr({});
+        Array& arr = skins.arr();
+        if (arr.size() < m->materials.size()) arr.resize(m->materials.size(), Value::Obj(nullptr));
+        for (size_t i = 0; i < m->materials.size(); ++i) {
+            if (arr[i].o()) continue;
+            ObjectRef r = an.library.resolve(*m->package, m->materials[i]);
+            if (!r) continue;
+            std::string path;
+            for (int k = r.idx; k > 0; k = r.pkg->exp(k).outer)
+                path = r.pkg->exp(k).name + (path.empty() ? "" : "." + path);
+            arr[i] = Value::Obj(an.world.vm.loadObject(r.pkg->stem + "." + path, nullptr));
         }
         return Value();
     };

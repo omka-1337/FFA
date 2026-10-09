@@ -451,6 +451,12 @@ Object* Linker::instanceAt(int pkg, int idx) {
 // ------------------------------------------------------- by reference
 Class* Linker::classRef(int pkg, int32_t ref) {
     auto hit = resolve(pkg, ref);
+    if (!hit && ref < 0) {
+        // a class of the engine's own, imported by name
+        std::string cls;
+        auto parts = importParts(pkg, ref, &cls);
+        return cls == "Class" && !parts.empty() ? nativeClass(parts.back()) : nullptr;
+    }
     if (!hit || kindOf(hit->first, hit->second) != "Class") return nullptr;
     return classAt(hit->first, hit->second);
 }
@@ -523,6 +529,12 @@ Object* Linker::stub(int pkg, int32_t ref) {
         o->outer = outer;
         outer = adopt(std::move(o));
     }
+    // a class of the engine's own, such as Mesh, is that class
+    if (cls == "Class")
+        if (Class* nc = nativeClass(parts.back())) {
+            stubs_.emplace(key, nc);
+            return nc;
+        }
     auto o = std::make_unique<Object>();
     o->name = Name(parts.back());
     o->outer = outer;
@@ -538,7 +550,43 @@ Object* Linker::stub(int pkg, int32_t ref) {
 
 Class* Linker::findClass(std::string_view name) {
     auto it = classes_.find(lower(name));
-    return it == classes_.end() ? nullptr : classAt(it->second.first, it->second.second);
+    return it == classes_.end() ? nativeClass(name) : classAt(it->second.first, it->second.second);
+}
+
+// Classes of the engine's C++ that no package holds, as no script declares
+// them, though script names them: in casts, Mesh(DynamicLoadObject(..., class'
+// Mesh')) as KWPawn's SetActorMeshes does, and as objects' classes. These are
+// the ones the game's packages import without any exporting them, but for the
+// property and function types and the subsystems, each under its parent in the
+// engine's hierarchy; each is made once, with no variables of its own.
+Class* Linker::nativeClass(std::string_view name) {
+    static const std::pair<const char*, const char*> table[] = {
+        {"Primitive", "Object"},          {"Mesh", "Primitive"},          {"VertMesh", "Mesh"},
+        {"SkeletalMesh", "Mesh"},         {"StaticMesh", "Primitive"},    {"Model", "Primitive"},
+        {"ConvexVolume", "Primitive"},    {"TerrainPrimitive", "Primitive"},
+        {"FluidSurfacePrimitive", "Primitive"},                           {"MeshInstance", "Object"},
+        {"MeshAnimation", "Object"},      {"StaticMeshInstance", "Object"},
+        {"TerrainSector", "Object"},      {"Sound", "Object"},            {"Font", "Object"},
+        {"Level", "Object"},
+    };
+    std::string key = lower(name);
+    auto it = native_.find(key);
+    if (it != native_.end()) return it->second;
+    for (const auto& [n, parent] : table) {
+        if (lower(n) != key) continue;
+        Class* super = findClass(parent);
+        auto c = std::make_unique<Class>();
+        Class* cls = c.get();
+        cls->name = Name(n);
+        cls->linker = this;
+        cls->super = super;
+        cls->outer = findObject("Engine");
+        adopt(std::move(c));
+        native_.emplace(key, cls);
+        cls->cls = findClass("Class");
+        return cls;
+    }
+    return nullptr;
 }
 
 StructType* Linker::findStruct(std::string_view name) {
@@ -604,7 +652,7 @@ Object* Linker::buildDefault(Class* c) {
     setIntrinsics(obj);
     c->defaultObject = obj;
     std::vector<TagEntry> entries;
-    if (locateDefaults(c, entries)) applyTagged(c->pkg, c, obj->props, entries, c->name.str());
+    if (c->pkg >= 0 && locateDefaults(c, entries)) applyTagged(c->pkg, c, obj->props, entries, c->name.str());
     return obj;
 }
 

@@ -68,6 +68,9 @@ public:
     Object* objectRef(int pkg, int32_t ref);
 
     Class* findClass(std::string_view name);
+    // A class of the engine's C++ that no script declares, Mesh or Sound, or
+    // null.
+    Class* nativeClass(std::string_view name);
     StructType* findStruct(std::string_view name);
     Object* findObject(std::string_view path);
     Function* native(int index);
@@ -103,6 +106,7 @@ private:
 
     std::unordered_map<std::string, int> byStem_;
     std::unordered_map<std::string, std::pair<int, int>> classes_;
+    std::unordered_map<std::string, Class*> native_;
     std::map<int, std::pair<int, int>> natives_;
     std::vector<std::unordered_map<int, std::vector<int>>> owned_;
     std::vector<std::unordered_map<std::string, int>> paths_;

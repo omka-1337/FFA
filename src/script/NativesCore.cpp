@@ -573,8 +573,9 @@ void registerCoreNatives(VM& vm) {
     n["object.dynamicloadobject"] = [](NativeCall& c) {
         std::string path = utf8(c.s(0));
         Object* o = c.vm.linker.findObject(path);
-        if (!o && c.vm.loadObject) o = c.vm.loadObject(path);
         Object* want = c.o(1);
+        if (!o && c.vm.loadObject)
+            o = c.vm.loadObject(path, want && want->isClass() ? static_cast<const Class*>(want) : nullptr);
         if (o && want && want->isClass()) {
             bool ok = o->isA(static_cast<Class*>(want)) || (o->isClass() && want->name == Name("Class"));
             if (!ok) o = nullptr;

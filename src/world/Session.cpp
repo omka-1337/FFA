@@ -56,7 +56,7 @@ Session::Session(const std::string& sys, const std::string& map) : systemDir(sys
     library->adopt(linker->packages[size_t(pkg)].get());
     animator = std::make_unique<Animator>(*world, *library);
     registerAnimationNatives(*vm);
-    vm->loadObject = [this](const std::string& path) { return loadObject(path); };
+    vm->loadObject = [this](const std::string& path, const Class* want) { return loadObject(path, want); };
     // The game: a Game= option of the URL, else the engine's default.
     gameName = ini("Default.ini", "Engine.Engine", "DefaultGame");
     for (const std::string& o : level.options) {
@@ -77,8 +77,8 @@ void Session::begin() {
     controller = world->login(widen(level.portal), options);
 }
 
-Object* Session::loadObject(const std::string& path) {
-    std::string key = lower(path);
+Object* Session::loadObject(const std::string& path, const Class* want) {
+    std::string key = lower(path) + (want ? "/" + lower(want->name.str()) : std::string());
     auto it = loaded_.find(key);
     if (it != loaded_.end()) return it->second;
     Object*& slot = loaded_[key];
@@ -88,7 +88,21 @@ Object* Session::loadObject(const std::string& path) {
     if (parts.size() < 2) return nullptr;
     const Package* p = library->package(parts[0]);
     if (!p) return nullptr;
-    int idx = Library::findByPath(*p, std::vector<std::string>(parts.begin() + 1, parts.end()));
+    // The same path can name objects of different classes, a skeletal mesh
+    // and its animation: the one of the class asked for, when one is.
+    std::vector<std::string> rest(parts.begin() + 1, parts.end());
+    int idx = 0;
+    for (int i = 1; i <= int(p->exports.size()) && !idx; ++i) {
+        int k = i;
+        size_t j = rest.size();
+        while (j > 0 && k > 0 && lower(p->exp(k).name) == lower(rest[j - 1])) {
+            k = p->exp(k).outer;
+            --j;
+        }
+        if (j != 0 || k != 0) continue;
+        Class* c = linker->findClass(p->classOf(i));
+        if (!want || (c && c->isChildOf(want))) idx = i;
+    }
     if (!idx) return nullptr;
     Object* outer = nullptr;
     for (size_t i = 0; i < parts.size(); ++i) {
