@@ -1,5 +1,6 @@
 #include "world/Session.h"
 
+#include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
@@ -216,18 +217,29 @@ std::vector<std::string> Session::commandsOf(const std::string& keyOrAlias) cons
         return std::string();
     };
     std::vector<std::string> out;
-    std::function<void(const std::string&, int)> add = [&](const std::string& text, int depth) {
-        std::stringstream parts(text);
-        std::string part;
-        while (std::getline(parts, part, '|')) {
-            part = trim(part);
-            if (part.empty()) continue;
-            std::string expanded = depth < 4 ? aliasOf(part) : std::string();
-            if (!expanded.empty() && lower(expanded) != lower(part)) add(expanded, depth + 1);
-            else out.push_back(part);
-        }
-    };
-    add(binding, 0);
+    // An alias's own name inside it is the command of that name, not the
+    // alias again: Jump is "Jump | Axis aUp Speed=+1200.0", and expanded
+    // again it held aUp four times over.
+    std::function<void(const std::string&, int, std::vector<std::string>&)> add =
+        [&](const std::string& text, int depth, std::vector<std::string>& path) {
+            std::stringstream parts(text);
+            std::string part;
+            while (std::getline(parts, part, '|')) {
+                part = trim(part);
+                if (part.empty()) continue;
+                bool inside = std::find(path.begin(), path.end(), lower(part)) != path.end();
+                std::string expanded = depth < 4 && !inside ? aliasOf(part) : std::string();
+                if (!expanded.empty() && lower(expanded) != lower(part)) {
+                    path.push_back(lower(part));
+                    add(expanded, depth + 1, path);
+                    path.pop_back();
+                } else {
+                    out.push_back(part);
+                }
+            }
+        };
+    std::vector<std::string> path;
+    add(binding, 0, path);
     return out;
 }
 
