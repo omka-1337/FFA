@@ -1,9 +1,9 @@
 // Drawing a level with OpenGL ES 2: its BSP, textured and lit as the game
 // baked it, from where the player's camera is.
 //
-// The light is the texture times the lightmap, doubled, plus the zone's
-// ambient, the reading that matches the game by eye (docs/package-format.md,
-// lightmaps). Surfaces flagged unlit take the texture alone.
+// The light is the texture times the lightmap, doubled, the lightmap holding
+// the zone's ambient already (docs/rendering.md, the ambient). Surfaces
+// flagged unlit take the texture alone.
 //
 // No window here: the caller makes the GL context current first.
 #pragma once
@@ -78,6 +78,7 @@ private:
         };
         std::vector<Part> parts;
         float radius = 0;           // around its origin, in the world
+        bool unlit = false;         // bUnlit: the texture as it is
     };
     // Skeletal meshes: per actor its wedges' positions, skinned each frame on
     // the CPU from the animator's pose, and its faces by material.

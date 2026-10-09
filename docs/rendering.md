@@ -38,20 +38,23 @@ controller's FovAngle, horizontal.
 ## What is drawn
 
 Everything decoded is the same data the Python viewer draws, and drawn the
-same way, so what was confirmed by eye there holds here:
+same way, so what was confirmed by eye there holds here, but for the light,
+which was measured since against the game's frames (below); the viewer still
+adds the ambient to the baked light:
 
 - **The BSP**, its render sections' polygons, a texel position being the
   offset from the surface's base point along its texture vectors over the
   texture's size; the lightmap coordinates are the section vertices'. Lit as
-  texture × (lightmap × 2 + the zone's ambient); unlit surfaces take the
-  texture alone.
+  texture × lightmap × 2, the zone's ambient being in the lightmap already
+  (below); unlit surfaces take the texture alone.
 - **Terrains**, from the engine's copy of the grid, each layer laid over the
   ones before by its weight from its alpha map, its texture coordinates the
-  world position against its TerrainMatrix; lit by the baked vertex light × 2
-  plus the zone's ambient.
+  world position against its TerrainMatrix; lit by the baked vertex light × 2,
+  which holds the zone's ambient too.
 - **Static meshes**, at Location + R S (v - PrePivot), a section a material,
   the actor's Skins over the mesh's Materials; lit by the StaticMeshInstance's
-  vertex colours × 2 plus the zone's ambient. Where those colours are black
+  vertex colours and the zone's ambient as the BSP holds it, together × 2;
+  bUnlit full bright. Where those colours are black
   throughout although lights reach the mesh, they are computed from the lights
   and their masks, by the formula the stored colours follow.
 
@@ -68,26 +71,35 @@ same way, so what was confirmed by eye there holds here:
   turned to face away from the mesh's middle, as the winding is not settled. Holding forward on the swamp
   (`--hold W`), Shrek runs into the pond past the lily pads, arms swinging.
 
-## How meshes are lit: measured against the game's frames
+## The ambient, in the baked light and out of it
 
-The first reading, the baked colour doubled plus the zone's ambient, drew the
-swamp's foliage nearly black, where the game draws it bright green (frames from
-play, of the swamp's start). Two changes bring it near the game, both found by
-comparing frames, not settled by the data:
+**The lightmaps and the terrains' light hold the zone's ambient.** Where no
+light reaches, a terrain's light is flat, and its value follows the zone's
+AmbientBrightness on every level that has a terrain: 64 leaves 52 of 255, 32
+leaves 36, 16 leaves 25, and none leaves 0, while Hamlet's 64 of hue 150 and
+saturation 222 leaves (45, 46, 50). The ambient's colour at 0.41
+sqrt(AmbientBrightness / 255) gives 52, 37, 26, 0 and (45, 48, 52). The
+lightmaps' darkest texels, through DXT1, follow the same: 16 leaves 21 to 24,
+32 leaves 32. So the BSP and the terrains are drawn as their light doubled,
+nothing added; with the ambient added again, as first drawn, the swamp's
+shadows were washed out: the ground in the shade of its trees and the trunks
+around the outhouse came out nearly twice as bright as the game shows them.
 
-- **Colour and ambient doubled together**, light = 2 (colour + ambient): the
-  STAY OUT sign comes to 0.77, 0.70, 0.61 of its texture against the game's
-  0.69, 0.62, 0.53, where it was 0.51, 0.45, 0.36.
-- **Blended materials unlit.** Every mesh part drawn blended, the FinalBlend
-  foliage, grass, cattails, hanging moss and light beams, is drawn at the
-  texture's own brightness. Their baked colours are dark, a mean of 10 to 30
-  of 255, and some stand in the LevelInfo's zone with no ambient, yet in the
-  game they are as bright as the texture, while the opaque meshes, the sign,
-  the trunks, the rocks, are shaded.
+**A static mesh's colours do not hold it.** Where no light reaches, they are
+0 (docs/package-format.md has the formula they follow). The ambient they are
+drawn with is the one the BSP holds, 0.41 sqrt(brightness) in the ambient's
+colour, added to the colour and doubled with it, so a mesh in shade is as dark
+as the ground in shade beside it. Every part is lit so, the blended foliage
+too: drawn at the texture's own brightness, as it was before the ambient was
+settled, the swamp's bushes and hanging moss were bright where the game shows
+them dark green.
 
-A mesh takes the ambient of the zone its Region names, which the engine wrote;
-a walk from its origin, which can sit inside the ground, found the zone outside
-the level for some.
+A mesh takes the ambient of the zone its Region names, which the engine wrote.
+Where that is the LevelInfo, which has no ambient, the mesh's origin is in
+solid, sunk into the ground, for most of them: 92 of the swamp's 221 have the
+zone of a ZoneInfo around their middle, among them the two bushes by the pond,
+which the game shows dark green, not black. Those take the zone around their
+middle.
 
 ## Projectors and shadows
 

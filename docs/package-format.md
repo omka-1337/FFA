@@ -858,7 +858,10 @@ blue walls, the orange glow of torches, and the hard shadows of bars.
 How the engine combines it is not in the data. The viewer draws a lit surface
 as its texture times the light, the lightmap texel or the vertex colour, plus
 its zone's ambient, and compared by eye with the game the light looks right
-doubled rather than as stored. The shadows in the lightmaps are baked ones, cast
+doubled rather than as stored. The ambient is in the lightmap already,
+though: its darkest texels follow the zone's AmbientBrightness, as a
+terrain's light does (docs/rendering.md, the ambient), so the engine
+(src/render) draws the texel doubled with nothing added. The shadows in the lightmaps are baked ones, cast
 when the level's lighting was built, among them the shadows of the bars in the
 Donkey prison, and the game shows them the same way: compared with gameplay
 footage, they are there, as darker patches of the surface, with no shadow drawn
@@ -1169,7 +1172,11 @@ R G B, settled as for static meshes by the sun: on all five levels with a
 coloured Sunlight the light's hue read as R G B is the sun's, Castle Siege's
 170 exactly. Drawn like the rest, the texture times the light doubled plus the
 zone's ambient, the terrains look as they do in the game, by the memory of
-someone who knows it well.
+someone who knows it well. The light holds that ambient already: where no
+light reaches it is flat at a value that follows the zone's AmbientBrightness,
+52 of 255 for 64, 36 for 32, 25 for 16, 0 for none (docs/rendering.md, the
+ambient), and against the game's frames the shade comes right only without
+adding it again.
 
 ### Layers
 

@@ -25,15 +25,12 @@ const char* kVertex = R"(
 attribute vec3 aPos;
 attribute vec2 aUv;
 attribute vec2 aUv2;
-attribute vec3 aAmb;
 uniform mat4 uMvp;
 varying vec2 vUv;
 varying vec2 vUv2;
-varying vec3 vAmb;
 void main() {
     vUv = aUv;
     vUv2 = aUv2;
-    vAmb = aAmb;
     gl_Position = uMvp * vec4(aPos, 1.0);
 }
 )";
@@ -46,11 +43,11 @@ uniform float uLit;
 uniform float uCut;
 varying vec2 vUv;
 varying vec2 vUv2;
-varying vec3 vAmb;
 void main() {
     vec4 c = texture2D(uTex, vUv);
     if (c.a < uCut) discard;
-    vec3 light = uLit > 0.5 ? texture2D(uLm, vUv2).rgb * 2.0 + vAmb : vec3(1.0);
+    // the zone's ambient is in the lightmap already
+    vec3 light = uLit > 0.5 ? texture2D(uLm, vUv2).rgb * 2.0 : vec3(1.0);
     gl_FragColor = vec4(c.rgb * light, c.a);
 }
 )";
@@ -118,6 +115,21 @@ Vec3 ambientOf(World& w, Object* zone) {
     }
 }
 
+// The ambient a zone leaves in the light the level baked: where no light
+// reaches, a lightmap or a terrain's vertex holds the ambient's colour at
+// 0.41 sqrt(AmbientBrightness / 255), as stored, before it is doubled. Read
+// off the terrains' light, which is flat there: brightness 64, 32 and 16 leave
+// 52, 36 and 25 of 255 (this gives 52, 37, 26), Hamlet's 64 of hue 150 and
+// saturation 222 leaves (45, 46, 50) (this gives 45, 48, 52), and none leaves
+// 0; the lightmaps, through DXT1, agree. A static mesh's colours do not
+// hold it, so it is added to them as the BSP has it.
+Vec3 bakedAmbientOf(World& w, Object* zone) {
+    float v = float(w.var(zone, "AmbientBrightness").i()) / 255.0f;
+    if (v <= 0) return {};
+    Vec3 c = ambientOf(w, zone) * (1.0f / v);
+    return c * (0.41f * std::sqrt(v));
+}
+
 }  // namespace
 
 LevelRender::LevelRender(Session& s, Library& lib) : session_(s), lib_(lib), materials_(lib) {
@@ -131,7 +143,6 @@ LevelRender::LevelRender(Session& s, Library& lib) : session_(s), lib_(lib), mat
     aPos_ = glGetAttribLocation(program_, "aPos");
     aUv_ = glGetAttribLocation(program_, "aUv");
     aUv2_ = glGetAttribLocation(program_, "aUv2");
-    aAmb_ = glGetAttribLocation(program_, "aAmb");
     uMvp_ = glGetUniformLocation(program_, "uMvp");
     uTex_ = glGetUniformLocation(program_, "uTex");
     uLm_ = glGetUniformLocation(program_, "uLm");
@@ -181,7 +192,6 @@ unsigned LevelRender::textureFor(const SurfaceMaterial& m, int& width, int& heig
 }
 
 void LevelRender::buildBsp() {
-    World& w = *session_.world;
     const BspModel& m = session_.collision->bsp;
     const Package& p = *session_.linker->packages[size_t(session_.pkg)];
     // the lightmap textures, DXT1, decoded once
@@ -197,12 +207,6 @@ void LevelRender::buildBsp() {
         decodeDxt(p.data.data() + t.at, t.size, t.width, t.height, 3, img.rgba.data());
         lightMapTex_.push_back(upload(img, false));
         ++lightMaps;
-    }
-    // each zone's ambient
-    std::vector<Vec3> ambient;
-    for (int32_t actor : m.zoneActors) {
-        auto it = w.actorAt.find(actor);
-        ambient.push_back(ambientOf(w, it != w.actorAt.end() ? it->second : w.info));
     }
     // Triangles grouped by texture, lightmap and how they are drawn.
     struct Key {
@@ -232,8 +236,7 @@ void LevelRender::buildBsp() {
         Key key{tex, lm ? lm : white_, int(mat.blend), mat.alphaRef, mat.zwrite, unlit};
         std::vector<float>& out = groups[key];
         Vec3 base = m.points[size_t(s.base)], tu = m.vectors[size_t(s.textureU)], tv = m.vectors[size_t(s.textureV)];
-        Vec3 amb = n.zone < ambient.size() ? ambient[n.zone] : Vec3{};
-        std::vector<std::array<float, 10>> corners;
+        std::vector<std::array<float, 7>> corners;
         for (int k = 0; k < n.numVerts; ++k) {
             Vec3 q = m.points[size_t(m.vertPoints[size_t(n.vertPool + k)])];
             Vec3 d = q - base;
@@ -247,7 +250,7 @@ void LevelRender::buildBsp() {
                     lv = f[1];
                 }
             }
-            corners.push_back({q.x, q.y, q.z, dot(d, tu) / float(tw), dot(d, tv) / float(th), lu, lv, amb.x, amb.y, amb.z});
+            corners.push_back({q.x, q.y, q.z, dot(d, tu) / float(tw), dot(d, tv) / float(th), lu, lv});
         }
         for (size_t k = 1; k + 1 < corners.size(); ++k)
             for (size_t c : {size_t(0), k, k + 1}) out.insert(out.end(), corners[c].begin(), corners[c].end());
@@ -260,7 +263,7 @@ void LevelRender::buildBsp() {
         b.mat.alphaRef = key.cut;
         b.mat.zwrite = key.zwrite;
         b.unlit = key.unlit;
-        b.count = int(verts.size() / 10);
+        b.count = int(verts.size() / 7);
         glGenBuffers(1, &b.buffer);
         glBindBuffer(GL_ARRAY_BUFFER, b.buffer);
         glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(verts.size() * sizeof(float)), verts.data(), GL_STATIC_DRAW);
@@ -276,7 +279,7 @@ namespace {
 // the world position against its matrix's u and v rows, and the layers are
 // laid over each other in order, each by its weight, as the viewer does.
 unsigned terrainProgram(int n) {
-    std::string vs = "attribute vec3 aPos; attribute vec3 aLit; attribute vec3 aAmb; attribute vec4 aW0; attribute vec4 aW1;\n"
+    std::string vs = "attribute vec3 aPos; attribute vec3 aLit; attribute vec4 aW0; attribute vec4 aW1;\n"
                      "uniform mat4 uMvp; varying vec3 vLight; varying vec4 vW0; varying vec4 vW1;\n";
     std::string fs = "precision mediump float; varying vec3 vLight; varying vec4 vW0; varying vec4 vW1;\n";
     for (int i = 0; i < n; ++i) {
@@ -289,7 +292,8 @@ unsigned terrainProgram(int n) {
         std::string k = std::to_string(i);
         vs += " vT" + k + " = vec2(dot(p, uU" + k + "), dot(p, uV" + k + "));\n";
     }
-    vs += " vLight = aLit * 2.0 + aAmb; vW0 = aW0; vW1 = aW1; gl_Position = uMvp * p; }\n";
+    // the zone's ambient is in the baked light already
+    vs += " vLight = aLit * 2.0; vW0 = aW0; vW1 = aW1; gl_Position = uMvp * p; }\n";
     static const char* W[] = {"vW0.x", "vW0.y", "vW0.z", "vW0.w", "vW1.x", "vW1.y", "vW1.z", "vW1.w"};
     fs += "void main() { vec3 c = vec3(0.0);\n";
     for (int i = 0; i < n; ++i) {
@@ -302,9 +306,8 @@ unsigned terrainProgram(int n) {
     glAttachShader(prog, compile(GL_FRAGMENT_SHADER, fs.c_str()));
     glBindAttribLocation(prog, 0, "aPos");
     glBindAttribLocation(prog, 1, "aLit");
-    glBindAttribLocation(prog, 2, "aAmb");
-    glBindAttribLocation(prog, 3, "aW0");
-    glBindAttribLocation(prog, 4, "aW1");
+    glBindAttribLocation(prog, 2, "aW0");
+    glBindAttribLocation(prog, 3, "aW1");
     glLinkProgram(prog);
     GLint ok = 0;
     glGetProgramiv(prog, GL_LINK_STATUS, &ok);
@@ -322,7 +325,6 @@ void LevelRender::buildTerrains() {
     World& w = *session_.world;
     Collision& col = *session_.collision;
     const Package& p = *session_.linker->packages[size_t(session_.pkg)];
-    const BspModel& bsp = col.bsp;
     for (size_t ti = 0; ti < col.terrains.size(); ++ti) {
         const Terrain& t = *col.terrains[ti];
         Object* actor = col.terrainActors[ti];
@@ -390,9 +392,9 @@ void LevelRender::buildTerrains() {
         }
         if (td.textures.empty()) continue;
         td.program = terrainProgram(int(td.textures.size()));
-        // the vertices: position, light, the zone's ambient, eight weights
+        // the vertices: position, light, eight weights
         std::vector<float> verts;
-        verts.reserve(size_t(t.X) * size_t(t.Y) * 17);
+        verts.reserve(size_t(t.X) * size_t(t.Y) * 14);
         for (int y = 0; y < t.Y; ++y)
             for (int x = 0; x < t.X; ++x) {
                 size_t v = size_t(y * t.X + x);
@@ -400,13 +402,7 @@ void LevelRender::buildTerrains() {
                 float lit[3] = {0.5f, 0.5f, 0.5f};
                 if (t.light.size() >= (v + 1) * 4)
                     for (int k = 0; k < 3; ++k) lit[k] = t.light[v * 4 + size_t(k)] / 255.0f;
-                BspModel::Region rg = bsp.regionAt(q + Vec3{0, 0, 8});
-                Vec3 amb{};
-                if (rg.zone >= 0 && size_t(rg.zone) < bsp.zoneActors.size()) {
-                    auto it = w.actorAt.find(bsp.zoneActors[size_t(rg.zone)]);
-                    amb = ambientOf(w, it != w.actorAt.end() ? it->second : w.info);
-                }
-                verts.insert(verts.end(), {q.x, q.y, q.z, lit[0], lit[1], lit[2], amb.x, amb.y, amb.z});
+                verts.insert(verts.end(), {q.x, q.y, q.z, lit[0], lit[1], lit[2]});
                 for (size_t k = 0; k < 8; ++k) verts.push_back(k < weights.size() ? weights[k][v] / 255.0f : 0.0f);
             }
         // bands of rows, each under 65536 vertices, for 16 bit indices
@@ -425,8 +421,8 @@ void LevelRender::buildTerrains() {
             TerrainDraw::Band b;
             glGenBuffers(1, &b.vertices);
             glBindBuffer(GL_ARRAY_BUFFER, b.vertices);
-            glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(size_t(y1 - y0 + 1) * size_t(t.X) * 17 * sizeof(float)),
-                         verts.data() + size_t(y0) * size_t(t.X) * 17, GL_STATIC_DRAW);
+            glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(size_t(y1 - y0 + 1) * size_t(t.X) * 14 * sizeof(float)),
+                         verts.data() + size_t(y0) * size_t(t.X) * 14, GL_STATIC_DRAW);
             glGenBuffers(1, &b.indices);
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, b.indices);
             glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(idx.size() * 2), idx.data(), GL_STATIC_DRAW);
@@ -451,8 +447,8 @@ varying vec2 vUv;
 varying vec3 vLight;
 void main() {
     vUv = aUv;
-    // the colour and the ambient together doubled, which the game's frames
-    // agree with better than the colour alone doubled
+    // the colour and the zone's ambient, as the BSP's light holds it,
+    // together doubled
     vLight = uBaked > 0.5 ? (aColor + uAmb) * 2.0 : vec3(1.0);
     gl_Position = uMvp * vec4(aPos, 1.0);
 }
@@ -606,11 +602,15 @@ void LevelRender::buildMeshes() {
         d.model[13] = origin[1];
         d.model[14] = origin[2];
         d.model[15] = 1;
+        Vec3 centre{};
         for (const Vec3& v : m->positions) {
             Vec3 q{d.model[0] * v.x + d.model[4] * v.y + d.model[8] * v.z, d.model[1] * v.x + d.model[5] * v.y + d.model[9] * v.z,
                    d.model[2] * v.x + d.model[6] * v.y + d.model[10] * v.z};
             d.radius = std::max(d.radius, length(q));
+            centre = centre + q;
         }
+        if (!m->positions.empty())
+            centre = centre * (1.0f / float(m->positions.size())) + Vec3{d.model[12], d.model[13], d.model[14]};
         // the baked light of this placing: its StaticMeshInstance's colours
         ObjectRef inst = refOf(w.obj(a, "StaticMeshInstance"));
         if (inst) {
@@ -656,7 +656,21 @@ void LevelRender::buildMeshes() {
                 }
             }
         }
-        d.ambient = ambientOf(w, zoneOf(w, a));
+        // The zone's ambient. A mesh whose origin is sunk into the ground has
+        // the LevelInfo for its zone, which has none, and would be black
+        // where no light reaches it, where the game draws the bushes by the
+        // swamp's pond dark green; the zone around its middle lights it.
+        Object* zone = zoneOf(w, a);
+        if (zone == w.info) {
+            const BspModel& bm = session_.collision->bsp;
+            BspModel::Region rg = bm.regionAt(centre);
+            if (rg.leaf >= 0 && rg.zone >= 0 && size_t(rg.zone) < bm.zoneActors.size()) {
+                auto it = w.actorAt.find(bm.zoneActors[size_t(rg.zone)]);
+                if (it != w.actorAt.end()) zone = it->second;
+            }
+        }
+        d.ambient = bakedAmbientOf(w, zone);
+        d.unlit = w.flag(a, "bUnlit");
         // a texture a section: the mesh's Materials, an actor's Skins over them
         ObjectRef meshRef = refOf(mo);
         std::vector<std::vector<TagEntry>> items;
@@ -1041,14 +1055,14 @@ void LevelRender::drawReceivers(Vec3 lo, Vec3 hi) {
     for (const Batch& b : batches_) {
         if (b.mat.blended()) continue;
         glBindBuffer(GL_ARRAY_BUFFER, b.buffer);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 10 * sizeof(float), nullptr);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 7 * sizeof(float), nullptr);
         glDrawArrays(GL_TRIANGLES, 0, b.count);
     }
     for (const TerrainDraw& td : terrains_)
         for (const TerrainDraw::Band& b : td.bands) {
             glBindBuffer(GL_ARRAY_BUFFER, b.vertices);
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, b.indices);
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 17 * sizeof(float), nullptr);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 14 * sizeof(float), nullptr);
             glDrawElements(GL_TRIANGLES, b.count, GL_UNSIGNED_SHORT, nullptr);
         }
     for (const MeshDraw& d : meshDraws_) {
@@ -1259,15 +1273,13 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
             glUniform1f(uLit_, b.unlit ? 0.0f : 1.0f);
             glUniform1f(uCut_, b.mat.alphaRef);
             glBindBuffer(GL_ARRAY_BUFFER, b.buffer);
-            const GLsizei stride = 10 * sizeof(float);
+            const GLsizei stride = 7 * sizeof(float);
             glEnableVertexAttribArray(GLuint(aPos_));
             glVertexAttribPointer(GLuint(aPos_), 3, GL_FLOAT, GL_FALSE, stride, nullptr);
             glEnableVertexAttribArray(GLuint(aUv_));
             glVertexAttribPointer(GLuint(aUv_), 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(12));
             glEnableVertexAttribArray(GLuint(aUv2_));
             glVertexAttribPointer(GLuint(aUv2_), 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(20));
-            glEnableVertexAttribArray(GLuint(aAmb_));
-            glVertexAttribPointer(GLuint(aAmb_), 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(28));
             glDrawArrays(GL_TRIANGLES, 0, b.count);
         }
     }
@@ -1287,9 +1299,9 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
         for (const TerrainDraw::Band& b : td.bands) {
             glBindBuffer(GL_ARRAY_BUFFER, b.vertices);
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, b.indices);
-            const GLsizei stride = 17 * sizeof(float);
-            const int sizes[5] = {3, 3, 3, 4, 4}, offsets[5] = {0, 3, 6, 9, 13};
-            for (int a = 0; a < 5; ++a) {
+            const GLsizei stride = 14 * sizeof(float);
+            const int sizes[4] = {3, 3, 4, 4}, offsets[4] = {0, 3, 6, 10};
+            for (int a = 0; a < 4; ++a) {
                 glEnableVertexAttribArray(GLuint(a));
                 glVertexAttribPointer(GLuint(a), sizes[a], GL_FLOAT, GL_FALSE, stride,
                                       reinterpret_cast<void*>(size_t(offsets[a]) * sizeof(float)));
@@ -1322,7 +1334,7 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
                 }
             glUniformMatrix4fv(uM, 1, GL_FALSE, m);
             glUniform3f(uA, d.ambient.x, d.ambient.y, d.ambient.z);
-            glUniform1f(uB, d.colors ? 1.0f : 0.0f);
+            glUniform1f(uB, d.colors && !d.unlit ? 1.0f : 0.0f);
             glBindBuffer(GL_ARRAY_BUFFER, d.mesh->vertices);
             glEnableVertexAttribArray(0);
             glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), nullptr);
@@ -1342,7 +1354,6 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
                 applyBlend(part.mat);
                 glBindTexture(GL_TEXTURE_2D, part.texture);
                 glUniform1f(uC, part.mat.alphaRef);
-                glUniform1f(uB, d.colors && !part.mat.blended() ? 1.0f : 0.0f);
                 glDrawElements(GL_TRIANGLES, part.count, GL_UNSIGNED_SHORT,
                                reinterpret_cast<void*>(size_t(part.first) * 2));
             }
