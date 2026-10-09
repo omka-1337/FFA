@@ -99,6 +99,10 @@ private:
     void drawReceivers(Vec3 lo, Vec3 hi);
     unsigned shadowFor(Object* projector, Object* actor, Vec3 apex, const Vec3 axes[3], float tanHalf);
     unsigned projProgram_ = 0, shadowProgram_ = 0, shadowFbo_ = 0, blob_ = 0;
+    // The screen flash over the frame: the player controller's FlashScale and
+    // FlashFog, which the game's fades set.
+    void drawFlash();
+    unsigned flashProgram_ = 0;
     std::map<Object*, unsigned> shadowTex_;
     Class* shadowClass_ = nullptr;
     // Skeletal meshes: posed and their opaque parts drawn, or, after every

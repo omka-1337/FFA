@@ -1414,6 +1414,48 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
     glActiveTexture(GL_TEXTURE0);
+    drawFlash();
+}
+
+// The frame times the controller's FlashScale, plus its FlashFog, as the
+// engine flashes the screen: KnowWonder's cutscenes fade through it, their
+// FadeTo setting FlashScale.X to one less the fade's alpha and FlashFog to its
+// colour, so FadeTo A=255 is black. PlayerController's own ViewFlash keeps
+// the three parts of FlashScale the same.
+void LevelRender::drawFlash() {
+    World& w = *session_.world;
+    Object* pc = session_.controller;
+    if (!pc || pc->deleted || !pc->cls->findProp(Name("FlashScale"))) return;
+    Vec3 scale, fog;
+    w.vm.unvector(w.var(pc, "FlashScale"), scale.x, scale.y, scale.z);
+    w.vm.unvector(w.var(pc, "FlashFog"), fog.x, fog.y, fog.z);
+    float k = std::clamp(scale.x, 0.0f, 1.0f);
+    fog = {std::clamp(fog.x, 0.0f, 1.0f), std::clamp(fog.y, 0.0f, 1.0f), std::clamp(fog.z, 0.0f, 1.0f)};
+    if (k >= 0.999f && fog.x <= 0.001f && fog.y <= 0.001f && fog.z <= 0.001f) return;
+    if (!flashProgram_) {
+        static const char* vs = "attribute vec2 aPos; void main() { gl_Position = vec4(aPos, 0.0, 1.0); }";
+        static const char* fs = "precision mediump float; uniform vec4 uColor; void main() { gl_FragColor = uColor; }";
+        flashProgram_ = glCreateProgram();
+        glAttachShader(flashProgram_, compile(GL_VERTEX_SHADER, vs));
+        glAttachShader(flashProgram_, compile(GL_FRAGMENT_SHADER, fs));
+        glBindAttribLocation(flashProgram_, 0, "aPos");
+        glLinkProgram(flashProgram_);
+    }
+    // fog plus the frame times the scale: the source is the fog, its alpha
+    // the scale
+    static const float quad[8] = {-1, -1, 1, -1, -1, 1, 1, 1};
+    glUseProgram(flashProgram_);
+    glUniform4f(glGetUniformLocation(flashProgram_, "uColor"), fog.x, fog.y, fog.z, k);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_SRC_ALPHA);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    for (int a = 1; a < 5; ++a) glDisableVertexAttribArray(GLuint(a));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, quad);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glDisable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
 }
 
 Image readFramebuffer(int width, int height) {
