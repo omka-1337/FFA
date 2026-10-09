@@ -249,7 +249,11 @@ void World::tick(float dt) {
                                                                                              : Value::Int(0);
                 for (auto& [axis, speed] : held) {
                     Prop* p = a->cls->findProp(Name(axis));
-                    if (p) a->props[size_t(p->slot)] = Value::Float(a->props[size_t(p->slot)].f() + speed);
+                    if (!p) continue;
+                    Value& v = a->props[size_t(p->slot)];
+                    if (p->kind == Kind::Float) v = Value::Float(v.f() + speed);
+                    else if (p->kind == Kind::Bool) v = Value::Bool(speed != 0);
+                    else v = Value::Int(std::min(255, v.i() + int(speed)));
                 }
                 vm.event(a, "PlayerTick", {delta});
                 sent["PlayerTick"]++;

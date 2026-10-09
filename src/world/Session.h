@@ -48,6 +48,10 @@ public:
     // W=MoveForward and Aliases[n]=(Command="Axis aBaseY Speed=+1200.0",
     // Alias=MoveForward), or Up=Axis aArrowUp SpeedBase=0.7 directly.
     std::vector<std::pair<std::string, float>> axesOf(const std::string& keyOrAlias) const;
+    // Every command a key or alias stands for, aliases within expanded.
+    std::vector<std::string> commandsOf(const std::string& keyOrAlias) const;
+    // Run a console command as a key pressed would: an exec function.
+    void exec(const std::string& command);
 
     // Where the player looks from, by the controller's own PlayerCalcView.
     bool view(Vec3& location, int32_t rotation[3]);

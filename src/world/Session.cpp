@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <fstream>
+#include <functional>
 #include <sstream>
 #include <stdexcept>
 
@@ -104,16 +105,20 @@ Object* Session::loadObject(const std::string& path) {
 
 Object* Session::pawn() const { return controller ? world->obj(controller, "Pawn") : nullptr; }
 
-std::vector<std::pair<std::string, float>> Session::axesOf(const std::string& keyOrAlias) const {
-    std::vector<std::pair<std::string, float>> out;
+std::vector<std::string> Session::commandsOf(const std::string& keyOrAlias) const {
     std::ifstream in(systemDir + "/DefUser.ini");
-    std::string line, binding = keyOrAlias;
+    std::string line;
     std::vector<std::string> lines;
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         lines.push_back(line);
     }
+    auto trim = [](std::string x) {
+        size_t a = x.find_first_not_of(" \t"), b = x.find_last_not_of(" \t");
+        return a == std::string::npos ? std::string() : x.substr(a, b - a + 1);
+    };
     // a key's binding, if it is a key
+    std::string binding = keyOrAlias;
     for (const std::string& l : lines) {
         size_t eq = l.find('=');
         if (eq != std::string::npos && lower(l.substr(0, eq)) == lower(keyOrAlias) && l.rfind("Aliases", 0) != 0) {
@@ -121,25 +126,46 @@ std::vector<std::pair<std::string, float>> Session::axesOf(const std::string& ke
             break;
         }
     }
-    // an alias's command, if it is an alias
-    std::string command = binding;
-    for (const std::string& l : lines) {
-        size_t c = l.find("Command=\""), al = l.find("Alias=");
-        if (c == std::string::npos || al == std::string::npos) continue;
-        std::string alias = l.substr(al + 6);
-        alias = alias.substr(0, alias.find(')'));
-        if (lower(alias) == lower(binding)) {
-            command = l.substr(c + 9, l.find('"', c + 9) - c - 9);
-            break;
+    // commands joined with |, each an alias's own when it is one
+    auto aliasOf = [&](const std::string& name) {
+        for (const std::string& l : lines) {
+            size_t c = l.find("Command=\""), al = l.find("Alias=");
+            if (c == std::string::npos || al == std::string::npos) continue;
+            std::string alias = l.substr(al + 6);
+            alias = alias.substr(0, alias.find(')'));
+            if (lower(alias) == lower(name)) return l.substr(c + 9, l.find('"', c + 9) - c - 9);
         }
-    }
-    // commands joined with |; the axes among them
-    std::stringstream parts(command);
-    std::string part;
-    while (std::getline(parts, part, '|')) {
+        return std::string();
+    };
+    std::vector<std::string> out;
+    std::function<void(const std::string&, int)> add = [&](const std::string& text, int depth) {
+        std::stringstream parts(text);
+        std::string part;
+        while (std::getline(parts, part, '|')) {
+            part = trim(part);
+            if (part.empty()) continue;
+            std::string expanded = depth < 4 ? aliasOf(part) : std::string();
+            if (!expanded.empty() && lower(expanded) != lower(part)) add(expanded, depth + 1);
+            else out.push_back(part);
+        }
+    };
+    add(binding, 0);
+    return out;
+}
+
+std::vector<std::pair<std::string, float>> Session::axesOf(const std::string& keyOrAlias) const {
+    std::vector<std::pair<std::string, float>> out;
+    for (const std::string& part : commandsOf(keyOrAlias)) {
         std::istringstream cmd(part);
         std::string word, axis;
         cmd >> word;
+        // Count counts the input's events into a byte, Button holds a bool
+        // while the key is down: SmoothMouse divides by the count
+        if (lower(word) == "count" || lower(word) == "button") {
+            cmd >> axis;
+            if (!axis.empty()) out.emplace_back(axis, 1.0f);
+            continue;
+        }
         if (lower(word) != "axis") continue;
         cmd >> axis;
         float speed = 1, base = 0, invert = 1;
@@ -152,6 +178,25 @@ std::vector<std::pair<std::string, float>> Session::axesOf(const std::string& ke
         out.emplace_back(axis, (base != 0 ? base : speed) * invert);
     }
     return out;
+}
+
+void Session::exec(const std::string& command) {
+    // the first word names an exec function of the controller, else of its
+    // pawn; the rest are its arguments, not passed yet
+    std::istringstream cmd(command);
+    std::string name;
+    cmd >> name;
+    if (name.empty() || lower(name) == "axis" || lower(name) == "button" || lower(name) == "count") return;
+    for (Object* o : {controller, pawn()}) {
+        if (!o) continue;
+        Function* fn = vm->findVirtual(o, Name(name));
+        if (!fn || !(fn->flags & FUNC_Exec)) continue;
+        try {
+            vm->callFunction(fn, o, {});
+        } catch (const std::exception&) {
+        }
+        return;
+    }
 }
 
 bool Session::view(Vec3& location, int32_t rotation[3]) {

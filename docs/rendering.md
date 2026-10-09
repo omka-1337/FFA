@@ -10,6 +10,21 @@ keys held reach the player's controller through the game's own bindings in
 DefUser.ini. `--shot <png> <seconds>` runs that long in a hidden window, saves
 the frame and quits, which is how the pictures here were checked.
 
+## Input in the window
+
+Keys and mouse buttons go through their bindings in DefUser.ini, aliases
+within expanded: an Axis adds its speed to an input variable while held, a
+Button holds a bool, a Count counts, and any other command runs once on the
+press as an exec function of the controller, else of its pawn, as RightMouse's
+Jump does. The mouse moves MouseX and MouseY, `Count bXAxis | Axis aMouseX
+Speed=6.0`: the count matters, as PlayerInput's SmoothMouse divides by it.
+How many counts the engine's input system gives a pixel is in its native code;
+here a frame's movement is taken over the frame's time, scaled so that 600
+pixels a second turn Shrek's camera some 90 degrees a second, a value tuned
+and not measured. From there the game's script does it: ShPlayerInput gives
+savedATurn, and the camera, ShCam in StateStandardCam, turns its destination
+by it times its set's fRotSpeed, 8 for Shrek. Tab lets the mouse go.
+
 ## The camera
 
 The view is the one the game asks for: the controller's PlayerCalcView, its

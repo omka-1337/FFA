@@ -46,7 +46,7 @@ int usage() {
                  "       ffa-script smoke <System dir>\n"
                  "       ffa-script level <System dir> <map.unr> [dump.tsv]\n"
                  "       ffa-script start <System dir> <map.unr>\n"
-                 "       ffa-script run <System dir> <map.unr> <seconds> [--hold <alias>] [--event <tag>]...\n"
+                 "       ffa-script run <System dir> <map.unr> <seconds> [--hold <key>] [--axis <var>=<value>] [--event <tag>]...\n"
                  "       ffa-script collide <System dir> <map.unr or .usx>...\n");
     return 2;
 }
@@ -459,6 +459,13 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
     Object* pc = session.controller;
     // Keys held for the whole run, by a key or an alias of DefUser.ini.
     for (const std::string& want : hold) {
+        if (want[0] == '=') {
+            // --axis name=value: an input variable held at a value as it is
+            size_t eq = want.find('=', 1);
+            w.held.emplace_back(want.substr(1, eq - 1), std::stof(want.substr(eq + 1)));
+            std::printf("holding             %s\n", want.substr(1).c_str());
+            continue;
+        }
         auto axes = session.axesOf(want);
         if (axes.empty()) throw std::runtime_error("no axis bound to " + want + " in DefUser.ini");
         for (auto& [axis, speed] : axes) {
@@ -607,6 +614,19 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
                         pawn->state ? pawn->state->name.str().c_str() : "none");
         }
         std::printf("\n  view target       %s\n", name(w.obj(pc, "ViewTarget")).c_str());
+        {
+            int32_t cr[3], prr[3] = {0, 0, 0};
+            vm.unrotator(w.var(pc, "Rotation"), cr[0], cr[1], cr[2]);
+            if (pawn) vm.unrotator(w.var(pawn, "Rotation"), prr[0], prr[1], prr[2]);
+            Object* cam = pc->cls->findProp(Name("Camera")) ? w.obj(pc, "Camera") : nullptr;
+            if (cam)
+                std::printf("  camera flags      sync rotation %d, transitioning %d, player %s, controller bUseBaseCam %d bShouldRotate %d, rDest yaw %d\n",
+                            w.flag(cam, "bSyncRotationWithTarget"), w.flag(cam, "bTransitioning"),
+                            w.obj(cam, "Player") ? w.obj(cam, "Player")->name.str().c_str() : "none", w.flag(pc, "bUseBaseCam"),
+                            w.flag(pc, "bShouldRotate"), [&] { int32_t a2, b2, c2; vm.unrotator(w.var(cam, "rDestRotation"), a2, b2, c2); return b2; }());
+            std::printf("  rotations         controller (%d, %d, %d), pawn (%d, %d, %d), savedATurn %.2f aTurn %.2f\n", cr[0], cr[1], cr[2],
+                        prr[0], prr[1], prr[2], pc->cls->findProp(Name("savedATurn")) ? w.var(pc, "savedATurn").f() : 0.0f, w.var(pc, "aTurn").f());
+        }
         // KnowWonder's camera follows the pawn as an actor of its own.
         for (Object* a : w.actors) {
             if (a->deleted || !a->cls->name.str().ends_with("Cam") || !pawn) continue;
@@ -1005,6 +1025,7 @@ int main(int argc, char** argv) {
             for (int i = 5; i + 1 < argc; i += 2) {
                 if (std::string(argv[i]) == "--hold") hold.push_back(argv[i + 1]);
                 if (std::string(argv[i]) == "--event") events.push_back(argv[i + 1]);
+                if (std::string(argv[i]) == "--axis") hold.push_back(std::string("=") + argv[i + 1]);
             }
             return start(dir, argv[3], std::stof(argv[4]), hold, events);
         }

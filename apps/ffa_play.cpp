@@ -7,7 +7,9 @@
 // The level begins as the engine begins it (world/Session.h), the world ticks
 // once a frame drawn by the time it took, the keys held are given to the player's
 // controller through the game's own bindings in DefUser.ini, and the view is
-// the one the controller's PlayerCalcView gives. Escape quits.
+// the one the controller's PlayerCalcView gives. The mouse goes through its
+// bindings too, MouseX and MouseY, and the mouse buttons; Tab lets the mouse
+// go. Escape quits.
 #include <SDL2/SDL.h>
 #include <GLES2/gl2.h>
 
@@ -98,6 +100,9 @@ int main(int argc, char** argv) {
         Uint64 last = SDL_GetPerformanceCounter();
         double behind = 0;
         bool running = true;
+        float mouseX = 0, mouseY = 0;
+        Uint64 lastMouse = SDL_GetPerformanceCounter();
+        if (!shot) SDL_SetRelativeMouseMode(SDL_TRUE);
         int drawn = 0;
         Uint64 titled = SDL_GetPerformanceCounter();
         while (running) {
@@ -105,19 +110,58 @@ int main(int argc, char** argv) {
             while (SDL_PollEvent(&e)) {
                 if (e.type == SDL_QUIT) running = false;
                 if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) running = false;
+                if (e.type == SDL_KEYDOWN && !e.key.repeat && e.key.keysym.sym == SDLK_TAB) {
+                    // Tab lets the mouse go and takes it again
+                    SDL_SetRelativeMouseMode(SDL_GetRelativeMouseMode() ? SDL_FALSE : SDL_TRUE);
+                    continue;
+                }
+                std::string pressed, released;
                 if ((e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) && !e.key.repeat) {
                     std::string k = engineKey(e.key.keysym.sym);
-                    if (k.empty()) continue;
-                    if (e.type == SDL_KEYDOWN) down.insert(k);
-                    else down.erase(k);
+                    (e.type == SDL_KEYDOWN ? pressed : released) = k;
                 }
+                if (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) {
+                    std::string k = e.button.button == SDL_BUTTON_LEFT ? "LeftMouse"
+                                    : e.button.button == SDL_BUTTON_RIGHT ? "RightMouse" : "MiddleMouse";
+                    (e.type == SDL_MOUSEBUTTONDOWN ? pressed : released) = k;
+                }
+                if (e.type == SDL_MOUSEMOTION && SDL_GetRelativeMouseMode()) {
+                    mouseX += float(e.motion.xrel);
+                    mouseY -= float(e.motion.yrel);     // the engine's up is positive
+                }
+                if (!pressed.empty()) {
+                    down.insert(pressed);
+                    // what is not an axis runs once, on the press
+                    for (const std::string& c : session.commandsOf(pressed)) session.exec(c);
+                }
+                if (!released.empty()) down.erase(released);
                 if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                     width = e.window.data1;
                     height = e.window.data2;
                 }
             }
-            // the axes of the keys held, by their bindings
+            // the axes of the keys held, by their bindings, and the mouse's
+            // movement this frame through its own, MouseX and MouseY
             w.held.clear();
+            // The mouse's movement as a rate: a frame's counts over the frame's
+            // time, scaled so that 600 counts a second turn Shrek's camera
+            // some 90 degrees a second. The scale is tuned, not the engine's:
+            // how many counts its input system gives a pixel is in its native
+            // code.
+            Uint64 nowMouse = SDL_GetPerformanceCounter();
+            float frameTime = std::max(0.001f, float(double(nowMouse - lastMouse) / double(SDL_GetPerformanceFrequency())));
+            lastMouse = nowMouse;
+            mouseX *= 0.2f / frameTime;
+            mouseY *= 0.2f / frameTime;
+            if (mouseX != 0 || mouseY != 0) {
+                static std::vector<std::pair<std::string, float>> mx = session.axesOf("MouseX"), my = session.axesOf("MouseY");
+                // an axis scaled by the movement, a count once
+                for (auto& [axis, speed] : mx)
+                    if (mouseX != 0) w.held.emplace_back(axis, axis[0] == 'b' ? speed : speed * mouseX);
+                for (auto& [axis, speed] : my)
+                    if (mouseY != 0) w.held.emplace_back(axis, axis[0] == 'b' ? speed : speed * mouseY);
+                mouseX = mouseY = 0;
+            }
             for (const std::string& k : down) {
                 auto it = bindings.find(k);
                 if (it == bindings.end()) it = bindings.emplace(k, session.axesOf(k)).first;
