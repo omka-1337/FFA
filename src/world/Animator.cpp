@@ -142,6 +142,18 @@ void Animator::meshToWorld(Object* a, float out[3][3], Vec3& origin) {
     Vec3 pp;
     world.vm.unvector(world.var(a, "PrePivot"), pp.x, pp.y, pp.z);
     origin = origin + pp;
+    // A pawn whose mesh has no MeshOrigin stands on the bottom of its
+    // cylinder. Such a mesh has its feet at its origin, and every pawn with
+    // one would have them at its Location, its cylinder's height in the air:
+    // Bandit 40, FatKnight 33, the rats 27 and 34, the prisoners 150, the
+    // factory's HazMatShrek 38, whom the game's frames show on the floor.
+    // The meshes with an origin are set by it, the scaled ones with a PrePivot
+    // for the rest (above), so this is for the ones without, inferred, not
+    // read: nothing in their data says it.
+    const AnimState& s = state(a);
+    if (s.mesh && s.mesh->origin.x == 0 && s.mesh->origin.y == 0 && s.mesh->origin.z == 0 && world.pawnClass &&
+        a->isA(world.pawnClass))
+        origin.z -= world.var(a, "CollisionHeight").f();
 }
 
 bool Animator::boneWorld(Object* a, const std::string& bone, Vec3& origin, Vec3 axes[3]) {

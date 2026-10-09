@@ -425,10 +425,13 @@ RotOrigin, MeshOrigin and MeshScale and the actor's Location, Rotation and
 scale, and its PrePivot, added as it is: the characters whose meshes stand
 high in their collision cylinders carry one that takes them to its bottom,
 within three units for human Shrek (-19), Puss (-9.5), the Steed (-17.5) and
-the exploding pumpkin Donkey (-7). HazMatShrek, the factory's Shrek in his
-suit, does not: his mesh is Shrek's, the same skeleton and points, with a
-MeshOrigin of 0 where Shrek's is -49, and he stands 38 above the floor, as
-nothing in the data says otherwise.
+the exploding pumpkin Donkey (-7). A pawn whose mesh has no MeshOrigin is
+taken down by its CollisionHeight: those meshes have their feet at their
+origin, and every pawn with one stood exactly its cylinder's height in the
+air, Bandit 40, FatKnight 33, the rats 27 and 34, the prisoners 150, and the
+factory's HazMatShrek 38, whose mesh is Shrek's, the same skeleton and
+points, with a MeshOrigin of 0 where Shrek's is -49; the game's frames show
+him on the floor. That rule is inferred from those, not read.
 AttachToBone makes the actor the attachment's Base with its AttachmentBone
 set, and each frame, after the animation, an attachment is put on its bone at
 its RelativeLocation and RelativeRotation. A rotator is made from axes by the

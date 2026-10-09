@@ -119,7 +119,11 @@ characters' and the static meshes', which writes no depth. A blended part
 drawn before an opaque thing behind it has that thing drawn over it: the
 Fairy Godmother factory's workers, whose suits are textures with an alpha
 channel, Elf's RandSkins HazMat1 to HazMat6, had the conveyors and the floor
-show through them when the characters came before the static meshes.
+show through them when the characters came before the static meshes. A
+character's blended parts write depth all the same: they are textures whose
+alpha is nearly all opaque, 96 to 97 per cent at 255 on the workers' suits
+and HazMatShrek's hood, and drawn without it the mesh's far faces came over
+its near ones, the hood see-through and black rings round the workers.
 
 ## Projectors and shadows
 

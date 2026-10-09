@@ -763,6 +763,12 @@ LevelRender::SkelDraw& LevelRender::skelFor(Object* a) {
         if (sk) mat = materials_.resolve(*sk.pkg, sk.idx);
         else if (mi < m->materials.size()) mat = materials_.resolve(*m->package, m->materials[mi]);
         if (mat.blend == Blend::Invisible) continue;
+        // A character's blended parts write depth: they are textures with an
+        // alpha channel nearly all opaque, HazMatShrek's hood and the factory
+        // workers' suits 96 to 97 per cent at 255, which the game's frames show
+        // solid; drawn without depth, the mesh's far faces came over its near
+        // ones, the hood see-through and black rings round the workers.
+        if (mat.blended()) mat.zwrite = true;
         int tw, th;
         unsigned tex = textureFor(mat, tw, th);
         d.parts.push_back({int(idx.size()), int(list.size()), tex, mat});
