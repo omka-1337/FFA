@@ -228,6 +228,21 @@ void World::tick(float dt) {
     bool parity = frames & 1;
     // Animation first, so that a sequence ending this frame ends FinishAnim
     // before the state code that waits on it runs; then what hangs on bones.
+    // A save the game asked for, Level.LevelAction = LEVACT_Saving, as
+    // KWHeroController's SaveSlottedGame sets it: the engine saves and puts
+    // it back to LEVACT_None, and the HUD's SAVING is gone. Saving itself is
+    // not done yet; the action ends after the frame that showed it.
+    if (info && info->cls->findProp(Name("LevelAction"))) {
+        Value& act = var(info, "LevelAction");
+        if (act.i() == 2) {
+            if (savingSeen) {
+                act = Value::Int(0);
+                savingSeen = false;
+            } else {
+                savingSeen = true;
+            }
+        }
+    }
     ticking = nullptr;
     tickPart = "animation";
     if (animator) {

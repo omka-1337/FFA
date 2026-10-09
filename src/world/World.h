@@ -110,6 +110,7 @@ public:
     // where a frame that does not end is.
     Object* ticking = nullptr;
     const char* tickPart = "";
+    bool savingSeen = false;        // LEVACT_Saving has had its frame
 
 private:
     void send(Object* a, const char* event);
