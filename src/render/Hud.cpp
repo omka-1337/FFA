@@ -12,8 +12,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
-#include <cstdlib>
 
 #include "render/LevelRender.h"
 #include "world/World.h"
@@ -342,8 +340,7 @@ void LevelRender::drawHud(int width, int height) {
     }
     current = nullptr;
     hudTiles = hud_.size();
-    if (getenv("HUDDBG")) { std::fprintf(stderr, "HUD %zu tiles\n", hud_.size()); for (size_t i = 0; i < hud_.size() && i < 12; ++i) { auto& t = hud_[i]; std::fprintf(stderr, "  tex %u at %.0f %.0f size %.0f %.0f uv %.2f %.2f %.2f %.2f col %.2f %.2f %.2f %.2f style %d\n", t.texture, t.x, t.y, t.w, t.h, t.u0, t.v0, t.u1, t.v1, t.color[0], t.color[1], t.color[2], t.color[3], t.style); } }
-    if (hud_.empty() || getenv("NOHUDDRAW")) return;
+    if (hud_.empty()) return;
     if (!hudProgram_) {
         hudProgram_ = glCreateProgram();
         glAttachShader(hudProgram_, compileShader(GL_VERTEX_SHADER, kHudVertex));
