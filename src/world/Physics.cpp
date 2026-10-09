@@ -217,10 +217,13 @@ void physWalking(World& w, Object* a, float dt) {
             Vec3 rest = delta * (1 - h.time);
             TraceHit up = move(w, a, {0, 0, MaxStepHeight});
             float lifted = up ? up.time * MaxStepHeight : MaxStepHeight;
-            move(w, a, rest);
+            // a wall still there a step up is a wall, not a step: Donkey, walking
+            // out of the factory's elevator into its wall, stepped up, met it
+            // again, came down where he was, and never slid along it
+            TraceHit ahead = move(w, a, rest);
             TraceHit down = move(w, a, {0, 0, -(lifted + MaxFloorDist)});
             if (a->deleted) return;
-            if (!(down && down.normal.z >= MinFloorZ)) {
+            if (!(down && down.normal.z >= MinFloorZ) || (ahead && ahead.normal.z < MinFloorZ)) {
                 w.collision->place(a, before);
                 hitWall(w, a, h);
                 if (a->deleted || w.var(a, "Physics").i() != PHYS_Walking) return;

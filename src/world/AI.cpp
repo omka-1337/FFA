@@ -82,7 +82,20 @@ void startMove(NativeCall& c, Vec3 dest, Object* target, Object* focus, bool wal
     float dist = length(dest - vget(w, pawn, "Location"));
     w.var(ctl, "MoveTimer") = Value::Float(1 + 1.3f * dist / std::max(speed, 1.0f));
     VM* vm = &c.vm;
-    ctl->latent = [vm, ctl, target](float dt) {
+    // Going round what it walks into, as the engine's AI adjusts: a pawn that
+    // has hardly moved for a few frames while it means to steps aside, to the
+    // nearer side its box is free at, and goes on from there.
+    struct Round {
+        Vec3 last;
+        int stuck = 0;
+        bool adjusting = false;
+        Vec3 adjust;
+        float adjustLeft = 0;
+        float first = 1;            // the side tried first, turned about each time
+    };
+    auto round = std::make_shared<Round>();
+    round->last = vget(w, pawn, "Location");
+    ctl->latent = [vm, ctl, target, round](float dt) {
         World& w = *World::of(*vm);
         Object* pawn = w.obj(ctl, "Pawn");
         if (!live(pawn)) return true;
@@ -103,9 +116,60 @@ void startMove(NativeCall& c, Vec3 dest, Object* target, Object* focus, bool wal
             vset(w, pawn, "Acceleration", {});
             return true;
         }
-        Vec3 d = dest - vget(w, pawn, "Location");
+        Vec3 at = vget(w, pawn, "Location");
         int phys = w.var(pawn, "Physics").i();
-        if (phys != PHYS_Flying && phys != PHYS_Swimming) d.z = 0;
+        bool ground = phys != PHYS_Flying && phys != PHYS_Swimming;
+        float radius = w.var(pawn, "CollisionRadius").f();
+        float speed = w.var(pawn, "GroundSpeed").f();
+        if (w.flag(pawn, "bIsWalking")) speed *= fopt(pawn, "WalkingPct", 1);
+        // stuck: under a tenth of its speed's way this frame
+        float moved = length2d(at - round->last);
+        round->last = at;
+        // stuck, on the way or on the way round, where another pawn may have
+        // stepped in: a new way round, the other side first this time
+        if (phys == PHYS_Walking && dt > 0 && moved < 0.1f * speed * dt) {
+            if (++round->stuck >= 3 && w.collision) {
+                round->stuck = 0;
+                round->adjusting = false;
+                round->first = -round->first;
+                Vec3 to = dest - at;
+                to.z = 0;
+                float len = length(to);
+                if (len > 0) {
+                    to = to * (1 / len);
+                    Vec3 side{-to.y, to.x, 0};
+                    float h = w.var(pawn, "CollisionHeight").f();
+                    Vec3 ext{radius, radius, h};
+                    // the nearest free step to either side, then one ahead
+                    for (float k : {1.5f, 3.0f, 5.0f}) {
+                        bool found = false;
+                        for (float sgn : {round->first, -round->first}) {
+                            Vec3 p = at + side * (sgn * k * radius) + Vec3{0, 0, 2};
+                            if (w.collision->boxCheck(at + Vec3{0, 0, 2}, p, ext, pawn)) continue;
+                            if (w.collision->boxCheck(p, p + to * (2 * radius), ext, pawn)) continue;
+                            round->adjust = p + to * radius;
+                            round->adjusting = true;
+                            round->adjustLeft = 1.0f;
+                            found = true;
+                            break;
+                        }
+                        if (found) break;
+                    }
+                }
+            }
+        } else {
+            round->stuck = 0;
+        }
+        Vec3 goal = dest;
+        if (round->adjusting) {
+            round->adjustLeft -= dt;
+            if (length2d(round->adjust - at) < std::max(8.0f, radius * 0.5f) || round->adjustLeft <= 0)
+                round->adjusting = false;
+            else
+                goal = round->adjust;
+        }
+        Vec3 d = goal - at;
+        if (ground) d.z = 0;
         float n = length(d);
         float rate = fopt(pawn, "AccelRate", 2048);
         vset(w, pawn, "Acceleration", n > 0 ? d * (rate / n) : Vec3{});

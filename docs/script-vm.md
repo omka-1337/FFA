@@ -497,7 +497,14 @@ cheapest route over the level's own paths: each NavigationPoint's PathList of
 ReachSpecs, from the nearest nodes the pawn can walk to, to the node itself or
 the nodes within 1200 that see the goal, along specs the pawn's cylinder fits,
 leaving out ladders, specials and proscribed ones; the route goes into
-RouteCache with RouteGoal and RouteDist. LineOfSightTo looks from the pawn's
+RouteCache with RouteGoal and RouteDist. A move that cannot be made, its pawn
+or target gone, still waits a tick, as every latent call does. A pawn that
+has hardly moved for three frames while it means to steps round: to the
+nearer side, then the farther, at one and a half, three and five times its
+radius, where its box is free and free ahead, and on from there; stuck again,
+it tries again, the other side first, as Donkey and Puss walking out of the
+factory's elevator in its cutscene step round each other. That is this
+engine's stand-in for the AI's adjusting round walls. LineOfSightTo looks from the pawn's
 eyes at the other's middle and head; CanSee adds its SightRadius and its
 PeripheralVision. The distances and the reach test are this engine's own, the
 behaviour the published UE2's.
