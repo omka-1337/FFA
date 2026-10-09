@@ -762,10 +762,15 @@ LevelRender::SkelDraw& LevelRender::skelFor(Object* a) {
     return d;
 }
 
-// A character's light at each of its points, as the engine lights an actor:
-// the MaxLights lights strongest where it stands, each falling off and lighting
-// by N.L as a static mesh's light does (bakeVertexLight), without shadows. In
-// the units of the baked colours: the shader doubles it and adds the ambient.
+// A character's light at each of its points: the MaxLights lights strongest
+// where it stands, falling off as a static mesh's light does
+// (bakeVertexLight), but far softer, as the game's frames show its characters
+// lit nearly evenly and nearly white: three times the zone's ambient (the
+// shader's ambient is raised for them) and a tenth of each light by half
+// Lambert. The model is tuned to frames of Shrek on his swamp, not taken from
+// the data: there his shirt and skirt take some 0.8 of their texture, about
+// the same on both sides and in each channel, where light by plain N.L, as
+// the static meshes take it, left one side at 0.6 and yellow.
 std::vector<Vec3> LevelRender::characterLight(Object* a, const SkeletalMesh& mesh, const std::vector<Vec3>& pts,
                                               const float r[3][3], Vec3 loc) {
     World& w = *session_.world;
@@ -840,17 +845,19 @@ std::vector<Vec3> LevelRender::characterLight(Object* a, const SkeletalMesh& mes
         if (ln > 0) wn = wn * (1 / ln);
         Vec3 c{};
         for (const Lit& li : near) {
+            // half Lambert: the side away from a light keeps half of it
             float k;
             if (li.sun) {
-                k = std::max(0.0f, -dot(wn, li.dir));
+                k = 0.5f + 0.5f * -dot(wn, li.dir);
             } else {
                 Vec3 d = li.pos - wp;
                 float dist = length(d);
                 if (dist <= 0 || dist >= li.radius) continue;
                 float x = dist / li.radius;
-                k = (1 - x * x) * (1 - x * x) * std::max(0.0f, dot(wn, d) / dist);
+                k = (1 - x * x) * (1 - x * x) * (0.5f + 0.5f * dot(wn, d) / dist);
             }
-            c = c + li.col * (0.65f * li.bright / 255.0f * k);
+            // a tenth of its brightness, as the shader doubles it
+            c = c + li.col * (0.05f * li.bright / 255.0f * k);
         }
         out[i] = {std::min(c.x, 1.0f), std::min(c.y, 1.0f), std::min(c.z, 1.0f)};
     }
@@ -877,7 +884,8 @@ void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye) {
         {
             ambient = ambientOf(w, zoneOf(w, a));
             float glow = float(w.var(a, "AmbientGlow").i()) / 255.0f;
-            ambient = ambient + Vec3{glow, glow, glow};
+            // three times the ambient once the shader doubles it
+            ambient = (ambient + Vec3{glow, glow, glow}) * 1.5f;
         }
         // the pose, skinned, into the actor's space; the actor's transform
         // goes to the shader

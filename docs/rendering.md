@@ -57,10 +57,14 @@ same way, so what was confirmed by eye there holds here:
 
 - **Skeletal meshes**, each actor drawn as a mesh skinned on the CPU every
   frame from its pose, its faces by material, the actor's Skins over the
-  mesh's materials. Lit as the engine lights an actor: its MaxLights lights
-  strongest where it stands, by the same falloff and N.L as the static meshes'
-  baked light, without shadows, plus the zone's ambient and the actor's
-  AmbientGlow; bUnlit full bright. The normals come from the posed faces,
+  mesh's materials. Lit by its MaxLights lights strongest where it stands,
+  with the same falloff as the static meshes' baked light, but evenly, as the
+  game's frames show its characters: three times the zone's ambient and
+  AmbientGlow, and a tenth of each light by half Lambert. Tuned to frames of
+  Shrek on his swamp, not taken from the data: his shirt there is 160 and 150
+  on its two sides and his skirt 178, about 0.8 of their texture in every
+  channel; this model gives 157 and 177, and 174. Plain N.L, as the static
+  meshes take light, gave 130 and 226, and yellow. bUnlit full bright. The normals come from the posed faces,
   turned to face away from the mesh's middle, as the winding is not settled. Holding forward on the swamp
   (`--hold W`), Shrek runs into the pond past the lily pads, arms swinging.
 
