@@ -997,12 +997,13 @@ void main() {
 const char* kShadowVertex = R"(
 attribute vec3 aPos;
 uniform vec3 uC;
+uniform vec3 uX;
 uniform vec3 uY;
 uniform vec3 uZ;
-uniform float uHalf;
+uniform float uTanHalf;
 void main() {
     vec3 d = aPos - uC;
-    gl_Position = vec4(dot(d, uY) / uHalf, -dot(d, uZ) / uHalf, 0.0, 1.0);
+    gl_Position = vec4(dot(d, uY), -dot(d, uZ), 0.0, dot(d, uX) * uTanHalf);
 }
 )";
 
@@ -1057,8 +1058,9 @@ void LevelRender::drawReceivers(Vec3 lo, Vec3 hi) {
     }
 }
 
-unsigned LevelRender::shadowFor(Object* proj, Object* actor, Vec3 centre, const Vec3 axes[3], float half) {
-    // The actor's silhouette as the light sees it, grey on white, 64 square.
+unsigned LevelRender::shadowFor(Object* proj, Object* actor, Vec3 apex, const Vec3 axes[3], float tanHalf) {
+    // The actor's silhouette as the light sees it from the projector's apex,
+    // grey on white, small: 32 square, softened again as it is projected.
     auto it = skel_.find(actor);
     if (it == skel_.end() || it->second.world.empty() || !it->second.mesh) return 0;
     const SkelDraw& d = it->second;
@@ -1066,7 +1068,7 @@ unsigned LevelRender::shadowFor(Object* proj, Object* actor, Vec3 centre, const 
     if (!tex) {
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 64, 64, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 32, 32, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -1077,16 +1079,17 @@ unsigned LevelRender::shadowFor(Object* proj, Object* actor, Vec3 centre, const 
     glGetIntegerv(GL_VIEWPORT, viewport);
     glBindFramebuffer(GL_FRAMEBUFFER, shadowFbo_);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
-    glViewport(0, 0, 64, 64);
+    glViewport(0, 0, 32, 32);
     glClearColor(1, 1, 1, 1);
     glClear(GL_COLOR_BUFFER_BIT);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
     glUseProgram(shadowProgram_);
-    glUniform3f(glGetUniformLocation(shadowProgram_, "uC"), centre.x, centre.y, centre.z);
+    glUniform3f(glGetUniformLocation(shadowProgram_, "uC"), apex.x, apex.y, apex.z);
+    glUniform3f(glGetUniformLocation(shadowProgram_, "uX"), axes[0].x, axes[0].y, axes[0].z);
     glUniform3f(glGetUniformLocation(shadowProgram_, "uY"), axes[1].x, axes[1].y, axes[1].z);
     glUniform3f(glGetUniformLocation(shadowProgram_, "uZ"), axes[2].x, axes[2].y, axes[2].z);
-    glUniform1f(glGetUniformLocation(shadowProgram_, "uHalf"), half);
+    glUniform1f(glGetUniformLocation(shadowProgram_, "uTanHalf"), tanHalf);
     std::vector<float> tris;
     tris.reserve(d.mesh->faces.size() * 9);
     for (const SkeletalMesh::Face& f : d.mesh->faces)
@@ -1128,20 +1131,25 @@ void LevelRender::drawProjectors(const float mvp[16], Vec3 eye) {
         Vec3 apex = at;
         float nearD = 0, half = 1, tanHalf = 0;
         bool alpha = w.var(p, "FrameBufferBlendingOp").i() == 2;
-        if (shadowClass && p->isA(shadowClass)) {
-            // An actor's shadow: its silhouette along the light, from just
-            // behind it, as far down as the projector reaches.
+        bool shadow = shadowClass && p->isA(shadowClass);
+        if (shadow) {
+            // An actor's shadow, as KWPawn sets its ShadowProjector up in
+            // InitShadow: a perspective frustum whose apex is LightDistance
+            // back towards the light, FOV wide enough for the actor and 160
+            // more, DrawScale making it LightDistance tan(FOV / 2) across at
+            // the actor, with its 128 square ShadowBitmapMaterial. So the
+            // shadow on the ground is larger than the actor, and soft.
             Object* actor = w.obj(p, "ShadowActor");
             if (!actor || actor->deleted || w.flag(actor, "bHidden") || !w.flag(p, "bShadowActive")) continue;
-            Vec3 c;
-            w.vm.unvector(w.var(actor, "Location"), c.x, c.y, c.z);
-            float radius = std::max(w.var(actor, "CollisionRadius").f(), w.var(actor, "CollisionHeight").f()) * 1.4f;
-            tex = shadowFor(p, actor, c, ax, radius);
-            apex = c - ax[0] * radius;
-            half = radius;
-            far = far + radius * 2;
+            int fov = w.var(p, "FOV").i();
+            if (fov <= 0 || fov >= 180) continue;
+            tanHalf = std::tan(float(fov) * 3.14159265f / 360.0f);
+            half = w.var(p, "DrawScale").f() * 128.0f * 0.5f;
+            nearD = half / tanHalf;
+            apex = at - ax[0] * nearD;
+            far += nearD;
+            tex = shadowFor(p, actor, apex, ax, tanHalf);
             alpha = false;
-            glUseProgram(projProgram_);
         } else {
             ObjectRef ref = refOf(w.obj(p, "ProjTexture"));
             if (!ref) continue;
@@ -1161,6 +1169,7 @@ void LevelRender::drawProjectors(const float mvp[16], Vec3 eye) {
             }
         }
         if (!tex) continue;
+        (void)shadow;
         glUseProgram(projProgram_);
         glUniformMatrix4fv(glGetUniformLocation(projProgram_, "uMvp"), 1, GL_FALSE, mvp);
         glUniform3f(glGetUniformLocation(projProgram_, "uO"), apex.x, apex.y, apex.z);
@@ -1173,7 +1182,7 @@ void LevelRender::drawProjectors(const float mvp[16], Vec3 eye) {
         glUniform1f(glGetUniformLocation(projProgram_, "uTanHalf"), tanHalf);
         glUniform1f(glGetUniformLocation(projProgram_, "uFade"), w.flag(p, "bGradient") ? 1.0f : 0.0f);
         glUniform1f(glGetUniformLocation(projProgram_, "uAlpha"), alpha ? 1.0f : 0.0f);
-        glUniform1f(glGetUniformLocation(projProgram_, "uBlur"), shadowClass && p->isA(shadowClass) ? 1.5f / 64.0f : 0.0f);
+        glUniform1f(glGetUniformLocation(projProgram_, "uBlur"), shadow ? 2.0f / 32.0f : 0.0f);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, tex);
         glUniform1i(glGetUniformLocation(projProgram_, "uTex"), 0);

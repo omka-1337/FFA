@@ -85,10 +85,15 @@ tree's shadow (a TexOscillator over Tree_shadow, PB_AlphaBlend, FOV 45).
 
 A character's shadow is KWPawn's ShadowProjector: it follows its ShadowActor,
 points along the light, the Sunlight's direction where there is one, and asks
-for its texture, a ShadowBitmapMaterial, the actor seen from the light. Here
-that texture is drawn each frame: the posed mesh's silhouette from along the
-projector, grey on white, once, 64 square, and the projector softens it as it
-samples it, five taps a texel and a half apart. How the game softened its
+for its texture, a ShadowBitmapMaterial, the actor seen from the light. Its
+frustum is the one KWPawn's InitShadow sets: the apex LightDistance, 380, back
+towards the light, a FOV wide enough for the actor's bounding sphere and 160
+more, and a DrawScale that makes it LightDistance tan(FOV / 2) across at the
+actor with the texture's 128 texels: so the shadow on the ground is larger than
+the actor and spreads away from the light, as in the game. Here
+that texture is drawn each frame: the posed mesh's silhouette from the apex,
+in the same perspective, grey on white, once, 32 square, and the projector
+softens it as it samples it, five taps two texels apart. How the game softened its
 shadows is not known; a small texture filtered is what its time could afford,
 and its shadows are soft. GetRenderBoundingSphere, which sizes it, is the posed mesh's box's
 sphere.

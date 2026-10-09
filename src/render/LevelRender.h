@@ -92,7 +92,7 @@ private:
     // Projectors: what they cover drawn again with their texture laid on.
     void drawProjectors(const float mvp[16], Vec3 eye);
     void drawReceivers(Vec3 lo, Vec3 hi);
-    unsigned shadowFor(Object* projector, Object* actor, Vec3 centre, const Vec3 axes[3], float half);
+    unsigned shadowFor(Object* projector, Object* actor, Vec3 apex, const Vec3 axes[3], float tanHalf);
     unsigned projProgram_ = 0, shadowProgram_ = 0, shadowFbo_ = 0, blob_ = 0;
     std::map<Object*, unsigned> shadowTex_;
     Class* shadowClass_ = nullptr;
