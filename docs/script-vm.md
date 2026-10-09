@@ -374,7 +374,9 @@ At the end of a play or of a round AnimEnd(channel) goes to the actor
 when the channel's notify is on, as every channel's is from the start; no
 script of the game turns one on, yet the cutscenes play on channels 20 and 21
 and wait for their AnimEnd, and KWPawn's AnimEnd passes over the channels it
-does not want. It goes to the pawn's controller instead while the controller
+does not want. With channel 0 alone notifying, Shrek's attacks also froze on
+their first frame, and play through with every channel, which someone who
+knows the game confirmed in the window. It goes to the pawn's controller instead while the controller
 has bControlAnimations, which a cutscene's PlayAnim sets. A channel above
 0 adds nothing until AnimBlendParams gives it an alpha: KWPawn blinks on
 channels 34 to 39, set to its lid and brow bones, and with an alpha of 1 by
