@@ -325,6 +325,43 @@ MV_SpringByTime moves straight for now. Movers wait to be triggered, so
 TriggerEvent: the five swinging lights of the first story book then go
 through their three keys in 7 seconds each, round again at 21.
 
+**Animation.** `src/world/Animator.cpp` runs each actor's channels; how a
+frame becomes a pose is not done yet, but the timing script waits on is. A
+MeshAnimation is read in the engine to its exact end (layout in
+tools/uanim.py) for its sequences: name, groups, frame count and frames a
+second. An actor's sequences are those LinkSkelAnim added, newest first, then
+its mesh's default animation, which a SkeletalMesh names right after its
+reference skeleton: 138 of the game's 141 do, 126 of them one of the same
+name. A path names more than one object here, Shrek being both a SkeletalMesh
+and a MeshAnimation in ShrekCharacters.ukx, so a lookup by path matches the
+class as well. DynamicLoadObject reaches every package of the game, not only
+the linked ones, through `VM::loadObject`.
+
+PlayAnim and LoopAnim run a channel's frame from 0 to 1 at Rate times the
+sequence's frames a second over its frame count; looping a sequence that
+already loops changes only its rate. A tween holds the first frame for its
+time. At the end of a play or of a round AnimEnd(channel) goes to the actor
+when the channel's notify is on, channel 0's from the start. FinishAnim waits
+for the channel to stop, ending a loop at the end of its round, and the data
+settles one thing about it: KnowWonder's BounceController plays its pawn's
+idle and finishes it in a loop, Pawn.PlayAnim(IdleAnim); FinishAnim(); goto
+'Begin', which spins forever unless a controller's FinishAnim waits on its
+pawn's animation; so it does. The game's animations carry no notifies of their
+own; script adds them with AddNotify, in AddAnimNotifys, which script only
+ever calls as a super: the engine sends it, and here it is sent when an
+actor's animation is first set up. That is how Shrek's footsteps sound.
+
+Pawns with bPhysicsAnimUpdate are animated by the engine as they move: walking
+faster than 10 units a second, the one of their four MovementAnims for the way
+they go against the way they face, looped on channel 0 and blended in over
+BlendChangeTime; stopped, KnowWonder's IdleAnimName, which their
+ChangeAnimation keeps up to date, apparently for this. When the engine switches
+is modelled, not measured. Holding forward on the swamp, Shrek runs `run`,
+falls on channel 1 in `jumploop`, lands with `jumplandtorun`, idles in `Idle`,
+and blinks on channel 34. Twenty seconds of every level start 10605 sequences,
+send 89681 AnimEnd and 1147 notifies, with no script error; the 384 sequences
+not found are asked for by name None, or are not in the data.
+
 **Input.** `run ... --hold MoveForward` holds a key for the whole run, by its
 alias in DefUser.ini: `Axis aBaseY Speed=+1200`. Each frame, before the
 controller's PlayerTick, every controller variable declared `input` is set to

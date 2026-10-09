@@ -47,8 +47,9 @@ class Printer:
         op = n.op
         if op == 'NativeCall':
             return self.native_call(n)
-        if op in ('LocalVariable', 'InstanceVariable', 'DefaultVariable',
-                  'StateVariable', 'NativeParm'):
+        if op == 'DefaultVariable':
+            return 'default.' + self.ref(n)
+        if op in ('LocalVariable', 'InstanceVariable', 'StateVariable', 'NativeParm'):
             return self.ref(n)
         if op == 'Self':
             return 'self'

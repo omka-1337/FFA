@@ -191,9 +191,18 @@ Engine:
 - [x] A window: `ffa-play`, SDL2 and OpenGL ES 2, the BSP, terrains and
   static meshes textured and lit as baked, from the game's own camera.
 - [ ] The sky zone behind the PF_FakeBackdrop surfaces.
+- [ ] Water: half transparent, reflecting a cubemap, not the scene. Most likely
+  a Shader whose Opacity and a TexEnvMap over a cubemap give it; the material
+  walk now stops at the cubemap.
 - [ ] Static mesh light computed from the lights and their masks, for the
   instances whose colours are black.
-- [ ] Skeletal meshes and their animation in the window; sprites and emitters.
+- [x] Animation timing: channels, PlayAnim, LoopAnim, TweenAnim, FinishAnim,
+  AnimEnd, blending alphas, AddNotify, the default animation of a mesh, and
+  the engine's own movement animation of pawns.
+- [ ] Poses: sampling the tracks, bone transforms, GetBoneCoords and
+  AttachToBone; then skeletal meshes in the window. Turning in place
+  (TurnLeftAnim, TurnRightAnim) and the walking rate.
+- [ ] Sprites and emitters.
 
 Open questions, written up in the format document with the measurements so
 far:

@@ -51,6 +51,11 @@ Session::Session(const std::string& sys, const std::string& map) : systemDir(sys
     world = std::make_unique<World>(*vm, pkg, level);
     collision = std::make_unique<Collision>(*world, pkg, level.model, gameDir);
     world->collision = collision.get();
+    library = std::make_unique<Library>(gameDir);
+    library->adopt(linker->packages[size_t(pkg)].get());
+    animator = std::make_unique<Animator>(*world, *library);
+    registerAnimationNatives(*vm);
+    vm->loadObject = [this](const std::string& path) { return loadObject(path); };
     // The game: a Game= option of the URL, else the engine's default.
     gameName = ini("Default.ini", "Engine.Engine", "DefaultGame");
     for (const std::string& o : level.options) {
@@ -63,6 +68,32 @@ Session::Session(const std::string& sys, const std::string& map) : systemDir(sys
 void Session::begin() {
     world->beginPlay(gameClass, options);
     controller = world->login(widen(level.portal), options);
+}
+
+Object* Session::loadObject(const std::string& path) {
+    std::string key = lower(path);
+    auto it = loaded_.find(key);
+    if (it != loaded_.end()) return it->second;
+    Object*& slot = loaded_[key];
+    std::vector<std::string> parts;
+    std::stringstream ss(path);
+    for (std::string part; std::getline(ss, part, '.');) parts.push_back(part);
+    if (parts.size() < 2) return nullptr;
+    const Package* p = library->package(parts[0]);
+    if (!p) return nullptr;
+    int idx = Library::findByPath(*p, std::vector<std::string>(parts.begin() + 1, parts.end()));
+    if (!idx) return nullptr;
+    Object* outer = nullptr;
+    for (size_t i = 0; i < parts.size(); ++i) {
+        auto o = std::make_unique<Object>();
+        o->name = Name(i == 0 ? p->stem : parts[i]);
+        o->outer = outer;
+        // a class with script, or none for a native one such as MeshAnimation
+        if (i + 1 == parts.size()) o->cls = linker->findClass(p->classOf(idx));
+        outer = o.get();
+        owned_.push_back(std::move(o));
+    }
+    return slot = outer;
 }
 
 Object* Session::pawn() const { return controller ? world->obj(controller, "Pawn") : nullptr; }

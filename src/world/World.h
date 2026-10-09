@@ -40,9 +40,11 @@ public:
     Class* pawnClass = nullptr;
     Class* brushClass = nullptr;
     Class* playerControllerClass = nullptr;
+    Class* controllerClass = nullptr;
     std::unordered_map<const Object*, int32_t> exportOf;   // the loaded actors' exports
     std::unordered_map<int32_t, Object*> actorAt;         // and back
     Collision* collision = nullptr;  // what traces hit, once attached
+    class Animator* animator = nullptr;   // the actors' animation, once attached
 
     // The world a VM's natives act on; null when none is attached.
     static World* of(VM& vm) { return static_cast<World*>(vm.host); }

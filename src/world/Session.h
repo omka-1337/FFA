@@ -4,13 +4,16 @@
 // window share it.
 #pragma once
 
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "core/Library.h"
 #include "script/Linker.h"
 #include "script/VM.h"
+#include "world/Animator.h"
 #include "world/Collision.h"
 #include "world/Level.h"
 #include "world/World.h"
@@ -32,6 +35,8 @@ public:
     std::unique_ptr<VM> vm;
     std::unique_ptr<World> world;
     std::unique_ptr<Collision> collision;
+    std::unique_ptr<Library> library;
+    std::unique_ptr<Animator> animator;
 
     std::string gameName;           // Game= of the URL, else Default.ini's DefaultGame
     Class* gameClass = nullptr;
@@ -47,8 +52,16 @@ public:
     // Where the player looks from, by the controller's own PlayerCalcView.
     bool view(Vec3& location, int32_t rotation[3]);
 
+    // An object of any package of the game, by its path, made for script:
+    // its outers as plain objects, its class the linker's of that name.
+    Object* loadObject(const std::string& path);
+
     // A key of an .ini file in the System directory, or empty.
     std::string ini(const std::string& file, const std::string& section, const std::string& key) const;
+
+private:
+    std::map<std::string, Object*> loaded_;
+    std::vector<std::unique_ptr<Object>> owned_;
 };
 
 }  // namespace ffa

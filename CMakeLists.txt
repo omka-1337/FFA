@@ -26,6 +26,8 @@ add_library(ffa_script
   src/script/Linker.cpp
   src/script/VM.cpp
   src/script/NativesCore.cpp
+  src/world/Animation.cpp
+  src/world/Animator.cpp
   src/world/Bsp.cpp
   src/world/Collision.cpp
   src/world/Level.cpp

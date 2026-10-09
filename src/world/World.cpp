@@ -1,6 +1,7 @@
 #include "world/World.h"
 
 #include "world/Collision.h"
+#include "world/Animator.h"
 #include "world/Physics.h"
 
 #include <cmath>
@@ -33,6 +34,7 @@ World::World(VM& vm, int pkg, const LevelRecord& level) : vm(vm), linker(vm.link
     pawnClass = vm.findClass("Pawn");
     brushClass = vm.findClass("Brush");
     playerControllerClass = vm.findClass("PlayerController");
+    controllerClass = vm.findClass("Controller");
 }
 
 Value& World::var(Object* a, const char* name) {
@@ -214,6 +216,16 @@ void World::tick(float dt) {
     // compares it to see whether a frame has passed (KWHeroController's
     // PlayerCalcView does).
     bool parity = frames & 1;
+    // Animation first, so that a sequence ending this frame ends FinishAnim
+    // before the state code that waits on it runs.
+    if (animator) {
+        try {
+            animator->tick(dt);
+        } catch (const std::exception& ex) {
+            failed["animation"]++;
+            failures[std::string("animation: ") + ex.what()]++;
+        }
+    }
     for (size_t i = 0; i < n; ++i) {
         Object* a = actors[i];
         if (a->deleted || flag(a, "bStatic")) continue;
@@ -234,6 +246,7 @@ void World::tick(float dt) {
             }
             vm.event(a, "Tick", {delta});
             sent["Tick"]++;
+            if (a->deleted) continue;
             if (a->deleted) continue;
             vm.processState(a, dt);
             if (a->deleted) continue;

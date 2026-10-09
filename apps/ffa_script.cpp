@@ -519,6 +519,12 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
                           "aForward %.0f, input %s", x, y, z, std::sqrt(vx * vx + vy * vy + vz * vz),
                           std::sqrt(ax * ax + ay * ay + az * az), w.var(pawn, "Physics").i(), w.var(pc, "aForward").f(),
                           input ? input->cls->name.str().c_str() : "none");
+            std::string anims;
+            for (size_t k = 0; k < session.animator->state(pawn).channels.size(); ++k) {
+                const AnimChannel& ch = session.animator->state(pawn).channels[k];
+                if (ch.seq) anims += " " + std::to_string(k) + ":" + ch.name + (ch.animating ? "" : "(stopped)");
+            }
+            std::strncat(buf, (", animating" + anims).c_str(), sizeof buf - std::strlen(buf) - 1);
             timeline.push_back(at + std::string(buf));
         }
         for (size_t i = 0; i < w.actors.size(); ++i) {
@@ -558,6 +564,10 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
         std::printf("%-19s %zu ran, %zu failed\n", ev, w.sent[ev], w.failed[ev]);
     if (w.frames) {
         std::printf("ran                 %zu frames, %.2f s of level time\n", w.frames, w.time);
+        Animator& an = *session.animator;
+        std::printf("animation           %zu sequences started, %zu not found, %zu AnimEnd sent, %zu notifies\n",
+                    an.sequencesPlayed, an.notFound, an.animEnds, an.notifiesSent);
+        for (auto& [k, n] : an.missing) std::printf("  not found %6zu  %s\n", n, k.c_str());
         for (const std::string& t : timeline) std::printf("  %s\n", t.c_str());
     }
     auto name = [](Object* o) { return o ? o->path() + " (" + o->cls->name.str() + ")" : std::string("none"); };

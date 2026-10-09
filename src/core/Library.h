@@ -48,8 +48,11 @@ public:
     // or through p's imports an export of another package, matched by its
     // path and class. None when it cannot be found.
     ObjectRef resolve(const Package& p, int32_t ref);
-    // An export by its dotted path below its package, or 0.
-    static int findByPath(const Package& p, const std::vector<std::string>& parts);
+    // An export by its dotted path below its package, and by its class when
+    // one is given, as one path can name several objects: in
+    // ShrekCharacters.ukx, Shrek is a SkeletalMesh and a MeshAnimation. 0 for
+    // none.
+    static int findByPath(const Package& p, const std::vector<std::string>& parts, const char* cls = nullptr);
 
     // An object's tagged properties, after its state frame if it has one, and
     // where they end. False when the record has no valid property block.

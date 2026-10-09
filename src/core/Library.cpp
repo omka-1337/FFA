@@ -49,8 +49,9 @@ const Package* Library::package(const std::string& stem) {
 
 void Library::adopt(const Package* p) { open_[lower(p->stem)] = p; }
 
-int Library::findByPath(const Package& p, const std::vector<std::string>& parts) {
+int Library::findByPath(const Package& p, const std::vector<std::string>& parts, const char* cls) {
     for (int i = 1; i <= int(p.exports.size()); ++i) {
+        if (cls && lower(p.classOf(i)) != lower(std::string(cls))) continue;
         int k = i;
         size_t j = parts.size();
         while (j > 0 && k > 0 && lower(p.exp(k).name) == lower(parts[j - 1])) {
