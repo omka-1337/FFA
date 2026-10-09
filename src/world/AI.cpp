@@ -66,7 +66,14 @@ void startMove(NativeCall& c, Vec3 dest, Object* target, Object* focus, bool wal
     w.var(ctl, "Focus") = Value::Obj(focus);
     vset(w, ctl, "Destination", dest);
     if (!focus) vset(w, ctl, "FocalPoint", dest);
-    if (!live(pawn)) return;
+    // A move that cannot be made still waits a tick, as every latent call
+    // does: the factory workers' MoveTowardHero goes straight back to its
+    // MoveToward when one fails, and with a dead worker's controller, its pawn
+    // gone, it ran a million statements a frame and the game stood still.
+    if (!live(pawn)) {
+        ctl->latent = [](float) { return true; };
+        return;
+    }
     w.var(pawn, "bIsWalking") = Value::Bool(walk);
     // As the engine sets it: time for the distance at the pawn's speed, a
     // third over, and a second.
@@ -338,6 +345,7 @@ void registerAINatives(VM& vm) {
         Object* t = c.o(0);
         if (!live(t)) {
             w.var(c.self, "bMoveToSuccess") = Value::Bool(false);
+            c.self->latent = [](float) { return true; };
             return Value();
         }
         startMove(c, vget(w, t, "Location"), t, c.o(1) ? c.o(1) : t, c.b(4));
