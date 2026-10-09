@@ -124,8 +124,10 @@ void Animator::startBlend(Object* a, int k, float time) {
 }
 
 void Animator::meshToWorld(Object* a, float out[3][3], Vec3& origin) {
-    // Location + R S, as the viewer places skeletal meshes; PrePivot is not
-    // settled for them and is left out.
+    // Location + PrePivot + R S. PrePivot is added as it is, unrotated: the
+    // characters whose meshes stand high in their cylinders carry one that
+    // takes them down to its bottom, within three units for human Shrek (19),
+    // Puss (9.5), the Steed (17.5) and the exploding pumpkin Donkey (7).
     int32_t pitch, yaw, roll;
     world.vm.unrotator(world.var(a, "Rotation"), pitch, yaw, roll);
     float ax[3][3];
@@ -137,6 +139,9 @@ void Animator::meshToWorld(Object* a, float out[3][3], Vec3& origin) {
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 3; ++c) out[r][c] = ax[c][r] * k[c];
     world.vm.unvector(world.var(a, "Location"), origin.x, origin.y, origin.z);
+    Vec3 pp;
+    world.vm.unvector(world.var(a, "PrePivot"), pp.x, pp.y, pp.z);
+    origin = origin + pp;
 }
 
 bool Animator::boneWorld(Object* a, const std::string& bone, Vec3& origin, Vec3 axes[3]) {
@@ -499,14 +504,21 @@ void registerAnimationNatives(VM& vm) {
         AnimChannel& ch = animator(c).channel(c.self, c.i(0));
         return Value::Nm(ch.seq ? Name(ch.name) : Name());
     };
+    // GetAnimParams and GetAnimFrame give the frame counted in frames, which
+    // is how every script of the game uses it: an attack hits between the
+    // frames its AttackInfo names, punch1's 6 to 12, FoodThrow throws past
+    // frame 17, and SuperSoaker indexes its frames with it.
     n["actor.getanimparams"] = [](NativeCall& c) {
         AnimChannel& ch = animator(c).channel(c.self, c.i(0));
         c.out(1, Value::Nm(ch.seq ? Name(ch.name) : Name()));
-        c.out(2, Value::Float(ch.frame));
+        c.out(2, Value::Float(ch.seq ? ch.frame * float(ch.seq->numFrames) : 0.0f));
         c.out(3, Value::Float(ch.rate));
         return Value();
     };
-    n["actor.getanimframe"] = [](NativeCall& c) { return Value::Float(animator(c).channel(c.self, c.i(0)).frame); };
+    n["actor.getanimframe"] = [](NativeCall& c) {
+        AnimChannel& ch = animator(c).channel(c.self, c.i(0));
+        return Value::Float(ch.seq ? ch.frame * float(ch.seq->numFrames) : 0.0f);
+    };
     n["actor.animisingroup"] = [](NativeCall& c) {
         AnimChannel& ch = animator(c).channel(c.self, c.i(0));
         std::string g = c.n(1).str();

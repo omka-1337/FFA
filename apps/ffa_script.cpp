@@ -46,7 +46,7 @@ int usage() {
                  "       ffa-script smoke <System dir>\n"
                  "       ffa-script level <System dir> <map.unr> [dump.tsv]\n"
                  "       ffa-script start <System dir> <map.unr>\n"
-                 "       ffa-script run <System dir> <map.unr> <seconds> [--hold <key>] [--axis <var>=<value>] [--event <tag>] [--log <word>] [--exec <seconds>=<command>]...\n"
+                 "       ffa-script run <System dir> <map.unr> <seconds> [--hold <key>] [--axis <var>=<value>] [--event <tag>] [--log <word>] [--exec <seconds>=<command>] [--tap <key>=<period>]...\n"
                  "       ffa-script collide <System dir> <map.unr or .usx>...\n");
     return 2;
 }
@@ -446,7 +446,8 @@ std::string iniValue(const std::string& file, const std::string& section, const 
 // ran, what failed, and the natives the sequence needed that do not exist.
 int start(const std::string& dir, const std::string& map, float seconds, const std::vector<std::string>& hold = {},
           const std::vector<std::string>& events = {}, const std::vector<std::string>& logs = {},
-          std::vector<std::pair<float, std::string>> execs = {}) {
+          std::vector<std::pair<float, std::string>> execs = {},
+          const std::vector<std::pair<std::string, float>>& taps = {}) {
     Session session(dir, map);
     VM& vm = *session.vm;
     World& w = *session.world;
@@ -483,6 +484,20 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
             std::printf("holding             %s: %s at %g\n", want.c_str(), axis.c_str(), speed);
         }
     }
+    // --tap: a key pressed and let go again and again, held for half of each
+    // period: its axes and buttons while down, its other commands on each press.
+    struct Tap {
+        std::vector<std::pair<std::string, float>> axes;
+        std::vector<std::string> commands;
+        float period;
+        bool down = false;
+    };
+    std::vector<Tap> tapping;
+    for (auto& [key, period] : taps) {
+        tapping.push_back({session.axesOf(key), session.commandsOf(key), std::max(period, 2.0f / 30.0f)});
+        std::printf("tapping             %s every %.2f s\n", key.c_str(), period);
+    }
+    const auto heldBase = w.held;
     // Events sent at the start, as a trigger would: the game's own
     // TriggerEvent, which triggers every actor with that Tag.
     for (const std::string& e : events) {
@@ -528,6 +543,16 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
                 session.exec(command);
                 command.clear();
             }
+        if (!tapping.empty()) {
+            w.held = heldBase;
+            for (Tap& t : tapping) {
+                bool down = std::fmod(w.time, t.period) < t.period * 0.5f;
+                if (down && !t.down)
+                    for (const std::string& c : t.commands) session.exec(c);
+                t.down = down;
+                if (down) w.held.insert(w.held.end(), t.axes.begin(), t.axes.end());
+            }
+        }
         w.tick(1.0f / 30.0f);
         if (!pc) continue;
         Object* pawn = w.obj(pc, "Pawn");
@@ -609,7 +634,9 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
                 Vec3 q = sk->toActor(p);
                 low = std::min(low, o.z + m[2][0] * q.x + m[2][1] * q.y + m[2][2] * q.z);
             }
-            feet.push_back(low - (o.z - w.var(a, "CollisionHeight").f()));
+            Vec3 at;
+            vm.unvector(w.var(a, "Location"), at.x, at.y, at.z);
+            feet.push_back(low - (at.z - w.var(a, "CollisionHeight").f()));
         }
         std::sort(feet.begin(), feet.end());
         if (!feet.empty())
@@ -631,6 +658,7 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
             vm.unvector(w.var(pawn, "Location"), x, y, z);
             std::printf(" at (%.0f, %.0f, %.0f), state %s", x, y, z,
                         pawn->state ? pawn->state->name.str().c_str() : "none");
+            if (pawn->cls->findProp(Name("Health"))) std::printf(", health %.0f", w.var(pawn, "Health").f());
         }
         std::printf("\n  view target       %s\n", name(w.obj(pc, "ViewTarget")).c_str());
         {
@@ -740,8 +768,10 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
         std::printf("controlled pawns    %zu, %zu moved\n", ai.size(), moved);
         for (size_t i = 0; i < ai.size() && i < 12; ++i) {
             auto [d, a, c] = ai[i];
-            std::printf("  %-28s %-26s state %-24s moved %.0f\n", a->name.str().c_str(), c->cls->name.str().c_str(),
+            std::printf("  %-28s %-26s state %-24s moved %.0f", a->name.str().c_str(), c->cls->name.str().c_str(),
                         c->state ? c->state->name.str().c_str() : "none", d);
+            if (a->cls->findProp(Name("Health"))) std::printf(", health %.0f", w.var(a, "Health").f());
+            std::printf("\n");
         }
     }
     // Cutscenes: each KnowWonder cut controller still scripting, where it is
@@ -1081,7 +1111,13 @@ int main(int argc, char** argv) {
         if (cmd == "run" && argc >= 5) {
             std::vector<std::string> hold, events, logs;
             std::vector<std::pair<float, std::string>> execs;
+            std::vector<std::pair<std::string, float>> taps;
             for (int i = 5; i + 1 < argc; i += 2) {
+                if (std::string(argv[i]) == "--tap") {
+                    std::string e = argv[i + 1];
+                    size_t eq = e.find('=');
+                    if (eq != std::string::npos) taps.emplace_back(e.substr(0, eq), std::stof(e.substr(eq + 1)));
+                }
                 if (std::string(argv[i]) == "--exec") {
                     std::string e = argv[i + 1];
                     size_t eq = e.find('=');
@@ -1092,7 +1128,7 @@ int main(int argc, char** argv) {
                 if (std::string(argv[i]) == "--event") events.push_back(argv[i + 1]);
                 if (std::string(argv[i]) == "--axis") hold.push_back(std::string("=") + argv[i + 1]);
             }
-            return start(dir, argv[3], std::stof(argv[4]), hold, events, logs, execs);
+            return start(dir, argv[3], std::stof(argv[4]), hold, events, logs, execs, taps);
         }
         if (cmd == "level" && argc >= 4) return level(dir, argv[3], argc >= 5 ? argv[4] : nullptr);
         if (cmd == "call" && argc >= 4)

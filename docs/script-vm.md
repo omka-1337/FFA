@@ -363,6 +363,12 @@ The linker makes each of these classes once, empty, under its parent in the
 engine's own hierarchy (SkeletalMesh under Mesh under Primitive under Object),
 for a cast, an import and an object's class alike.
 
+GetAnimParams and GetAnimFrame give the frame counted in frames, as every
+script of the game uses it: an attack hits between the frames its AttackInfo
+names, human Shrek's punch1 from 6 to 12, FoodThrow throws past frame 17, and
+SuperSoaker indexes its frames with it. With the frame given from 0 to 1 no
+attack in the game ever hit.
+
 PlayAnim and LoopAnim run a channel's frame from 0 to 1 at Rate times the
 sequence's frames a second over its frame count; looping a sequence that
 already loops changes only its rate. A tween holds the first frame for its
@@ -416,7 +422,13 @@ An actor's pose is its channel 0 sequence, with each channel above that has an
 alpha laid over it, from its blend bone down or over the whole skeleton.
 GetBoneCoords and GetBoneRotation give a bone in the world, through the mesh's
 RotOrigin, MeshOrigin and MeshScale and the actor's Location, Rotation and
-scale; PrePivot is left out, as it is not settled for skeletal meshes.
+scale, and its PrePivot, added as it is: the characters whose meshes stand
+high in their collision cylinders carry one that takes them to its bottom,
+within three units for human Shrek (-19), Puss (-9.5), the Steed (-17.5) and
+the exploding pumpkin Donkey (-7). HazMatShrek, the factory's Shrek in his
+suit, does not: his mesh is Shrek's, the same skeleton and points, with a
+MeshOrigin of 0 where Shrek's is -49, and he stands 38 above the floor, as
+nothing in the data says otherwise.
 AttachToBone makes the actor the attachment's Base with its AttachmentBone
 set, and each frame, after the animation, an attachment is put on its bone at
 its RelativeLocation and RelativeRotation. A rotator is made from axes by the
