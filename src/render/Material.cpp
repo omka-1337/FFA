@@ -47,9 +47,15 @@ SurfaceMaterial MaterialResolver::walk(const ObjectRef& o, int depth) {
         try {
             TextureInfo t = readTexture(o);
             if (t.masked) out.alphaRef = 0.5f;
+            // An alpha texture blends and writes depth, its nearly clear
+            // texels left out so that they cut no holes in what is behind:
+            // the textures so used are nearly all opaque, the factory's
+            // workers' suits, its arches, furnaces and signs, and drawn
+            // without depth their far faces and what lay behind came over
+            // them, where the game's frames show them solid.
             if (t.alphaTexture && !t.masked) {
                 out.blend = Blend::Alpha;
-                out.zwrite = false;
+                out.alphaRef = 0.02f;
             }
             out.twoSided = t.twoSided;
         } catch (const FormatError&) {

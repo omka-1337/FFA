@@ -1362,7 +1362,21 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
             glUseProgram(meshProgram_);
             glActiveTexture(GL_TEXTURE0);
         }
-        for (const MeshDraw& d : meshDraws_) {
+        // the blended ones far to near, so that each blends over what is
+        // behind it
+        std::vector<const MeshDraw*> order;
+        order.reserve(meshDraws_.size());
+        for (const MeshDraw& d : meshDraws_) order.push_back(&d);
+        if (pass == 1) {
+            auto far = [&](const MeshDraw* d) {
+                Vec3 o{d->model[12], d->model[13], d->model[14]};
+                return length(o - loc);
+            };
+            std::stable_sort(order.begin(), order.end(),
+                             [&](const MeshDraw* x, const MeshDraw* y) { return far(x) > far(y); });
+        }
+        for (const MeshDraw* dp : order) {
+            const MeshDraw& d = *dp;
             float m[16];
             for (int c = 0; c < 4; ++c)
                 for (int r = 0; r < 4; ++r) {

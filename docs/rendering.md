@@ -120,7 +120,8 @@ middle.
 
 What is opaque first: the BSP, the terrains, the characters and the static
 meshes; then the projectors, on that; then what blends, the BSP's, the
-characters' and the static meshes', which writes no depth. A blended part
+characters' and the static meshes', the static meshes far to near, so that
+each blends over what is behind it. A blended part
 drawn before an opaque thing behind it has that thing drawn over it: the
 Fairy Godmother factory's workers, whose suits are textures with an alpha
 channel, Elf's RandSkins HazMat1 to HazMat6, had the conveyors and the floor
@@ -170,7 +171,10 @@ way it says how the surface goes onto the frame. Most of the game's foliage is
 a FinalBlend over a texture: FrameBufferBlending 2, FB_AlphaBlend, with
 AlphaTest and an AlphaRef of 100, cut and blended at once, writing depth by
 FinalBlend's ZWrite, True by default. A texture alone cuts at half for bMasked
-and blends for bAlphaTexture; a Shader blends by its OutputBlending. What wraps
+and blends for bAlphaTexture, writing depth, its texels under 0.02 left out:
+the textures so used are nearly all opaque, the factory's arches, furnaces,
+signs and workers' suits, and without depth their far faces and what lay
+behind came over them; a Shader blends by its OutputBlending. What wraps
 decides over what it wraps.
 
 ## Not yet
