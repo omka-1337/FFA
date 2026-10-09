@@ -973,6 +973,7 @@ uniform float uHalf;
 uniform float uTanHalf;
 uniform float uFade;
 uniform float uAlpha;
+uniform float uBlur;
 varying vec3 vW;
 void main() {
     vec3 d = vW - uO;
@@ -981,7 +982,12 @@ void main() {
     float s = uTanHalf > 0.0 ? x * uTanHalf : uHalf;
     float u = dot(d, uY) / s, v = dot(d, uZ) / s;
     if (abs(u) > 1.0 || abs(v) > 1.0) discard;
-    vec4 c = texture2D(uTex, vec2(u * 0.5 + 0.5, 0.5 - v * 0.5));
+    vec2 st = vec2(u * 0.5 + 0.5, 0.5 - v * 0.5);
+    vec4 c = texture2D(uTex, st);
+    // a shadow's silhouette softened: four more samples a little apart
+    if (uBlur > 0.0)
+        c = (c + texture2D(uTex, st + vec2(uBlur, uBlur)) + texture2D(uTex, st + vec2(-uBlur, uBlur)) +
+             texture2D(uTex, st + vec2(uBlur, -uBlur)) + texture2D(uTex, st + vec2(-uBlur, -uBlur))) * 0.2;
     float fade = uFade > 0.5 ? clamp(1.0 - (x - uNear) / (uFar - uNear), 0.0, 1.0) : 1.0;
     if (uAlpha > 0.5) gl_FragColor = vec4(c.rgb, c.a * fade);
     else gl_FragColor = vec4(mix(vec3(1.0), c.rgb, fade), 1.0);
@@ -994,20 +1000,16 @@ uniform vec3 uC;
 uniform vec3 uY;
 uniform vec3 uZ;
 uniform float uHalf;
-uniform vec2 uShift;
 void main() {
     vec3 d = aPos - uC;
-    gl_Position = vec4(dot(d, uY) / uHalf + uShift.x, -dot(d, uZ) / uHalf + uShift.y, 0.0, 1.0);
+    gl_Position = vec4(dot(d, uY) / uHalf, -dot(d, uZ) / uHalf, 0.0, 1.0);
 }
 )";
 
-// Each of the silhouette's shifted copies takes its share of the darkness
-// away from the white, so that a point every copy covers ends at 0.45 and
-// the edges between: a soft shadow, as the game's are.
+// The silhouette, once, small: the projector softens it as it samples.
 const char* kShadowFragment = R"(
 precision mediump float;
-uniform float uShare;
-void main() { gl_FragColor = vec4(uShare, uShare, uShare, 1.0); }
+void main() { gl_FragColor = vec4(0.45, 0.45, 0.45, 1.0); }
 )";
 
 unsigned program(const char* vs, const char* fs) {
@@ -1056,7 +1058,7 @@ void LevelRender::drawReceivers(Vec3 lo, Vec3 hi) {
 }
 
 unsigned LevelRender::shadowFor(Object* proj, Object* actor, Vec3 centre, const Vec3 axes[3], float half) {
-    // The actor's silhouette as the light sees it, grey on white, 128 square.
+    // The actor's silhouette as the light sees it, grey on white, 64 square.
     auto it = skel_.find(actor);
     if (it == skel_.end() || it->second.world.empty() || !it->second.mesh) return 0;
     const SkelDraw& d = it->second;
@@ -1064,7 +1066,7 @@ unsigned LevelRender::shadowFor(Object* proj, Object* actor, Vec3 centre, const 
     if (!tex) {
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 128, 128, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 64, 64, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -1075,7 +1077,7 @@ unsigned LevelRender::shadowFor(Object* proj, Object* actor, Vec3 centre, const 
     glGetIntegerv(GL_VIEWPORT, viewport);
     glBindFramebuffer(GL_FRAMEBUFFER, shadowFbo_);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
-    glViewport(0, 0, 128, 128);
+    glViewport(0, 0, 64, 64);
     glClearColor(1, 1, 1, 1);
     glClear(GL_COLOR_BUFFER_BIT);
     glDisable(GL_DEPTH_TEST);
@@ -1096,19 +1098,7 @@ unsigned LevelRender::shadowFor(Object* proj, Object* actor, Vec3 centre, const 
     glEnableVertexAttribArray(0);
     for (int a = 1; a < 5; ++a) glDisableVertexAttribArray(GLuint(a));
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, tris.data());
-    const int copies = 12;
-    glEnable(GL_BLEND);
-    glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
-    glBlendFunc(GL_ONE, GL_ONE);
-    glUniform1f(glGetUniformLocation(shadowProgram_, "uShare"), 0.55f / float(copies));
-    GLint uShift = glGetUniformLocation(shadowProgram_, "uShift");
-    for (int k = 0; k < copies; ++k) {
-        float t = float(k) * 6.2831853f / float(copies), rad = k % 2 ? 0.07f : 0.035f;
-        glUniform2f(uShift, std::cos(t) * rad, std::sin(t) * rad);
-        glDrawArrays(GL_TRIANGLES, 0, GLsizei(tris.size() / 3));
-    }
-    glBlendEquation(GL_FUNC_ADD);
-    glDisable(GL_BLEND);
+    glDrawArrays(GL_TRIANGLES, 0, GLsizei(tris.size() / 3));
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
     glEnable(GL_DEPTH_TEST);
@@ -1183,6 +1173,7 @@ void LevelRender::drawProjectors(const float mvp[16], Vec3 eye) {
         glUniform1f(glGetUniformLocation(projProgram_, "uTanHalf"), tanHalf);
         glUniform1f(glGetUniformLocation(projProgram_, "uFade"), w.flag(p, "bGradient") ? 1.0f : 0.0f);
         glUniform1f(glGetUniformLocation(projProgram_, "uAlpha"), alpha ? 1.0f : 0.0f);
+        glUniform1f(glGetUniformLocation(projProgram_, "uBlur"), shadowClass && p->isA(shadowClass) ? 1.5f / 64.0f : 0.0f);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, tex);
         glUniform1i(glGetUniformLocation(projProgram_, "uTex"), 0);

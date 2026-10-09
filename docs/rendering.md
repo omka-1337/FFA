@@ -87,9 +87,10 @@ A character's shadow is KWPawn's ShadowProjector: it follows its ShadowActor,
 points along the light, the Sunlight's direction where there is one, and asks
 for its texture, a ShadowBitmapMaterial, the actor seen from the light. Here
 that texture is drawn each frame: the posed mesh's silhouette from along the
-projector, grey on white, twelve copies shifted round a small circle each
-taking its share of the darkness away, so that the edges are soft as the
-game's are. GetRenderBoundingSphere, which sizes it, is the posed mesh's box's
+projector, grey on white, once, 64 square, and the projector softens it as it
+samples it, five taps a texel and a half apart. How the game softened its
+shadows is not known; a small texture filtered is what its time could afford,
+and its shadows are soft. GetRenderBoundingSphere, which sizes it, is the posed mesh's box's
 sphere.
 
 ## Textures and materials
