@@ -13,6 +13,8 @@ namespace {
 
 const int DT_StaticMesh = 8;
 
+float cylinder(Vec3 a, Vec3 b, Vec3 c, float r, float h, Vec3& normal);
+
 std::string lower(std::string s) {
     for (char& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
     return s;
@@ -337,8 +339,11 @@ TraceHit Collision::boxCheck(Vec3 a, Vec3 b, Vec3 extent, const Object* ignore) 
             continue;
         for (const Triangle& t : worldTriangles(pl)) consider(t);
     }
-    // The cylinders of the actors that block, as boxes: summed with the
-    // moving box they are a larger box the segment enters.
+    // The cylinders of the actors that block, grown by the moving box: its
+    // half width added to the radius and its half height to the height, a
+    // circle in plan as the engine clips them, not a square (the script's
+    // LineIntersectCylinder is the same clip). As a square, the swamp's
+    // rock_step, a cylinder of 200, kept Shrek from the clover beside it.
     for (Object* o : colliders()) {
         if (!blocks(o, ignore)) continue;
         ActorShape sh = shapeOf(world, o);
@@ -353,33 +358,11 @@ TraceHit Collision::boxCheck(Vec3 a, Vec3 b, Vec3 extent, const Object* ignore) 
             best.startSolid = false;
             continue;
         }
-        Vec3 c = sh.center;
-        float r = sh.radius, h = sh.height;
-        Vec3 bl = c - Vec3{r + extent.x, r + extent.y, h + extent.z}, bh = c + Vec3{r + extent.x, r + extent.y, h + extent.z};
-        float enter = -1e30f, exit = 1e30f;
-        Vec3 axis{};
-        bool miss = false;
-        const float pa[3] = {a.x, a.y, a.z}, pd[3] = {d.x, d.y, d.z};
-        const float mn[3] = {bl.x, bl.y, bl.z}, mx[3] = {bh.x, bh.y, bh.z};
-        for (int k = 0; k < 3 && !miss; ++k) {
-            if (std::fabs(pd[k]) < 1e-9f) {
-                miss = pa[k] < mn[k] || pa[k] > mx[k];
-                continue;
-            }
-            float t0 = (mn[k] - pa[k]) / pd[k], t1 = (mx[k] - pa[k]) / pd[k];
-            if (t0 > t1) std::swap(t0, t1);
-            if (t0 > enter) {
-                enter = t0;
-                axis = {};
-                (&axis.x)[k] = pd[k] > 0 ? -1.0f : 1.0f;
-            }
-            exit = std::min(exit, t1);
-            miss = enter > exit;
-        }
-        if (miss || exit < 0 || enter > 1 || enter >= best.time) continue;
-        if (enter < 0) continue;    // already overlapping: let it move apart
-        best.time = enter;
-        best.normal = axis;
+        Vec3 n;
+        float t = cylinder(a, b, sh.center, sh.radius + extent.x, sh.height + extent.z, n);
+        if (t >= 1 || t >= best.time) continue;
+        best.time = t;
+        best.normal = n;
         best.actor = o;
         best.startSolid = false;
     }

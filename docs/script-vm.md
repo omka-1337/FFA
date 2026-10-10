@@ -318,7 +318,11 @@ Physics runs after the timer, in `src/world/Physics.cpp`, on boxes swept
 through the collision (`Collision::boxCheck`): the BSP's faces that bound solid
 (one unit behind the polygon's middle is solid, one unit in front is not), the
 terrains' triangles, the static meshes' triangles, the colliding brushes, and
-the cylinders of actors that block, as boxes. A box against a triangle is
+the cylinders of actors that block, grown by the box: its half width added to
+the radius and its half height to the height, round in plan as the engine
+clips them (the script's `LineIntersectCylinder` is that clip, its variables
+the same); as squares, the swamp's rock_step, a cylinder of 200, kept Shrek
+from the four leaf clover in its lee. A box against a triangle is
 exact: the segment against their Minkowski sum, on the 13 axes that can
 separate them. Path nodes check it: a box of a node's size dropped from the
 node sinks a median 2.50 before it touches, the same as the line trace says.
