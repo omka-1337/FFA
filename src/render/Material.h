@@ -11,10 +11,12 @@
 //                          Material, else FallbackMaterial
 //   MaterialSequence       the first Material of SequenceItems
 //
-// A cubemap is a reflection, not a colour, and ends the walk.
+// A cubemap is a reflection, not a colour: it ends the walk, and the walk
+// goes on to the fallback for a texture.
 #pragma once
 
 #include <map>
+#include <vector>
 
 #include "core/Library.h"
 
@@ -30,6 +32,10 @@ struct SurfaceMaterial {
     float alphaRef = -1;            // alpha below it is cut, 0 to 1; -1 none
     bool zwrite = true;
     bool twoSided = false;
+    // A TexEnvMap's Cubemap where one gives the colour, the texture then the
+    // fallback for what draws no reflection
+    ObjectRef cubemap;
+    float opacity = 1;              // a Shader's ConstantColor Opacity, its alpha
     bool blended() const { return blend != Blend::Opaque; }
 };
 
@@ -43,6 +49,10 @@ private:
     Library& lib_;
     std::map<std::pair<const Package*, int>, SurfaceMaterial> cache_;
 };
+
+// A Cubemap's six faces, +X, -X, +Y, -Y, +Z, -Z of the world as the level's
+// axes have them; empty when it has not all six.
+std::vector<ObjectRef> cubemapFaces(Library& lib, const ObjectRef& cube);
 
 // The elements of an array of structs, each its own tagged list: a compact
 // count, then the lists. Returns false when they do not parse.

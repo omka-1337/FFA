@@ -51,7 +51,16 @@ adds the ambient to the baked light:
   offset from the surface's base point along its texture vectors over the
   texture's size; the lightmap coordinates are the section vertices'. Lit as
   texture × lightmap × 2, the zone's ambient being in the lightmap already
-  (below); unlit surfaces take the texture alone.
+  (below); unlit surfaces take the texture alone. A surface whose Shader
+  takes its Diffuse from a TexEnvMap's Cubemap draws the reflection instead:
+  the cubemap sampled by the direction from the eye reflected off the
+  surface's normal, in the level's own axes (the swamp's six shots of itself
+  have the sky on the fifth face, +Z, and lie as GL's faces lie, the first
+  with the sky on its left), times the lightmap. A ConstantColor Opacity
+  blends it at its alpha without writing depth. This is the ponds' water on
+  the swamp, Hunt parts 3 and 4 and Hamlet's end, the one such material in
+  the game, a reflection at 188 of 255 over the bed, where its fallback,
+  drawn before, made it opaque cyan.
 - **Terrains**, from the engine's copy of the grid, each layer laid over the
   ones before by its weight from its alpha map, its texture coordinates the
   world position against its TerrainMatrix; lit by the baked vertex light × 2,

@@ -26,11 +26,14 @@ attribute vec3 aPos;
 attribute vec2 aUv;
 attribute vec2 aUv2;
 uniform mat4 uMvp;
+uniform vec3 uEye;
 varying vec2 vUv;
 varying vec2 vUv2;
+varying vec3 vView;
 void main() {
     vUv = aUv;
     vUv2 = aUv2;
+    vView = aPos - uEye;
     gl_Position = uMvp * vec4(aPos, 1.0);
 }
 )";
@@ -41,14 +44,20 @@ uniform sampler2D uTex;
 uniform sampler2D uLm;
 uniform float uLit;
 uniform float uCut;
+uniform samplerCube uCube;
+uniform float uEnv;
+uniform vec3 uNormal;
+uniform float uOpacity;
 varying vec2 vUv;
 varying vec2 vUv2;
+varying vec3 vView;
 void main() {
-    vec4 c = texture2D(uTex, vUv);
+    // a reflection, by the world's direction from the eye off the surface
+    vec4 c = uEnv > 0.5 ? vec4(textureCube(uCube, reflect(vView, uNormal)).rgb, 1.0) : texture2D(uTex, vUv);
     if (c.a < uCut) discard;
     // the zone's ambient is in the lightmap already
     vec3 light = uLit > 0.5 ? texture2D(uLm, vUv2).rgb * 2.0 : vec3(1.0);
-    gl_FragColor = vec4(c.rgb * light, c.a);
+    gl_FragColor = vec4(c.rgb * light, c.a * uOpacity);
 }
 )";
 
@@ -197,6 +206,7 @@ LevelRender::~LevelRender() {
     for (Batch& b : batches_) glDeleteBuffers(1, &b.buffer);
     for (auto& [k, t] : textures_) glDeleteTextures(1, &t.first);
     for (unsigned t : lightMapTex_) glDeleteTextures(1, &t);
+    for (auto& [k, t] : cubes_) glDeleteTextures(1, &t);
     glDeleteTextures(1, &white_);
     glDeleteProgram(program_);
 }
@@ -227,6 +237,36 @@ unsigned LevelRender::textureFor(const SurfaceMaterial& m, int& width, int& heig
     return it->second.first;
 }
 
+// A material's reflection as a GL cubemap, its six faces decoded once; 0 for
+// none or one that does not decode.
+unsigned LevelRender::cubeFor(const SurfaceMaterial& m) {
+    if (!m.cubemap) return 0;
+    auto key = std::make_pair(m.cubemap.pkg, m.cubemap.idx);
+    auto it = cubes_.find(key);
+    if (it != cubes_.end()) return it->second;
+    unsigned t = 0;
+    try {
+        std::vector<ObjectRef> faces = cubemapFaces(lib_, m.cubemap);
+        std::vector<Image> imgs;
+        for (const ObjectRef& f : faces) imgs.push_back(decodeTexture(lib_, f, 512));
+        if (imgs.size() == 6) {
+            glGenTextures(1, &t);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, t);
+            for (int k = 0; k < 6; ++k)
+                glTexImage2D(GLenum(GL_TEXTURE_CUBE_MAP_POSITIVE_X + k), 0, GL_RGBA, imgs[size_t(k)].width,
+                             imgs[size_t(k)].height, 0, GL_RGBA, GL_UNSIGNED_BYTE, imgs[size_t(k)].rgba.data());
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        }
+    } catch (const std::exception&) {
+        t = 0;
+    }
+    cubes_[key] = t;
+    return t;
+}
+
 void LevelRender::buildBsp() {
     const BspModel& m = session_.collision->bsp;
     const Package& p = *session_.linker->packages[size_t(session_.pkg)];
@@ -250,8 +290,11 @@ void LevelRender::buildBsp() {
         int blend;
         float cut;
         bool zwrite, unlit;
+        unsigned cube;
+        float opacity, nx, ny, nz;  // the normal, for a reflection's
         bool operator<(const Key& o) const {
-            return std::tie(tex, lm, blend, cut, zwrite, unlit) < std::tie(o.tex, o.lm, o.blend, o.cut, o.zwrite, o.unlit);
+            return std::tie(tex, lm, blend, cut, zwrite, unlit, cube, opacity, nx, ny, nz) <
+                   std::tie(o.tex, o.lm, o.blend, o.cut, o.zwrite, o.unlit, o.cube, o.opacity, o.nx, o.ny, o.nz);
         }
     };
     std::map<Key, std::vector<float>> groups;
@@ -269,7 +312,9 @@ void LevelRender::buildBsp() {
         }
         bool unlit = (s.flags & PF_Unlit) || !lm;
         if (mat.blend == Blend::Invisible) continue;
-        Key key{tex, lm ? lm : white_, int(mat.blend), mat.alphaRef, mat.zwrite, unlit};
+        unsigned cube = cubeFor(mat);
+        Vec3 nv = cube ? m.vectors[size_t(s.normal)] : Vec3{};
+        Key key{tex, lm ? lm : white_, int(mat.blend), mat.alphaRef, mat.zwrite, unlit, cube, mat.opacity, nv.x, nv.y, nv.z};
         std::vector<float>& out = groups[key];
         Vec3 base = m.points[size_t(s.base)], tu = m.vectors[size_t(s.textureU)], tv = m.vectors[size_t(s.textureV)];
         std::vector<std::array<float, 7>> corners;
@@ -299,6 +344,9 @@ void LevelRender::buildBsp() {
         b.mat.alphaRef = key.cut;
         b.mat.zwrite = key.zwrite;
         b.unlit = key.unlit;
+        b.cube = key.cube;
+        b.opacity = key.opacity;
+        b.normal = {key.nx, key.ny, key.nz};
         b.count = int(verts.size() / 7);
         glGenBuffers(1, &b.buffer);
         glBindBuffer(GL_ARRAY_BUFFER, b.buffer);
@@ -1325,11 +1373,15 @@ void LevelRender::drawProjectors(const float mvp[16], Vec3 eye) {
     glDisable(GL_BLEND);
 }
 
-void LevelRender::drawBsp(const float mvp[16], bool blended) {
+void LevelRender::drawBsp(const float mvp[16], Vec3 eye, bool blended) {
     glUseProgram(program_);
     glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp);
     glUniform1i(uTex_, 0);
     glUniform1i(uLm_, 1);
+    glUniform1i(glGetUniformLocation(program_, "uCube"), 2);
+    glUniform3f(glGetUniformLocation(program_, "uEye"), eye.x, eye.y, eye.z);
+    GLint uEnv = glGetUniformLocation(program_, "uEnv"), uNormal = glGetUniformLocation(program_, "uNormal");
+    GLint uOpacity = glGetUniformLocation(program_, "uOpacity");
     for (const Batch& b : batches_) {
         if (b.mat.blended() != blended) continue;
         applyBlend(b.mat);
@@ -1339,6 +1391,13 @@ void LevelRender::drawBsp(const float mvp[16], bool blended) {
         glBindTexture(GL_TEXTURE_2D, b.lightMap);
         glUniform1f(uLit_, b.unlit ? 0.0f : 1.0f);
         glUniform1f(uCut_, b.mat.alphaRef);
+        glUniform1f(uEnv, b.cube ? 1.0f : 0.0f);
+        glUniform3f(uNormal, b.normal.x, b.normal.y, b.normal.z);
+        glUniform1f(uOpacity, b.opacity);
+        if (b.cube) {
+            glActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, b.cube);
+        }
         glBindBuffer(GL_ARRAY_BUFFER, b.buffer);
         const GLsizei stride = 7 * sizeof(float);
         glEnableVertexAttribArray(GLuint(aPos_));
@@ -1389,7 +1448,7 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
     // What is opaque first, the BSP, the terrains, the characters and the
     // static meshes; then the projectors on it; then what blends over it,
     // which writes no depth and would have what is drawn after it over it.
-    drawBsp(mvp, false);
+    drawBsp(mvp, loc, false);
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
     for (const TerrainDraw& td : terrains_) {
@@ -1428,7 +1487,7 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
             // shadows and the like on what is drawn so far, the opaque world,
             // before what blends over it
             drawProjectors(mvp, loc);
-            drawBsp(mvp, true);
+            drawBsp(mvp, loc, true);
             drawSkeletal(mvp, loc, true);
             glUseProgram(meshProgram_);
             glActiveTexture(GL_TEXTURE0);

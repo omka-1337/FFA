@@ -63,8 +63,13 @@ private:
         bool unlit = false;
         unsigned buffer = 0;
         int count = 0;              // vertices
+        unsigned cube = 0;          // a reflection for the colour, or 0
+        Vec3 normal;                // the surfaces' normal, for the reflection
+        float opacity = 1;
     };
     unsigned textureFor(const SurfaceMaterial& m, int& width, int& height);
+    unsigned cubeFor(const SurfaceMaterial& m);
+    std::map<std::pair<const Package*, int>, unsigned> cubes_;
     void buildBsp();
     void buildTerrains();
 
@@ -143,7 +148,7 @@ private:
     // opaque thing, their blended parts.
     void drawSkeletal(const float mvp[16], Vec3 eye, bool blended);
     // The BSP's opaque batches, or its blended ones.
-    void drawBsp(const float mvp[16], bool blended);
+    void drawBsp(const float mvp[16], Vec3 eye, bool blended);
     std::vector<Vec3> characterLight(Object* a, const SkeletalMesh& mesh, const std::vector<Vec3>& pts,
                                      const float r[3][3], Vec3 loc);
     std::vector<Object*> lights_;

@@ -42,6 +42,10 @@ SurfaceMaterial MaterialResolver::walk(const ObjectRef& o, int depth) {
     if (it != cache_.end()) return it->second;
     SurfaceMaterial out;
     std::string cls = o.cls();
+    if (cls == "Cubemap") {
+        out.cubemap = o;
+        return cache_[key] = out;
+    }
     if (cls == "Texture") {
         out.texture = o;
         try {
@@ -85,13 +89,16 @@ SurfaceMaterial MaterialResolver::walk(const ObjectRef& o, int depth) {
         for (const char* w : wraps)
             if (cls == w) refs = {tagObject(p, tags, "Material"), tagObject(p, tags, "FallbackMaterial")};
     }
+    ObjectRef cube;
     for (int32_t r : refs) {
         if (!r) continue;
         ObjectRef next = lib_.resolve(p, r);
         if (!next) continue;
         out = walk(next, depth + 1);
+        if (out.cubemap && !cube) cube = out.cubemap;
         if (out.texture) break;
     }
+    out.cubemap = cube;
     // What wraps decides over what it wraps. FrameBufferBlending: FB_Overwrite,
     // FB_Modulate, FB_AlphaBlend, FB_AlphaModulate_MightNotFogCorrectly,
     // FB_Translucent, FB_Darken, FB_Brighten, FB_Invisible, FB_ShadowBlend.
@@ -116,8 +123,38 @@ SurfaceMaterial MaterialResolver::walk(const ObjectRef& o, int depth) {
             if (b == 1) out.alphaRef = 0.5f;
         }
         if (tagInt(p, tags, "TwoSided")) out.twoSided = true;
+        // a constant Opacity: the swamp's pond is a reflection at 188 of 255
+        if (int32_t op = tagObject(p, tags, "Opacity")) {
+            ObjectRef c = lib_.resolve(p, op);
+            std::vector<TagEntry> ct;
+            size_t cend = 0;
+            if (c && c.cls() == "ConstantColor" && Library::properties(c, ct, cend))
+                if (const TagEntry* col = findTag(*c.pkg, ct, "Color"); col && col->size == 4) {
+                    out.opacity = float(c.pkg->data[col->at + 3]) / 255.0f;
+                    if (out.opacity < 1 && out.blend == Blend::Opaque) {
+                        out.blend = Blend::Alpha;
+                        out.zwrite = false;
+                    }
+                }
+        }
     }
     return cache_[key] = out;
+}
+
+std::vector<ObjectRef> cubemapFaces(Library& lib, const ObjectRef& cube) {
+    std::vector<TagEntry> tags;
+    size_t end = 0;
+    if (!cube || !Library::properties(cube, tags, end)) return {};
+    std::vector<ObjectRef> faces;
+    for (int k = 0; k < 6; ++k) {
+        const TagEntry* t = findTag(*cube.pkg, tags, "Faces", k);
+        if (!t || t->type != T_Object) return {};
+        Reader r(cube.pkg->data, t->at, t->at + t->size);
+        ObjectRef f = lib.resolve(*cube.pkg, r.idx());
+        if (!f) return {};
+        faces.push_back(f);
+    }
+    return faces;
 }
 
 }  // namespace ffa
