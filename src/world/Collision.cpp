@@ -695,15 +695,15 @@ TraceHit Collision::lineCheck(Vec3 a, Vec3 b, const Object* ignore, bool actors,
             if (o == ignore || o->deleted || o == world.info) continue;
             if (!world.flag(o, "bCollideActors") || !world.flag(o, "bBlockZeroExtentTraces")) continue;
             if (world.var(o, "DrawType").i() == DT_StaticMesh && !world.flag(o, "bUseCylinderCollision")) continue;
+            ActorShape sh = shapeOf(world, o);
+            Vec3 n;
+            float t = sh.box ? enterBox(sh, a, b - a, {}, n) : cylinder(a, b, sh.center, sh.radius, sh.height, n);
+            if (t < 0 || t >= best.time) continue;
             // what a projectile would hit: a target, or what blocks actors
             // and players both; not the triggers and volumes, which the
             // swamp's pond has over its bed, where Shrek's trace for what he
             // stands in found a cutscene's trigger and not the water
             if (!world.flag(o, "bProjTarget") && !(world.flag(o, "bBlockActors") && world.flag(o, "bBlockPlayers"))) continue;
-            ActorShape sh = shapeOf(world, o);
-            Vec3 n;
-            float t = sh.box ? enterBox(sh, a, b - a, {}, n) : cylinder(a, b, sh.center, sh.radius, sh.height, n);
-            if (t < 0 || t >= best.time) continue;
             best.time = t;
             best.location = lerp(a, b, t);
             best.normal = n;
