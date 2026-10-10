@@ -729,6 +729,13 @@ void VM::iterate(const Ins& n, Frame& f) {
             if (++steps > runaway) throw error("runaway foreach");
         }
     }
+    // Run to its end, the engine's iterators leave their object out None, as
+    // they clear it before looking for each next one: KWCutController finds
+    // its pawn by tag with a foreach that stops when one matches, and a
+    // cutscene's MAIN, which matches none, took the last pawn instead, the
+    // camera's target, and the camera stood still while it played.
+    for (auto& a : c.args)
+        if (a.isRef && !a.omitted && a.ref.get().isObj()) a.ref.set(Value::Obj(nullptr));
     finish();
 }
 

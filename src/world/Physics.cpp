@@ -1,5 +1,7 @@
 #include "world/Physics.h"
 
+#include "world/Karma.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -498,6 +500,9 @@ void performPhysics(World& w, Object* a, float dt) {
         return;
     case PHYS_MovingBrush:
         physMovingBrush(w, a, dt);
+        return;
+    case PHYS_Karma:
+        karmaTick(w, a, dt);
         return;
     default: {
         static const char* names[] = {"", "", "", "Swimming", "", "", "", "Interpolating", "",

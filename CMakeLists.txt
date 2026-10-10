@@ -32,6 +32,7 @@ add_library(ffa_script
   src/world/Collision.cpp
   src/world/Level.cpp
   src/world/AI.cpp
+  src/world/Karma.cpp
   src/world/Physics.cpp
   src/world/Session.cpp
   src/world/SkeletalMesh.cpp

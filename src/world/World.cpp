@@ -124,6 +124,7 @@ bool World::destroy(Object* a) {
         if (b != a && !b->deleted && obj(b, "Owner") == a) setOwner(b, nullptr);
     var(a, "bDeleteMe") = Value::Bool(true);
     a->deleted = true;
+    ++collisionChanges;     // what collides is another set now
     return true;
 }
 

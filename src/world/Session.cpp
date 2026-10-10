@@ -9,6 +9,7 @@
 #include <stdexcept>
 
 #include "world/AI.h"
+#include "world/Karma.h"
 #include "world/Physics.h"
 
 namespace ffa {
@@ -111,6 +112,7 @@ Session::Session(const std::string& sys, const std::string& map) : systemDir(sys
     registerCollisionNatives(*vm);
     registerPhysicsNatives(*vm);
     registerAINatives(*vm);
+    registerKarmaNatives(*vm);
     world = std::make_unique<World>(*vm, pkg, level);
     collision = std::make_unique<Collision>(*world, pkg, level.model, gameDir);
     world->collision = collision.get();

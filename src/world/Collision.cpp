@@ -251,14 +251,25 @@ bool Collision::blocks(Object* o, const Object* ignore) {
     return true;
 }
 
+// The static meshes SetCollision has turned off since they were placed: the
+// swamp's punching bag, broken, kept blocking where it hung.
+void Collision::refreshOff() {
+    if (offChanges_ == world.collisionChanges) return;
+    offChanges_ = world.collisionChanges;
+    off_.clear();
+    for (const Placed& pl : placed_)
+        if (pl.actor->deleted || !world.flag(pl.actor, "bCollideActors")) off_.insert(pl.actor);
+}
+
 TraceHit Collision::boxCheck(Vec3 a, Vec3 b, Vec3 extent, const Object* ignore) {
+    refreshOff();
     TraceHit best;
     best.location = b;
     Vec3 d = b - a;
     Vec3 lo{std::min(a.x, b.x) - extent.x, std::min(a.y, b.y) - extent.y, std::min(a.z, b.z) - extent.z};
     Vec3 hi{std::max(a.x, b.x) + extent.x, std::max(a.y, b.y) + extent.y, std::max(a.z, b.z) + extent.z};
     auto consider = [&](const Triangle& t) {
-        if (t.actor && t.actor == ignore) return;
+        if (t.actor && (t.actor == ignore || (!off_.empty() && off_.count(t.actor)))) return;
         float time;
         Vec3 n;
         if (!sweepBox(t, a, d, extent, best.time, time, n)) return;
@@ -275,7 +286,7 @@ TraceHit Collision::boxCheck(Vec3 a, Vec3 b, Vec3 extent, const Object* ignore) 
         if (it->second) consider(t);
     });
     for (Placed& pl : placed_) {
-        if (pl.fixed || !pl.box || pl.actor == ignore || pl.actor->deleted) continue;
+        if (pl.fixed || !pl.box || pl.actor == ignore || pl.actor->deleted || off_.count(pl.actor)) continue;
         update(pl);
         if (pl.hi.x < lo.x || pl.lo.x > hi.x || pl.hi.y < lo.y || pl.lo.y > hi.y || pl.hi.z < lo.z || pl.lo.z > hi.z)
             continue;
@@ -332,9 +343,10 @@ TraceHit Collision::boxCheck(Vec3 a, Vec3 b, Vec3 extent, const Object* ignore) 
 }
 
 bool Collision::fits(Vec3 p, Vec3 extent, const Object* ignore) {
+    refreshOff();
     bool free = true;
     statics_.query(p - extent, p + extent, [&](const Triangle& t) {
-        if (free && !(t.actor && t.actor == ignore) && overlapsBox(t, p, extent)) free = false;
+        if (free && !(t.actor && (t.actor == ignore || off_.count(t.actor))) && overlapsBox(t, p, extent)) free = false;
     });
     brushTris_.query(p - extent, p + extent, [&](const Triangle& t) {
         if (free && brushBlocks(t.actor, ignore, false, false) && overlapsBox(t, p, extent)) free = false;
@@ -618,6 +630,7 @@ const std::vector<Object*>& Collision::colliders() {
 
 void Collision::meshHits(Vec3 a, Vec3 b, const Object* ignore, bool worldOnly, std::vector<TraceHit>* all,
                          TraceHit& best) {
+    refreshOff();
     // the meshes whose cells the segment's box covers, each once, and the
     // moving ones; a long segment asks them all
     std::vector<uint32_t> ask;
@@ -644,7 +657,7 @@ void Collision::meshHits(Vec3 a, Vec3 b, const Object* ignore, bool worldOnly, s
     }
     for (uint32_t i : ask) {
         Placed& pl = placed_[i];
-        if (!pl.line || pl.actor == ignore || pl.actor->deleted || (worldOnly && !pl.world)) continue;
+        if (!pl.line || pl.actor == ignore || pl.actor->deleted || (worldOnly && !pl.world) || off_.count(pl.actor)) continue;
         if (!pl.fixed) update(pl);
         if (!pl.invertible || !segmentMeetsBox(a, b, pl.lo, pl.hi)) continue;
         Vec3 ma = mul(pl.inv, a - pl.origin), mb = mul(pl.inv, b - pl.origin);

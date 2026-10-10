@@ -7,6 +7,7 @@
 
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <memory>
 #include <string>
 #include <vector>
@@ -90,6 +91,9 @@ private:
     };
     std::map<size_t, std::vector<Layer>> terrainLayers_;
     std::map<Object*, bool> materialTyped_;
+    void refreshOff();
+    std::unordered_set<const Object*> off_;
+    size_t offChanges_ = ~size_t(0);
     int mapPkg_ = 0;
     ObjectRef refOf(const Object* o);
     struct Placed {

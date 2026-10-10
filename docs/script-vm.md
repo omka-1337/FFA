@@ -96,7 +96,14 @@ falling through is not tested.
 `foreach` calls a native iterator, which yields one row of out parameter values
 per element. For each element the body runs up to IteratorNext. IteratorPop in
 the body, which `break` and `return` emit, leaves the loop. When the elements
-run out, control continues past the IteratorPop at the loop's end offset.
+run out, control continues past the IteratorPop at the loop's end offset,
+and an object out parameter is left None, as the engine's iterators clear it
+before looking for each next element. KWCutController finds the pawn its
+sequence plays by tag with a loop that breaks on a match; a sequence for MAIN,
+which matches none, took the last pawn looked at instead, the camera's
+BaseCamTarget, which stops following the hero while a cutscene has it: on the
+swamp, Hamlet and Shrek's prison the camera stood still while a cutscene that
+only talks or turns it played.
 
 `Let` evaluates its value before it locates the variable. The engine does it
 the other way round, writing straight into the address it found, which can go
@@ -450,6 +457,18 @@ the climb carries the pawn only some 22 forward, the script keeping the
 height of the move it is given and not its length, and from a top found 80 in
 Shrek rose, stayed short of the edge, fell back and caught it again, a round
 every three seconds by the swamp's mount volumes.
+
+Karma is done only for what hangs (`src/world/Karma.cpp`): an actor in
+PHYS_Karma held to the world by a KBSJoint, through more joints if it hangs
+from another, swings about that joint as one rigid body, the punching bag with
+its rope. KAddImpulse turns it about the joint by the impulse's moment over
+the members' inertia as points, the impulse taken at a sixteenth of its size
+over KMass, which is not in the data: tuned so that Shrek's punch,
+ForceFromHit 10000, swings a bag of KMass 2 some 30 degrees. Gravity brings
+it back and KAngularDamping slows it; still and hanging straight, it sleeps
+(KIsAwake). A free body is left where it is. A static mesh that SetCollision
+turns off, or that is destroyed, no longer blocks: the bag broken by its last
+punch kept blocking where it hung.
 
 The vine itself is the ShimmyVine that the ShimmyStatVine spawns and sizes by
 SetDrawScale3D, 1.2 by 1.75 by 1.75 on the swamp; without it the vine stopped
