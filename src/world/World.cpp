@@ -3,6 +3,7 @@
 #include "world/AI.h"
 #include "world/Animator.h"
 #include "world/Collision.h"
+#include "world/Movie.h"
 #include "world/Physics.h"
 
 #include <cmath>
@@ -77,6 +78,7 @@ Object* World::spawn(Class* c, Object* spawner, Object* owner, Name tag, const V
         return nullptr;
     }
     Object* a = vm.spawn(c, uniqueName(c), outer_);
+    giveMovie(*this, a);
     // An actor's Tag is its class's name until it is given one: 1359 of the
     // swamp's 1650 placed actors still carry theirs.
     var(a, "Tag") = Value::Nm(tag.isNone() ? c->name : tag);
@@ -267,6 +269,8 @@ void World::tick(float dt) {
             failures[std::string("animation: ") + ex.what()]++;
         }
     }
+    tickPart = "movies";
+    movieTick(*this);
     for (size_t i = 0; i < n; ++i) {
         Object* a = actors[i];
         if (a->deleted || flag(a, "bStatic")) continue;
@@ -334,6 +338,16 @@ void World::tick(float dt) {
     }
     ticking = nullptr;
     tickPart = "";
+    // A level change ServerTravel asked for: Level.NextURL, once
+    // NextSwitchCountdown, which the game sets, has run out.
+    if (info && travel.empty() && info->cls->findProp(Name("NextURL"))) {
+        std::string url = utf8(var(info, "NextURL").s());
+        if (!url.empty()) {
+            Value& left = var(info, "NextSwitchCountdown");
+            left = Value::Float(left.f() - dt);
+            if (left.f() <= 0) travel = url;
+        }
+    }
 }
 
 // ================================================================ natives
@@ -391,6 +405,27 @@ void registerWorldNatives(VM& vm) {
                             c.has(4) ? &rot : nullptr);
         return Value::Obj(a);
     };
+    // ClientTravel(URL, TravelType, bItems): the level to go to.
+    n["playercontroller.clienttravel"] = [](NativeCall& c) {
+        World& w = world(c);
+        if (w.travel.empty()) w.travel = utf8(c.s(0));
+        return Value();
+    };
+    // ConsoleCommand(Command): of the engine's commands, open, start and
+    // travel go to a level; what else script asks of the console, such as get
+    // ini:, answers nothing, which the game takes as the default.
+    auto console = [](NativeCall& c) {
+        World& w = world(c);
+        std::string cmd = utf8(c.s(0));
+        size_t sp = cmd.find(' ');
+        std::string verb = cmd.substr(0, sp);
+        for (char& ch : verb) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+        if ((verb == "open" || verb == "start" || verb == "travel") && sp != std::string::npos && w.travel.empty())
+            w.travel = cmd.substr(cmd.find_first_not_of(' ', sp));
+        return Value::Str(String());
+    };
+    n["actor.consolecommand"] = console;
+    n["playercontroller.consolecommand"] = console;
     n["actor.sleep"] = [](NativeCall& c) {
         float left = c.f(0);
         c.self->latent = [left](float dt) mutable { return (left -= dt) <= 0.0f; };

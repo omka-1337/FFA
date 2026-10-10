@@ -199,7 +199,13 @@ Engine:
 - [x] Dialogue: sounds' lengths for Say, and sound: Bink and WAV decoded,
   mixed in ffa-play with distance, panning, slots and ambient loops.
 - [ ] Music: Ogg Vorbis, which needs a decoder of our own.
-- [ ] Lip sync driving the characters' mouths.
+- [x] Lip sync driving the characters' mouths: phonemes on the viseme poses,
+  blinks. Not the head and eyes, nor the emotion a line starts with.
+- [x] The game from its start: Default.ini's LocalMap, the logos as movies of
+  their length, and travel to the next level, the menu.
+- [ ] Movies' pictures and sound: Bink video, stereo Bink Audio.
+- [ ] The GUI: the menu, the in-game menu, the wanted posters.
+- [ ] `ffa install`: the game from its disc, ISO, MSI and cabinet.
 - [x] A window: `ffa-play`, SDL2 and OpenGL ES 2, the BSP, terrains and
   static meshes textured and lit as baked, from the game's own camera.
 - [ ] The sky zone behind the PF_FakeBackdrop surfaces.

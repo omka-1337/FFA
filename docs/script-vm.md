@@ -578,6 +578,22 @@ over 255 and SoundPitch over 64. Sounds are decoded when first played and
 kept (`src/audio/SoundBank.cpp`); a line of a few seconds takes a few
 milliseconds. Music, Ogg Vorbis, is not played yet.
 
+**Movies and levels.** The game begins as Default.ini's LocalMap says,
+SH2_Preamble.unr: its CutFactory sends its PlayerStart's event, MovieManager,
+and the level's SHMovieManager plays the logos on the HUD's Movie, one each
+time the last ends, and then LoadLevel goes to Book_FrontEnd.unr, the menu.
+The engine gives every HUD its Movie, an object HUD's PostBeginPlay finds
+there (`src/world/Movie.cpp`). A movie is a Bink file of Movies/, its name's
+case not minded, as long as its header's frames over its frame rate say:
+DW_LOGO 21.7 seconds, ACTIVSN 10.4, KWlogo 12. At its end, or at StopNow,
+which Space and Escape ask for while one plays, the Movie's MovieEnded
+relays it to the MovieManager. Its pictures and its sound, Bink video and
+stereo Bink Audio, are not decoded yet. ServerTravel leaves the next level in
+Level.NextURL, KWGame adding the game state, Book_FrontEnd.unr?GameState=
+GSTATE000; once NextSwitchCountdown runs out the world asks for it, as do
+ClientTravel and the console's open, and ffa-play loads it in place of the
+one playing, the URL's options over the level's own.
+
 **Lip sync.** A sound with lip sync (docs/package-format.md, Sounds) moves
 the face of the actor that plays it, from when it is played until its last
 frame or StopSound. The Animator lays the face over the body's pose: each

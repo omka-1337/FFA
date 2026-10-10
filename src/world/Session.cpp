@@ -10,6 +10,7 @@
 
 #include "world/AI.h"
 #include "world/Karma.h"
+#include "world/Movie.h"
 #include "world/Audio.h"
 #include "world/Physics.h"
 
@@ -98,7 +99,8 @@ bool Session::localize(const std::string& section, const std::string& key, const
     return true;
 }
 
-Session::Session(const std::string& sys, const std::string& map) : systemDir(sys), gameDir(sys + "/..") {
+Session::Session(const std::string& sys, const std::string& map, const std::string& travel)
+    : systemDir(sys), gameDir(sys + "/..") {
     std::vector<std::string> paths = Linker::packageFiles(sys);
     paths.push_back(map);
     linker = std::make_unique<Linker>(paths);
@@ -115,7 +117,9 @@ Session::Session(const std::string& sys, const std::string& map) : systemDir(sys
     registerAINatives(*vm);
     registerKarmaNatives(*vm);
     registerAudioNatives(*vm);
+    registerMovieNatives(*vm);
     world = std::make_unique<World>(*vm, pkg, level);
+    world->gameDir = gameDir;
     collision = std::make_unique<Collision>(*world, pkg, level.model, gameDir);
     world->collision = collision.get();
     library = std::make_unique<Library>(gameDir);
@@ -131,7 +135,18 @@ Session::Session(const std::string& sys, const std::string& map) : systemDir(sys
     };
     // The game: a Game= option of the URL, else the engine's default.
     gameName = ini("Default.ini", "Engine.Engine", "DefaultGame");
-    for (const std::string& o : level.options) {
+    // the travel's options over the level's, by name
+    std::vector<std::string> opts = level.options, given;
+    std::stringstream ts(travel);
+    for (std::string o; std::getline(ts, o, '?');)
+        if (!o.empty()) given.push_back(o);
+    auto key = [](const std::string& o) { return lower(o.substr(0, o.find('='))); };
+    for (const std::string& g : given) {
+        opts.erase(std::remove_if(opts.begin(), opts.end(), [&](const std::string& o) { return key(o) == key(g); }),
+                   opts.end());
+        opts.push_back(g);
+    }
+    for (const std::string& o : opts) {
         options += u"?" + widen(o);
         if (o.size() > 5 && lower(o.substr(0, 5)) == "game=") gameName = o.substr(5);
     }

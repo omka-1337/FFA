@@ -68,6 +68,19 @@ public:
         float start = 0;
     };
     std::map<Object*, Speech> speaking;
+    // The movies the HUD plays, by their Movie objects (world/Movie.cpp).
+    struct MoviePlay {
+        std::string file;
+        float start = 0, length = 0, pausedAt = -1;
+        int width = 0, height = 0;
+        bool playing = false, loop = false;
+    };
+    std::map<Object*, MoviePlay> movies;
+    std::string gameDir;            // the directory above System
+    // The level the game asked to go to, its URL: Level.NextURL once its
+    // countdown is out, as ServerTravel leaves it, or ClientTravel's, or an
+    // open command's. Whoever plays the world goes there.
+    std::string travel;
     // Karma's hanging bodies, found when first asked (world/Karma.cpp).
     std::shared_ptr<void> karma;
     // Where a walking pawn last found its floor, standing on the world: a pawn

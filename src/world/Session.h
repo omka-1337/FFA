@@ -24,8 +24,10 @@ namespace ffa {
 
 class Session {
 public:
-    // systemDir: the game's System directory; map: a .unr file.
-    Session(const std::string& systemDir, const std::string& map);
+    // systemDir: the game's System directory; map: a .unr file; travel: the
+    // options of the URL that brought the game here, ?GameState=GSTATE001,
+    // over the level's own.
+    Session(const std::string& systemDir, const std::string& map, const std::string& travel = "");
 
     // Spawn the game, InitGame, the start up events, and the player's login.
     void begin();

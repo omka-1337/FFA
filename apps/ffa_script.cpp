@@ -537,6 +537,8 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
     for (Object* a : w.actors)
         if (a->deleted) wasGone.insert(a);
     int pawnPhysics = pawn0 ? w.var(pawn0, "Physics").i() : -1;
+    std::set<std::pair<Object*, float>> moviesSeen;
+    bool travelSeen = false;
     for (int f = 0; f < int(seconds * 30.0f + 0.5f); ++f) {
         // --exec: a command run once at its time, as a key bound to it does
         for (auto& [t, command] : execs)
@@ -561,6 +563,16 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
         char at[32];
         std::snprintf(at, sizeof at, "%7.2fs  ", w.time);
         if (stateOf(pc) != pcState) timeline.push_back(at + std::string("controller ") + (pcState = stateOf(pc)));
+        // the movies the HUD plays, and a level change the game asks for
+        for (auto& [m, play] : w.movies)
+            if (play.playing && !moviesSeen.count({m, play.start})) {
+                moviesSeen.insert({m, play.start});
+                timeline.push_back(at + std::string("movie ") + play.file + ", " + std::to_string(play.length) + " s");
+            }
+        if (!w.travel.empty() && !travelSeen) {
+            travelSeen = true;
+            timeline.push_back(at + std::string("travel to ") + w.travel);
+        }
         if (pawn && !w.held.empty() && (f + 1) % 30 == 0) {
             float x, y, z, vx, vy, vz;
             vm.unvector(w.var(pawn, "Location"), x, y, z);

@@ -1,6 +1,6 @@
 # Drawing a level
 
-`ffa-play <System> <map.unr>` plays a level in a window: SDL2 for the window
+`ffa-play <game> [map.unr]` plays a level in a window: SDL2 for the window
 and input, OpenGL ES 2 to draw, what every PortMaster handheld has. The level
 begins as the engine begins it (`src/world/Session.cpp`, see
 docs/script-vm.md), the world ticks once a frame drawn, by the time the frame
