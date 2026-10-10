@@ -578,6 +578,17 @@ over 255 and SoundPitch over 64. Sounds are decoded when first played and
 kept (`src/audio/SoundBank.cpp`); a line of a few seconds takes a few
 milliseconds. Music, Ogg Vorbis, is not played yet.
 
+**Lip sync.** A sound with lip sync (docs/package-format.md, Sounds) moves
+the face of the actor that plays it, from when it is played until its last
+frame or StopSound. The Animator lays the face over the body's pose: each
+viseme and blink pose a weight's way from its rest frame to its full one,
+applied as the change from the rest frame, so the head stays where the body's
+sequence has it. A phoneme's weight goes to its viseme, summed and held to 1:
+0 and 1 to E, 2 and 3 to AI, 4 to O, 5 to WQ, 8 to FV, 11 to MBP, 14 to L, the
+rest to CDGKNRSthYZ; a mesh without WQ takes U for it and without L,
+CDGKNRSthYZ. Version 1's loudness opens the mouth as AI. The head and eye
+channels and the emotion a subtitle starts with are not used yet.
+
 **AI.** `src/world/AI.cpp` does the engine's part of what controllers do. A
 controller other than the player's turns its pawn toward its Focus, or its
 FocalPoint, which KnowWonder's TurnToActor and TurnToPoint set: its

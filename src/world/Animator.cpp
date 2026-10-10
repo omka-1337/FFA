@@ -4,6 +4,8 @@
 #include <cmath>
 #include <strings.h>
 
+#include "audio/LipSync.h"
+
 namespace ffa {
 
 Animator::Animator(World& w, Library& lib) : world(w), library(lib) { w.animator = this; }
@@ -92,9 +94,36 @@ std::vector<BoneTransform> Animator::pose(Object* a) {
             locals[i].p = lerp(locals[i].p, ch[i].p, alpha);
         }
     }
+    if (auto sp = world.speaking.find(a); sp != world.speaking.end() && sp->second.lips)
+        face(a, locals, faceAt(*sp->second.lips, world.time - sp->second.start));
     s.poseCache = m.compose(locals);
     s.poseVersion = s.version;
     return s.poseCache;
+}
+
+// The face over the body's pose: each of its poses a weight's way from its
+// rest frame to its full one, as a change from the rest frame, so that what
+// the body's sequence does with the head stays. A mesh without WQ takes U for
+// it, and without L, CDGKNRSthYZ.
+void Animator::face(Object* a, std::vector<BoneTransform>& locals, const FaceWeights& fw) {
+    const SkeletalMesh& m = *state(a).mesh;
+    auto apply = [&](const char* name, const char* instead, float w) {
+        if (w <= 0.001f) return;
+        const MeshAnimation* set = nullptr;
+        const AnimSequence* q = find(a, name, &set);
+        if (!q && instead) q = find(a, instead, &set);
+        if (!q || !set) return;
+        size_t si = size_t(q - set->sequences.data());
+        std::vector<BoneTransform> rest = m.locals(*set, si, 0), full = m.locals(*set, si, std::min(w, 1.0f));
+        for (size_t i = 0; i < locals.size() && i < rest.size(); ++i) {
+            locals[i].q = qmul(locals[i].q, qmul(qconj(rest[i].q), full[i].q));
+            locals[i].p = locals[i].p + (full[i].p - rest[i].p);
+        }
+    };
+    for (int v = 0; v < V_Count; ++v)
+        apply(kVisemeNames[v], v == V_WQ ? "U" : v == V_L ? "CDGKNRSthYZ" : nullptr, fw.viseme[v]);
+    apply("l_blink", nullptr, fw.blink[0]);
+    apply("r_blink", nullptr, fw.blink[1]);
 }
 
 std::vector<BoneTransform> Animator::channelLocals(const AnimState& s, const AnimChannel& c) const {
@@ -298,6 +327,12 @@ void Animator::tick(float dt) {
     // Script called from here may start sequences, add channels and notifies,
     // and give other actors states, so every element is found again by its
     // index after each call out.
+    // a face moves until its sound ends
+    for (auto it = world.speaking.begin(); it != world.speaking.end();)
+        if (it->first->deleted || !it->second.lips || world.time - it->second.start > it->second.lips->end())
+            it = world.speaking.erase(it);
+        else
+            ++it;
     for (auto it = states_.begin(); it != states_.end(); ++it) {
         Object* a = it->first;
         AnimState& s = it->second;

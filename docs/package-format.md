@@ -1532,17 +1532,43 @@ each checked against the sound's length as FFmpeg decodes it:
 |--|--|--|
 | 0 | 818 | nothing more (25), or one i32: -1 (442) or the sound's length as 16 bit PCM in bytes |
 | 1 | 270 | a compact count, that many amplitude bytes, then the length as 16 bit PCM in bytes |
-| 2 | 2681 | i32 length in milliseconds, i32 30, i32 -9 to -13, then curves of floats over time |
+| 2 | 2681 | i32 length in milliseconds, i32 frames a second (30), i32 first frame, i32 last frame, a compact count of floats, that many, 26 a frame, then the length as 16 bit PCM in bytes |
 
 Version 1 reads to the exact end of all 270. Its amplitudes come 50 to the
 second, 49.6 on median over the dialogue, one per 20 ms, and the length field
 runs at 43546 bytes per second of decoded sound against 44100 for 22050 Hz 16
 bit mono, the difference being Bink's padding to whole frames. Version 2's
 length is 98.5 percent of the decoded duration on median, for the same reason.
-The rest of version 2, nearly all the dialogue, is not decoded: what follows the
-three fields is floats starting two bytes out of alignment, with channels that
-ramp smoothly over the frames, and two further i32s whose meaning is unknown,
-the second of which is not the body's size.
+Version 2, nearly all the dialogue, reads to the exact end of all 2681. Its
+frames are numbered from the sound's start, the first -9 to -14 so that the
+mouth moves before the voice, and the count is frames times 26: the "size"
+an earlier reading took for the fifth i32 was the compact count's first two
+bytes with the first float, which is why the floats looked two bytes out of
+alignment.
+
+The engine names it: Engine.dll has `FLipGenLipSync` with `GetPhonemeWeight`
+and `GetVisemeWeight`, `FAmplitudeLipSync` for version 1, and the visemes'
+names in a row, AI, E, O, U, CDGKNRSthYZ, L, WQ, MBP, FV. The faces have
+poses of those names, two frames each, the first the face at rest (Shrek and
+Donkey have all but L and WQ, and Silent), with happy, mad, sad, sneer,
+surprised and l_blink and r_blink; each moves only the face's bones, the jaw,
+lips and cheeks, or the lids and brows. Of the 26 channels:
+
+| Channels | What they do |
+|--|--|
+| 0 to 14 | phoneme weights, 0 to 1, a phoneme rising and falling over about eight frames as the next rises |
+| 15, 16 | nearly equal, to 1.15, in a fifth of the frames; not placed |
+| 17, 18 | equal, short rises to 1: the left and right blinks |
+| 19 to 25 | signed, to 9; 22 and 23 are -21 and 24 and 25 are -19 frame by frame in most lines, the eyes turning against the head; not placed |
+
+Each phoneme channel was told by the letters of the lines its peaks fall in,
+the correlation over the 1935 subtitled lines of its share of the line's peaks
+with each letter's share of its letters: 0 e and ee, 1 er and r, 2 i and a, 3
+the a of "Donkey" (D, 3, 12 n, 9, 2 in that line), 4 o, oo and ou, 5 w, 6 s,
+7 sh, j and ch, 8 f and v, 9 th, 10 t, d and k, 11 m, b and p, 12 n, ng and g,
+13 r; 14 never rises past 0.22. Which viseme each phoneme takes is ours, by
+those letters (world/Animator.cpp, audio/LipSync.cpp), the engine's own table
+not being in the data.
 
 ## Fonts
 
@@ -1703,8 +1729,8 @@ budget per record. Run bulk passes under an external memory cap.
   middle at DrawScale3D 1.25, where its CT_Box is 176 by 52 by 48; as a
   cylinder of radius 176 to 320 it walled the level off for Puss. Whether the
   box turns with pitch and roll too no actor of the game says.
-- Version 2 lip sync after a sound, the curves that move the characters'
-  mouths in the dialogue.
+- Version 2 lip sync's channels 15 and 16, and 19 to 25, the head and eyes:
+  which axes, in what unit.
 
 - 0x42, standing alone five times, is read with one expression; nothing yet
   says what it is.

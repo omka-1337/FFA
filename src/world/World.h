@@ -11,6 +11,7 @@
 // said so at the place.
 #pragma once
 
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -24,6 +25,7 @@
 namespace ffa {
 
 class Collision;
+struct LipSync;
 
 class World {
 public:
@@ -58,6 +60,14 @@ public:
     class SoundBank* sounds = nullptr;
     struct AudioSink* audio = nullptr;
     size_t soundsPlayed = 0;
+    // Who speaks a sound with lip sync, and when it started: the face it
+    // moves until it ends or is stopped (world/Animator.cpp).
+    struct Speech {
+        std::shared_ptr<const LipSync> lips;
+        Object* sound = nullptr;
+        float start = 0;
+    };
+    std::map<Object*, Speech> speaking;
     // Karma's hanging bodies, found when first asked (world/Karma.cpp).
     std::shared_ptr<void> karma;
     // Where a walking pawn last found its floor, standing on the world: a pawn

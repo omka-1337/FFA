@@ -31,6 +31,7 @@ bool SoundBank::file(const Object* sound, File& out) {
         out.type = p->names[size_t(type)];
         out.at = rd.p;
         out.size = size_t(n);
+        out.end = size_t(r.exp().off + r.exp().size);
         return true;
     } catch (const FormatError&) {
         return false;
@@ -55,6 +56,21 @@ std::shared_ptr<const DecodedSound> SoundBank::clip(const Object* sound) {
     }
     clips_[sound] = c;
     return c;
+}
+
+std::shared_ptr<const LipSync> SoundBank::lipSync(const Object* sound) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = lips_.find(sound);
+    if (it != lips_.end()) return it->second;
+    std::shared_ptr<const LipSync> l;
+    File f;
+    if (file(sound, f) && f.end >= f.at + f.size) {
+        LipSync ls;
+        if (parseLipSync(f.ref.pkg->data.data() + f.at + f.size, f.end - f.at - f.size, ls))
+            l = std::make_shared<const LipSync>(std::move(ls));
+    }
+    lips_[sound] = l;
+    return l;
 }
 
 float SoundBank::duration(const Object* sound) {

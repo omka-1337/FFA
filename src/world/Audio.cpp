@@ -1,5 +1,6 @@
 #include "world/Audio.h"
 
+#include "audio/LipSync.h"
 #include "audio/SoundBank.h"
 
 namespace ffa {
@@ -27,6 +28,8 @@ Value play(NativeCall& c) {
     s.attenuate = c.has(6) ? c.b(6) : true;
     s.no3D = c.b(7);
     ++w->soundsPlayed;
+    if (w->sounds)
+        if (auto lips = w->sounds->lipSync(s.sound)) w->speaking[c.self] = {lips, s.sound, w->time};
     if (w->audio) w->audio->play(s);
     return Value();
 }
@@ -40,7 +43,10 @@ void registerAudioNatives(VM& vm) {
     n["actor.demoplaysound"] = play;
     n["actor.stopsound"] = [](NativeCall& c) {
         World* w = worldOf(c);
-        if (w && w->audio) w->audio->stop(c.self, c.o(0));
+        if (!w) return Value();
+        auto sp = w->speaking.find(c.self);
+        if (sp != w->speaking.end() && (!c.o(0) || sp->second.sound == c.o(0))) w->speaking.erase(sp);
+        if (w->audio) w->audio->stop(c.self, c.o(0));
         return Value();
     };
     // GetSoundDuration(Sound): its length in seconds, which dialogue waits

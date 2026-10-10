@@ -30,6 +30,8 @@
 
 namespace ffa {
 
+struct FaceWeights;
+
 struct AnimChannel {
     const AnimSequence* seq = nullptr;
     const MeshAnimation* set = nullptr;     // the animation the sequence is in
@@ -117,6 +119,7 @@ public:
 
 private:
     void resolve(Object* a, AnimState& s);
+    void face(Object* a, std::vector<BoneTransform>& locals, const FaceWeights& fw);
     ObjectRef refOf(const Object* o, const char* cls);
     std::map<Object*, AnimState> states_;
     std::map<std::pair<const Package*, int>, std::unique_ptr<MeshAnimation>> anims_;
