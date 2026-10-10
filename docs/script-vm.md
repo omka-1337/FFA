@@ -448,7 +448,12 @@ climb64, the big climb, or for a lily pad, MA_StepUpOnlyMount, stepup) and
 moves the pawn up by GetAnimTime, the channel's way through its sequence, 0
 to 1. Wading on the swamp, where ShHeroPawn's DoJump will not jump, Shrek
 pressed against a lily pad steps up onto it with stepup2 and stands on it,
-from 249 below to 208. What the pawn runs or jumps into counts, from any side: met from below,
+from 249 below to 208. The level's own geometry is given as the LevelInfo, which Mount lets be
+climbed only where the pawn touches a MountVolume; None is anywhere at all,
+which only the ladders' Mount asks for, and given None for the level Shrek
+climbed every rock and dock of the swamp. A volume is touched where its brush
+is, inside every face's plane by the pawn's reach, not as a cylinder about its
+middle. What the pawn runs or jumps into counts, from any side: met from below,
 the top looked for is right above. Volumes are passed through on the way down
 to it, as the swamp's vine has a blocking volume over it, and what is only
 hung from (MA_UnAbleFinishMount) needs no room on top. A static mesh is world

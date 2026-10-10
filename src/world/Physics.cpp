@@ -215,9 +215,13 @@ void tryMount(World& w, Object* a, const TraceHit* met = nullptr) {
         Vec3 dest{p.x, p.y, top.location.z + ext.z + MaxFloorDist};
         Object* on = top.actor;
         // the level, unless what it is lets itself be climbed: the vine, a
-        // static mesh and so world geometry, does
-        if (on == w.info || (on && !w.flag(on, "bIsMountable") && (on->cls->name == Name("TerrainInfo") || w.flag(on, "bWorldGeometry"))))
-            on = nullptr;
+        // static mesh and so world geometry, does. The level is the
+        // LevelInfo, which Mount lets be climbed only in a MountVolume; none
+        // is anywhere at all, which only the ladders' own Mount asks for, and
+        // given none for the level Shrek climbed every rock and dock
+        if (!on || on == w.info ||
+            (!w.flag(on, "bIsMountable") && (on->cls->name == Name("TerrainInfo") || w.flag(on, "bWorldGeometry"))))
+            on = w.info;
         // what is only hung from, MA_UnAbleFinishMount, as the swamp's vine
         // under its willow, is never stood on, and need not have room above
         bool hangOnly = on && on->cls->findProp(Name("MountAction")) && w.var(on, "MountAction").i() == 2;
@@ -554,8 +558,13 @@ void updateTouching(World& w, Object* a) {
         ActorShape sh = shapeOf(w, o);
         Vec3 q = sh.center;
         float dr = r + sh.radius, dh = h + sh.height;
-        bool over;
-        if (sh.box) {
+        bool over, known = false;
+        // a volume is touched where its brush is, not as a cylinder about its
+        // middle: the swamp's MountVolumes run along the ledges they let be
+        // climbed
+        if (w.volumeClass && o->isA(w.volumeClass) && w.collision &&
+            (over = w.collision->volumeOverlaps(o, p, Vec3{r, r, h}, known), known)) {
+        } else if (sh.box) {
             // a cylinder against a box, as a box of its radius
             Vec3 l = sh.local(p);
             over = std::fabs(l.x) <= sh.radius + r && std::fabs(l.y) <= sh.width + r && std::fabs(l.z) <= dh;

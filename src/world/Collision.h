@@ -46,6 +46,9 @@ public:
     // for an actor, whose own MaterialType tells. Its MaterialType is the
     // one its package gives it.
     Object* materialOf(const TraceHit& h);
+    // Whether a box of half size `extent` at p overlaps a volume's brush;
+    // `known` false when the volume has none to test.
+    bool volumeOverlaps(Object* volume, Vec3 p, Vec3 extent, bool& known);
     Library* library = nullptr;     // for the terrains' alpha maps
 
     // Every actor the segment passes through before it hits the BSP, nearest
@@ -92,6 +95,7 @@ private:
     std::map<size_t, std::vector<Layer>> terrainLayers_;
     std::map<Object*, bool> materialTyped_;
     void refreshOff();
+    std::map<Object*, std::vector<std::pair<Vec3, float>>> volumePlanes_;
     std::unordered_set<const Object*> off_;
     size_t offChanges_ = ~size_t(0);
     int mapPkg_ = 0;

@@ -216,6 +216,39 @@ void Collision::buildBrushes() {
     brushTris_.build(std::move(tris));
 }
 
+// Whether a box of half size `extent` at p overlaps a volume's brush, taken
+// as convex, as the game's volumes are: inside every face's plane, the box's
+// reach along its normal allowed. False when the volume has no brush to test,
+// and `known` false with it.
+bool Collision::volumeOverlaps(Object* v, Vec3 p, Vec3 extent, bool& known) {
+    auto it = volumePlanes_.find(v);
+    if (it == volumePlanes_.end()) {
+        std::vector<std::pair<Vec3, float>> planes;
+        Object* mo = world.obj(v, "Brush");
+        const std::vector<BrushPolygon>* polys = mo ? brushPolygons(mo) : nullptr;
+        float m[3][3], inv[3][3];
+        Vec3 o;
+        if (polys && !polys->empty()) {
+            brushTransform(v, m, o);
+            if (invert(m, inv))
+                for (const BrushPolygon& q : *polys) {
+                    if (q.vertices.empty()) continue;
+                    Vec3 n = mulT(inv, q.normal);
+                    float len = length(n);
+                    if (len <= 0) continue;
+                    n = n * (1 / len);
+                    planes.emplace_back(n, dot(n, o + mul(m, q.vertices[0])));
+                }
+        }
+        it = volumePlanes_.emplace(v, std::move(planes)).first;
+    }
+    known = !it->second.empty();
+    for (const auto& [n, d] : it->second)
+        if (dot(n, p) - d - (std::fabs(n.x) * extent.x + std::fabs(n.y) * extent.y + std::fabs(n.z) * extent.z) > 0)
+            return false;
+    return known;
+}
+
 bool Collision::brushBlocks(Object* b, const Object* mover, bool line, bool worldOnly) {
     if (b == mover || b->deleted || !world.flag(b, "bCollideActors")) return false;
     if (worldOnly && !world.flag(b, "bWorldGeometry")) return false;
