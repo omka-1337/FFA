@@ -85,6 +85,9 @@ private:
     // Static meshes: each mesh's positions, UVs and indices once, and per
     // actor its transform, its baked vertex colours, and a texture a section.
     void buildMeshes();
+    void updateMeshes();
+    void addMesh(Object* a);
+    void placeMesh(Object* a, float model[16]);
     ObjectRef refOf(const Object* o);
     struct MeshBuffers {
         unsigned vertices = 0, indices = 0;
@@ -102,6 +105,10 @@ private:
         std::vector<Part> parts;
         float radius = 0;           // around its origin, in the world
         bool unlit = false;         // bUnlit: the texture as it is
+        Object* actor = nullptr;
+        Object* source = nullptr;   // the StaticMesh it was made for
+        bool moves = false;         // not bStatic: placed again each frame
+        bool shown = true;
     };
     // Skeletal meshes: per actor its wedges' positions, skinned each frame on
     // the CPU from the animator's pose, and its faces by material.
@@ -145,6 +152,7 @@ private:
     std::map<Object*, SkelDraw> skel_;
     std::map<const void*, MeshBuffers> meshBuffers_;
     std::vector<MeshDraw> meshDraws_;
+    size_t meshScanned_ = 0;        // the actors looked at so far
     unsigned meshProgram_ = 0;
 
     Session& session_;

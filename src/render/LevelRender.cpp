@@ -582,8 +582,6 @@ ObjectRef LevelRender::refOf(const Object* o) {
 }
 
 void LevelRender::buildMeshes() {
-    World& w = *session_.world;
-    Collision& col = *session_.collision;
     meshProgram_ = glCreateProgram();
     glAttachShader(meshProgram_, compile(GL_VERTEX_SHADER, kMeshVertex));
     glAttachShader(meshProgram_, compile(GL_FRAGMENT_SHADER, kMeshFragment));
@@ -591,152 +589,179 @@ void LevelRender::buildMeshes() {
     glBindAttribLocation(meshProgram_, 1, "aUv");
     glBindAttribLocation(meshProgram_, 2, "aColor");
     glLinkProgram(meshProgram_);
-    for (Object* a : w.actors) {
-        if (a->deleted || w.var(a, "DrawType").i() != 8 || w.flag(a, "bHidden")) continue;
-        Object* mo = w.obj(a, "StaticMesh");
-        const StaticMeshCollision* m = mo ? col.mesh(mo) : nullptr;
-        if (!m || m->indices.empty()) continue;
-        MeshBuffers& mb = meshBuffers_[m];
-        if (!mb.vertices) {
-            std::vector<float> v;
-            for (size_t i = 0; i < m->positions.size(); ++i) {
-                v.insert(v.end(), {m->positions[i].x, m->positions[i].y, m->positions[i].z});
-                bool has = m->uv.size() >= (i + 1) * 2;
-                v.push_back(has ? m->uv[i * 2] : 0);
-                v.push_back(has ? m->uv[i * 2 + 1] : 0);
-            }
-            glGenBuffers(1, &mb.vertices);
-            glBindBuffer(GL_ARRAY_BUFFER, mb.vertices);
-            glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(v.size() * sizeof(float)), v.data(), GL_STATIC_DRAW);
-            glGenBuffers(1, &mb.indices);
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mb.indices);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(m->indices.size() * 2), m->indices.data(), GL_STATIC_DRAW);
-        }
-        MeshDraw d;
-        d.mesh = &mb;
-        // the transform, as the collision places the same mesh:
-        // Location + R S (v - PrePivot)
-        int32_t pitch, yaw, roll;
-        w.vm.unrotator(w.var(a, "Rotation"), pitch, yaw, roll);
-        float axes[3][3];
-        rotationAxes(pitch, yaw, roll, axes);
-        float sc = w.var(a, "DrawScale").f();
-        Vec3 s3, loc, pp;
-        w.vm.unvector(w.var(a, "DrawScale3D"), s3.x, s3.y, s3.z);
-        w.vm.unvector(w.var(a, "Location"), loc.x, loc.y, loc.z);
-        w.vm.unvector(w.var(a, "PrePivot"), pp.x, pp.y, pp.z);
-        const float k3[3] = {sc * s3.x, sc * s3.y, sc * s3.z};
-        const float ppa[3] = {pp.x, pp.y, pp.z};
-        float origin[3] = {loc.x, loc.y, loc.z};
-        for (int c = 0; c < 3; ++c)
-            for (int r = 0; r < 3; ++r) {
-                d.model[c * 4 + r] = axes[c][r] * k3[c];
-                origin[r] -= d.model[c * 4 + r] * ppa[c];
-            }
-        d.model[3] = d.model[7] = d.model[11] = 0;
-        d.model[12] = origin[0];
-        d.model[13] = origin[1];
-        d.model[14] = origin[2];
-        d.model[15] = 1;
-        Vec3 centre{};
-        for (const Vec3& v : m->positions) {
-            Vec3 q{d.model[0] * v.x + d.model[4] * v.y + d.model[8] * v.z, d.model[1] * v.x + d.model[5] * v.y + d.model[9] * v.z,
-                   d.model[2] * v.x + d.model[6] * v.y + d.model[10] * v.z};
-            d.radius = std::max(d.radius, length(q));
-            centre = centre + q;
-        }
-        if (!m->positions.empty())
-            centre = centre * (1.0f / float(m->positions.size())) + Vec3{d.model[12], d.model[13], d.model[14]};
-        // the baked light of this placing: its StaticMeshInstance's colours
-        ObjectRef inst = refOf(w.obj(a, "StaticMeshInstance"));
-        if (inst) {
-            std::vector<TagEntry> tags;
-            size_t at = 0;
-            if (Library::properties(inst, tags, at)) {
-                try {
-                    Reader r(inst.pkg->data, at, size_t(inst.exp().off + inst.exp().size));
-                    int32_t n = r.idx();
-                    if (n == int32_t(m->positions.size())) {
-                        std::vector<uint8_t> rgb;
-                        bool black = true;
-                        for (int32_t i = 0; i < n; ++i) {
-                            uint8_t c[4] = {r.u8(), r.u8(), r.u8(), r.u8()};
-                            rgb.insert(rgb.end(), {c[0], c[1], c[2]});
-                            black &= !c[0] && !c[1] && !c[2];
-                        }
-                        r.u32();            // revision
-                        // the lights, each with a bit a vertex for where it reaches
-                        std::vector<std::pair<Object*, std::vector<uint8_t>>> lights;
-                        for (int32_t k = 0, nl = r.idx(); k < nl && k < 256; ++k) {
-                            int32_t actor = r.idx();
-                            int32_t len = r.idx();
-                            r.need(size_t(len));
-                            std::vector<uint8_t> mask(inst.pkg->data.begin() + long(r.p),
-                                                      inst.pkg->data.begin() + long(r.p + size_t(len)));
-                            r.p += size_t(len);
-                            r.u32();        // applied
-                            auto it = w.actorAt.find(actor);
-                            if (it != w.actorAt.end()) lights.emplace_back(it->second, std::move(mask));
-                        }
-                        // Black throughout although lights reach it: the colours
-                        // are a cache the engine fills, so fill it here.
-                        if (black && !lights.empty()) {
-                            rgb = bakeVertexLight(w, *m, d.model, lights);
-                            ++relit;
-                        }
-                        glGenBuffers(1, &d.colors);
-                        glBindBuffer(GL_ARRAY_BUFFER, d.colors);
-                        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(rgb.size()), rgb.data(), GL_STATIC_DRAW);
-                    }
-                } catch (const FormatError&) {
-                }
-            }
-        }
-        // The zone's ambient. A mesh whose origin is sunk into the ground has
-        // the LevelInfo for its zone, which has none, and would be black
-        // where no light reaches it, where the game draws the bushes by the
-        // swamp's pond dark green; the zone around its middle lights it.
-        Object* zone = zoneOf(w, a);
-        if (zone == w.info) {
-            const BspModel& bm = session_.collision->bsp;
-            BspModel::Region rg = bm.regionAt(centre);
-            if (rg.leaf >= 0 && rg.zone >= 0 && size_t(rg.zone) < bm.zoneActors.size()) {
-                auto it = w.actorAt.find(bm.zoneActors[size_t(rg.zone)]);
-                if (it != w.actorAt.end()) zone = it->second;
-            }
-        }
-        d.ambient = bakedAmbientOf(w, zone);
-        d.unlit = w.flag(a, "bUnlit");
-        // a texture a section: the mesh's Materials, an actor's Skins over them
-        ObjectRef meshRef = refOf(mo);
-        std::vector<std::vector<TagEntry>> items;
-        if (meshRef) {
-            std::vector<TagEntry> tags;
-            size_t end = 0;
-            if (Library::properties(meshRef, tags, end))
-                if (const TagEntry* t = findTag(*meshRef.pkg, tags, "Materials")) tagStructArray(*meshRef.pkg, *t, items);
-        }
-        const Value& skins = w.var(a, "Skins");
-        for (size_t si = 0; si < m->sections.size(); ++si) {
-            const auto& sec = m->sections[si];
-            if (!sec.faces) continue;
-            SurfaceMaterial mat;
-            Object* skin = skins.isArr() && si < skins.arr().size() ? skins.arr()[si].o() : nullptr;
-            ObjectRef sk = refOf(skin);
-            if (sk) {
-                mat = materials_.resolve(*sk.pkg, sk.idx);
-            } else if (meshRef && si < items.size()) {
-                mat = materials_.resolve(*meshRef.pkg, tagObject(*meshRef.pkg, items[si], "Material"));
-            }
-            int tw, th;
-            unsigned tex = textureFor(mat, tw, th);
-            if (mat.blend == Blend::Invisible) continue;
-            d.parts.push_back({sec.firstIndex, sec.faces * 3, tex, mat});
-            triangles += size_t(sec.faces);
-        }
-        meshDraws_.push_back(std::move(d));
-    }
+    updateMeshes();
     meshes = meshDraws_.size();
+}
+
+// The transform of an actor's static mesh, as the collision places the same
+// mesh: Location + R S (v - PrePivot).
+void LevelRender::placeMesh(Object* a, float model[16]) {
+    World& w = *session_.world;
+    int32_t pitch, yaw, roll;
+    w.vm.unrotator(w.var(a, "Rotation"), pitch, yaw, roll);
+    float axes[3][3];
+    rotationAxes(pitch, yaw, roll, axes);
+    float sc = w.var(a, "DrawScale").f();
+    Vec3 s3, loc, pp;
+    w.vm.unvector(w.var(a, "DrawScale3D"), s3.x, s3.y, s3.z);
+    w.vm.unvector(w.var(a, "Location"), loc.x, loc.y, loc.z);
+    w.vm.unvector(w.var(a, "PrePivot"), pp.x, pp.y, pp.z);
+    const float k3[3] = {sc * s3.x, sc * s3.y, sc * s3.z};
+    const float ppa[3] = {pp.x, pp.y, pp.z};
+    float origin[3] = {loc.x, loc.y, loc.z};
+    for (int c = 0; c < 3; ++c)
+        for (int r = 0; r < 3; ++r) {
+            model[c * 4 + r] = axes[c][r] * k3[c];
+            origin[r] -= model[c * 4 + r] * ppa[c];
+        }
+    model[3] = model[7] = model[11] = 0;
+    model[12] = origin[0];
+    model[13] = origin[1];
+    model[14] = origin[2];
+    model[15] = 1;
+}
+
+// The static meshes as the actors are now: those spawned since added, the
+// ones that can move placed again, and which are shown. The actor list only
+// grows; a destroyed actor stays in it, marked.
+void LevelRender::updateMeshes() {
+    World& w = *session_.world;
+    for (; meshScanned_ < w.actors.size(); ++meshScanned_) {
+        Object* a = w.actors[meshScanned_];
+        if (!a->deleted && w.var(a, "DrawType").i() == 8) addMesh(a);
+    }
+    for (MeshDraw& d : meshDraws_) {
+        Object* a = d.actor;
+        d.shown = !a->deleted && !w.flag(a, "bHidden") && w.var(a, "DrawType").i() == 8 && w.obj(a, "StaticMesh") == d.source;
+        if (d.shown && d.moves) placeMesh(a, d.model);
+    }
+}
+
+void LevelRender::addMesh(Object* a) {
+    World& w = *session_.world;
+    Collision& col = *session_.collision;
+    Object* mo = w.obj(a, "StaticMesh");
+    const StaticMeshCollision* m = mo ? col.mesh(mo) : nullptr;
+    if (!m || m->indices.empty()) return;
+    MeshBuffers& mb = meshBuffers_[m];
+    if (!mb.vertices) {
+        std::vector<float> v;
+        for (size_t i = 0; i < m->positions.size(); ++i) {
+            v.insert(v.end(), {m->positions[i].x, m->positions[i].y, m->positions[i].z});
+            bool has = m->uv.size() >= (i + 1) * 2;
+            v.push_back(has ? m->uv[i * 2] : 0);
+            v.push_back(has ? m->uv[i * 2 + 1] : 0);
+        }
+        glGenBuffers(1, &mb.vertices);
+        glBindBuffer(GL_ARRAY_BUFFER, mb.vertices);
+        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(v.size() * sizeof(float)), v.data(), GL_STATIC_DRAW);
+        glGenBuffers(1, &mb.indices);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mb.indices);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(m->indices.size() * 2), m->indices.data(), GL_STATIC_DRAW);
+    }
+    MeshDraw d;
+    d.mesh = &mb;
+    d.actor = a;
+    d.source = mo;
+    d.moves = !w.flag(a, "bStatic");
+    placeMesh(a, d.model);
+    Vec3 centre{};
+    for (const Vec3& v : m->positions) {
+        Vec3 q{d.model[0] * v.x + d.model[4] * v.y + d.model[8] * v.z, d.model[1] * v.x + d.model[5] * v.y + d.model[9] * v.z,
+               d.model[2] * v.x + d.model[6] * v.y + d.model[10] * v.z};
+        d.radius = std::max(d.radius, length(q));
+        centre = centre + q;
+    }
+    if (!m->positions.empty())
+        centre = centre * (1.0f / float(m->positions.size())) + Vec3{d.model[12], d.model[13], d.model[14]};
+    // the baked light of this placing: its StaticMeshInstance's colours
+    ObjectRef inst = refOf(w.obj(a, "StaticMeshInstance"));
+    if (inst) {
+        std::vector<TagEntry> tags;
+        size_t at = 0;
+        if (Library::properties(inst, tags, at)) {
+            try {
+                Reader r(inst.pkg->data, at, size_t(inst.exp().off + inst.exp().size));
+                int32_t n = r.idx();
+                if (n == int32_t(m->positions.size())) {
+                    std::vector<uint8_t> rgb;
+                    bool black = true;
+                    for (int32_t i = 0; i < n; ++i) {
+                        uint8_t c[4] = {r.u8(), r.u8(), r.u8(), r.u8()};
+                        rgb.insert(rgb.end(), {c[0], c[1], c[2]});
+                        black &= !c[0] && !c[1] && !c[2];
+                    }
+                    r.u32();            // revision
+                    // the lights, each with a bit a vertex for where it reaches
+                    std::vector<std::pair<Object*, std::vector<uint8_t>>> lights;
+                    for (int32_t k = 0, nl = r.idx(); k < nl && k < 256; ++k) {
+                        int32_t actor = r.idx();
+                        int32_t len = r.idx();
+                        r.need(size_t(len));
+                        std::vector<uint8_t> mask(inst.pkg->data.begin() + long(r.p),
+                                                  inst.pkg->data.begin() + long(r.p + size_t(len)));
+                        r.p += size_t(len);
+                        r.u32();        // applied
+                        auto it = w.actorAt.find(actor);
+                        if (it != w.actorAt.end()) lights.emplace_back(it->second, std::move(mask));
+                    }
+                    // Black throughout although lights reach it: the colours
+                    // are a cache the engine fills, so fill it here.
+                    if (black && !lights.empty()) {
+                        rgb = bakeVertexLight(w, *m, d.model, lights);
+                        ++relit;
+                    }
+                    glGenBuffers(1, &d.colors);
+                    glBindBuffer(GL_ARRAY_BUFFER, d.colors);
+                    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(rgb.size()), rgb.data(), GL_STATIC_DRAW);
+                }
+            } catch (const FormatError&) {
+            }
+        }
+    }
+    // The zone's ambient. A mesh whose origin is sunk into the ground has
+    // the LevelInfo for its zone, which has none, and would be black
+    // where no light reaches it, where the game draws the bushes by the
+    // swamp's pond dark green; the zone around its middle lights it.
+    Object* zone = zoneOf(w, a);
+    if (zone == w.info) {
+        const BspModel& bm = session_.collision->bsp;
+        BspModel::Region rg = bm.regionAt(centre);
+        if (rg.leaf >= 0 && rg.zone >= 0 && size_t(rg.zone) < bm.zoneActors.size()) {
+            auto it = w.actorAt.find(bm.zoneActors[size_t(rg.zone)]);
+            if (it != w.actorAt.end()) zone = it->second;
+        }
+    }
+    d.ambient = bakedAmbientOf(w, zone);
+    d.unlit = w.flag(a, "bUnlit");
+    // a texture a section: the mesh's Materials, an actor's Skins over them
+    ObjectRef meshRef = refOf(mo);
+    std::vector<std::vector<TagEntry>> items;
+    if (meshRef) {
+        std::vector<TagEntry> tags;
+        size_t end = 0;
+        if (Library::properties(meshRef, tags, end))
+            if (const TagEntry* t = findTag(*meshRef.pkg, tags, "Materials")) tagStructArray(*meshRef.pkg, *t, items);
+    }
+    const Value& skins = w.var(a, "Skins");
+    for (size_t si = 0; si < m->sections.size(); ++si) {
+        const auto& sec = m->sections[si];
+        if (!sec.faces) continue;
+        SurfaceMaterial mat;
+        Object* skin = skins.isArr() && si < skins.arr().size() ? skins.arr()[si].o() : nullptr;
+        ObjectRef sk = refOf(skin);
+        if (sk) {
+            mat = materials_.resolve(*sk.pkg, sk.idx);
+        } else if (meshRef && si < items.size()) {
+            mat = materials_.resolve(*meshRef.pkg, tagObject(*meshRef.pkg, items[si], "Material"));
+        }
+        int tw, th;
+        unsigned tex = textureFor(mat, tw, th);
+        if (mat.blend == Blend::Invisible) continue;
+        d.parts.push_back({sec.firstIndex, sec.faces * 3, tex, mat});
+        triangles += size_t(sec.faces);
+    }
+    meshDraws_.push_back(std::move(d));
 }
 
 namespace {
@@ -1129,6 +1154,7 @@ void LevelRender::drawReceivers(Vec3 lo, Vec3 hi) {
             glDrawElements(GL_TRIANGLES, b.count, GL_UNSIGNED_SHORT, nullptr);
         }
     for (const MeshDraw& d : meshDraws_) {
+        if (!d.shown) continue;
         Vec3 o{d.model[12], d.model[13], d.model[14]};
         if (o.x + d.radius < lo.x || o.x - d.radius > hi.x || o.y + d.radius < lo.y || o.y - d.radius > hi.y ||
             o.z + d.radius < lo.z || o.z - d.radius > hi.z)
@@ -1321,6 +1347,7 @@ void LevelRender::drawBsp(const float mvp[16], bool blended) {
 }
 
 void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, float fov) {
+    updateMeshes();
     glViewport(0, 0, width, height);
     glClearColor(0.35f, 0.45f, 0.55f, 1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -1402,7 +1429,8 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
         // behind it
         std::vector<const MeshDraw*> order;
         order.reserve(meshDraws_.size());
-        for (const MeshDraw& d : meshDraws_) order.push_back(&d);
+        for (const MeshDraw& d : meshDraws_)
+            if (d.shown) order.push_back(&d);
         if (pass == 1) {
             auto far = [&](const MeshDraw* d) {
                 Vec3 o{d->model[12], d->model[13], d->model[14]};

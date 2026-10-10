@@ -57,7 +57,10 @@ adds the ambient to the baked light:
   world position against its TerrainMatrix; lit by the baked vertex light × 2,
   which holds the zone's ambient too.
 - **Static meshes**, at Location + R S (v - PrePivot), a section a material,
-  the actor's Skins over the mesh's Materials; lit by the StaticMeshInstance's
+  the actor's Skins over the mesh's Materials; placed again every frame when
+  the actor is not bStatic, so that movers move on the screen as well (the
+  factory's doors stayed open, drawn where they started, while they closed),
+  left out while bHidden or destroyed, and those spawned added as they come; lit by the StaticMeshInstance's
   vertex colours and the zone's ambient as the BSP holds it, together × 2;
   bUnlit full bright. Where those colours are black
   throughout although lights reach the mesh, they are computed from the lights
