@@ -142,6 +142,12 @@ private:
     Object* canvas_ = nullptr;
     unsigned hudProgram_ = 0;
     std::map<std::pair<const Package*, int>, FontData> fonts_;
+    std::map<const Object*, const FontData*> fontByObject_;
+    struct HudTexture {
+        unsigned texture;
+        int width, height;
+    };
+    std::map<const Object*, HudTexture> hudTextures_;
     std::map<Object*, unsigned> shadowTex_;
     Class* shadowClass_ = nullptr;
     // Skeletal meshes: posed and their opaque parts drawn, or, after every

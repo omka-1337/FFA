@@ -167,6 +167,13 @@ multiplies. What it draws: the letterbox borders and subtitles of cutscenes,
 the black screen and hourglass over a skipped one, KWHud's health bar, potion
 and coin counters, and SAVING.
 
+A font and a tile's texture are found from the script's object once and kept
+by it: found again each time, by the object's path through its package's
+exports, a font cost about a millisecond, and the subtitles' WrapStringToArray
+asks for it for every word it measures, 27 times a frame, 28 ms, which took
+the swamp from some 45 frames a second to under 20 while a subtitle showed.
+Now the HUD's script takes 0.2 ms a frame with one.
+
 The HUD lays out by its textures' USize and VSize, and its textures are in
 packages the linker does not hold: an object made for one is given its size
 from the texture itself when it is made (Linker::onStub), else every bar was

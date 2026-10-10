@@ -278,29 +278,48 @@ void main() {
 
 }  // namespace
 
+// Both by the object, found in its package once: finding it by its path
+// walks the package's exports, about a millisecond for a font, and the
+// subtitles' WrapStringToArray asks for the font for every word, which came
+// to 28 ms a frame while a subtitle showed.
 unsigned LevelRender::hudTexture(Object* material, int& width, int& height) {
+    auto hit = hudTextures_.find(material);
+    if (hit != hudTextures_.end()) {
+        width = hit->second.width;
+        height = hit->second.height;
+        return hit->second.texture;
+    }
     width = height = 0;
+    unsigned t = 0;
     ObjectRef r = refOf(material);
-    if (!r) return 0;
-    SurfaceMaterial m = materials_.resolve(*r.pkg, r.idx);
-    if (!m.texture) return 0;
-    return textureFor(m, width, height);
+    if (r) {
+        SurfaceMaterial m = materials_.resolve(*r.pkg, r.idx);
+        if (m.texture) t = textureFor(m, width, height);
+    }
+    hudTextures_[material] = {t, width, height};
+    return t;
 }
 
 const FontData* LevelRender::hudFont(Object* font) {
+    auto hit = fontByObject_.find(font);
+    if (hit != fontByObject_.end()) return hit->second;
+    const FontData* out = nullptr;
     ObjectRef r = refOf(font);
-    if (!r || r.cls() != "Font") return nullptr;
-    auto key = std::make_pair(r.pkg, r.idx);
-    auto it = fonts_.find(key);
-    if (it == fonts_.end()) {
-        FontData f;
-        try {
-            f = readFont(lib_, r);
-        } catch (const std::exception&) {
+    if (r && r.cls() == "Font") {
+        auto key = std::make_pair(r.pkg, r.idx);
+        auto it = fonts_.find(key);
+        if (it == fonts_.end()) {
+            FontData f;
+            try {
+                f = readFont(lib_, r);
+            } catch (const std::exception&) {
+            }
+            it = fonts_.emplace(key, std::move(f)).first;
         }
-        it = fonts_.emplace(key, std::move(f)).first;
+        out = &it->second;
     }
-    return &it->second;
+    fontByObject_[font] = out;
+    return out;
 }
 
 unsigned LevelRender::hudPage(const FontData& f, int page, int& width, int& height) {
