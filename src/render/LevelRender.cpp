@@ -19,7 +19,8 @@ namespace ffa {
 
 namespace {
 
-const uint32_t PF_Invisible = 0x00000001, PF_Portal = 0x04000000, PF_Unlit = 0x00400000;
+const uint32_t PF_Invisible = 0x00000001, PF_FakeBackdrop = 0x00000080, PF_Portal = 0x04000000,
+               PF_Unlit = 0x00400000;
 
 const char* kVertex = R"(
 attribute vec3 aPos;
@@ -276,6 +277,16 @@ unsigned LevelRender::cubeFor(const SurfaceMaterial& m) {
 
 void LevelRender::buildBsp() {
     const BspModel& m = session_.collision->bsp;
+    // the sky zone: the one the SkyZoneInfo stands in (docs/package-format.md)
+    World& w = *session_.world;
+    if (Class* sc = session_.vm->findClass("SkyZoneInfo"))
+        for (Object* a : w.actors)
+            if (!a->deleted && a->isA(sc)) {
+                w.vm.unvector(w.var(a, "Location"), skyAt_.x, skyAt_.y, skyAt_.z);
+                BspModel::Region rg = m.regionAt(skyAt_);
+                if (rg.leaf >= 0) skyZone_ = rg.zone;
+                break;
+            }
     const Package& p = *session_.linker->packages[size_t(session_.pkg)];
     // the lightmap textures, DXT1, decoded once
     for (const BspLightMapTexture& t : m.lightMapTextures) {
@@ -299,16 +310,18 @@ void LevelRender::buildBsp() {
         bool zwrite, unlit;
         unsigned cube;
         float opacity, nx, ny, nz;  // the normal, for a reflection's
+        bool sky;
         bool operator<(const Key& o) const {
-            return std::tie(tex, lm, blend, cut, zwrite, unlit, cube, opacity, nx, ny, nz) <
-                   std::tie(o.tex, o.lm, o.blend, o.cut, o.zwrite, o.unlit, o.cube, o.opacity, o.nx, o.ny, o.nz);
+            return std::tie(tex, lm, blend, cut, zwrite, unlit, cube, opacity, nx, ny, nz, sky) <
+                   std::tie(o.tex, o.lm, o.blend, o.cut, o.zwrite, o.unlit, o.cube, o.opacity, o.nx, o.ny, o.nz, o.sky);
         }
     };
     std::map<Key, std::vector<float>> groups;
     for (const BspNode& n : m.nodes) {
         if (n.numVerts < 3 || n.surf < 0 || size_t(n.surf) >= m.surfs.size()) continue;
         const BspSurf& s = m.surfs[size_t(n.surf)];
-        if (s.flags & (PF_Invisible | PF_Portal)) continue;
+        // the backdrop is where the sky shows: left out
+        if (s.flags & (PF_Invisible | PF_Portal | PF_FakeBackdrop)) continue;
         SurfaceMaterial mat = materials_.resolve(p, s.material);
         int tw = 64, th = 64;
         unsigned tex = textureFor(mat, tw, th);
@@ -321,7 +334,8 @@ void LevelRender::buildBsp() {
         if (mat.blend == Blend::Invisible) continue;
         unsigned cube = cubeFor(mat);
         Vec3 nv = cube ? m.vectors[size_t(s.normal)] : Vec3{};
-        Key key{tex, lm ? lm : white_, int(mat.blend), mat.alphaRef, mat.zwrite, unlit, cube, mat.opacity, nv.x, nv.y, nv.z};
+        bool sky = skyZone_ >= 0 && n.zone == skyZone_;
+        Key key{tex, lm ? lm : white_, int(mat.blend), mat.alphaRef, mat.zwrite, unlit, cube, mat.opacity, nv.x, nv.y, nv.z, sky};
         std::vector<float>& out = groups[key];
         Vec3 base = m.points[size_t(s.base)], tu = m.vectors[size_t(s.textureU)], tv = m.vectors[size_t(s.textureV)];
         std::vector<std::array<float, 7>> corners;
@@ -352,6 +366,7 @@ void LevelRender::buildBsp() {
         b.mat.zwrite = key.zwrite;
         b.unlit = key.unlit;
         b.cube = key.cube;
+        b.sky = key.sky;
         b.opacity = key.opacity;
         b.normal = {key.nx, key.ny, key.nz};
         b.count = int(verts.size() / 7);
@@ -779,6 +794,10 @@ void LevelRender::addMesh(Object* a) {
     // where no light reaches it, where the game draws the bushes by the
     // swamp's pond dark green; the zone around its middle lights it.
     Object* zone = zoneOf(w, a);
+    if (skyZone_ >= 0) {
+        BspModel::Region rg = session_.collision->bsp.regionAt(centre);
+        d.sky = rg.leaf >= 0 && rg.zone == skyZone_;
+    }
     if (zone == w.info) {
         const BspModel& bm = session_.collision->bsp;
         BspModel::Region rg = bm.regionAt(centre);
@@ -1380,7 +1399,7 @@ void LevelRender::drawProjectors(const float mvp[16], Vec3 eye) {
     glDisable(GL_BLEND);
 }
 
-void LevelRender::drawBsp(const float mvp[16], Vec3 eye, bool blended) {
+void LevelRender::drawBsp(const float mvp[16], Vec3 eye, bool blended, bool sky) {
     glUseProgram(program_);
     glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp);
     glUniform1i(uTex_, 0);
@@ -1390,7 +1409,7 @@ void LevelRender::drawBsp(const float mvp[16], Vec3 eye, bool blended) {
     GLint uEnv = glGetUniformLocation(program_, "uEnv"), uNormal = glGetUniformLocation(program_, "uNormal");
     GLint uOpacity = glGetUniformLocation(program_, "uOpacity");
     for (const Batch& b : batches_) {
-        if (b.mat.blended() != blended) continue;
+        if (b.mat.blended() != blended || b.sky != sky) continue;
         applyBlend(b.mat);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, b.texture);
@@ -1420,6 +1439,63 @@ void LevelRender::drawBsp(const float mvp[16], Vec3 eye, bool blended) {
     glDisable(GL_BLEND);
 }
 
+void LevelRender::drawMeshes(const float mvp[16], Vec3 loc, bool blended, bool sky) {
+    glUseProgram(meshProgram_);
+    glActiveTexture(GL_TEXTURE0);
+    glUniform1i(glGetUniformLocation(meshProgram_, "uTex"), 0);
+    GLint uM = glGetUniformLocation(meshProgram_, "uMvp"), uA = glGetUniformLocation(meshProgram_, "uAmb");
+    GLint uB = glGetUniformLocation(meshProgram_, "uBaked"), uC = glGetUniformLocation(meshProgram_, "uCut");
+    // the blended ones far to near, so that each blends over what is behind it
+    std::vector<const MeshDraw*> order;
+    order.reserve(meshDraws_.size());
+    for (const MeshDraw& d : meshDraws_)
+        if (d.shown && d.sky == sky) order.push_back(&d);
+    if (blended) {
+        auto far = [&](const MeshDraw* d) {
+            Vec3 o{d->model[12], d->model[13], d->model[14]};
+            return length(o - loc);
+        };
+        std::stable_sort(order.begin(), order.end(), [&](const MeshDraw* x, const MeshDraw* y) { return far(x) > far(y); });
+    }
+    for (const MeshDraw* dp : order) {
+        const MeshDraw& d = *dp;
+        float m[16];
+        for (int c = 0; c < 4; ++c)
+            for (int r = 0; r < 4; ++r) {
+                float sum = 0;
+                for (int k = 0; k < 4; ++k) sum += mvp[k * 4 + r] * d.model[c * 4 + k];
+                m[c * 4 + r] = sum;
+            }
+        glUniformMatrix4fv(uM, 1, GL_FALSE, m);
+        glUniform3f(uA, d.ambient.x, d.ambient.y, d.ambient.z);
+        glUniform1f(uB, d.colors && !d.unlit ? 1.0f : 0.0f);
+        glBindBuffer(GL_ARRAY_BUFFER, d.mesh->vertices);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), nullptr);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), reinterpret_cast<void*>(12));
+        if (d.colors) {
+            glBindBuffer(GL_ARRAY_BUFFER, d.colors);
+            glEnableVertexAttribArray(2);
+            glVertexAttribPointer(2, 3, GL_UNSIGNED_BYTE, GL_TRUE, 0, nullptr);
+        } else {
+            glDisableVertexAttribArray(2);
+            glVertexAttrib3f(2, 0.5f, 0.5f, 0.5f);
+        }
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, d.mesh->indices);
+        for (const MeshDraw::Part& part : d.parts) {
+            if (part.mat.blended() != blended) continue;
+            applyBlend(part.mat);
+            glBindTexture(GL_TEXTURE_2D, part.texture);
+            glUniform1f(uC, part.mat.alphaRef);
+            glDrawElements(GL_TRIANGLES, part.count, GL_UNSIGNED_SHORT,
+                           reinterpret_cast<void*>(size_t(part.first) * 2));
+        }
+    }
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+}
+
 void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, float fov) {
     updateMeshes();
     glViewport(0, 0, width, height);
@@ -1437,25 +1513,43 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
         ax[1][2], ax[2][2], -ax[0][2], 0,
         0, 0, 0, 1,
     };
-    for (int r = 0; r < 3; ++r)
-        view[12 + r] = -(view[r] * loc.x + view[4 + r] * loc.y + view[8 + r] * loc.z);
     float aspect = float(width) / float(std::max(1, height));
     float fx = 1.0f / std::tan(fov * 3.14159265f / 360.0f), fy = fx * aspect;
     float zn = 4.0f, zf = 65536.0f;
     float proj[16] = {fx, 0, 0, 0, 0, fy, 0, 0, 0, 0, (zf + zn) / (zn - zf), -1, 0, 0, 2 * zf * zn / (zn - zf), 0};
+    auto viewFrom = [&](Vec3 eye, float out[16]) {
+        for (int r = 0; r < 3; ++r)
+            view[12 + r] = -(view[r] * eye.x + view[4 + r] * eye.y + view[8 + r] * eye.z);
+        for (int c = 0; c < 4; ++c)
+            for (int r = 0; r < 4; ++r) {
+                float sum = 0;
+                for (int k = 0; k < 4; ++k) sum += proj[k * 4 + r] * view[c * 4 + k];
+                out[c * 4 + r] = sum;
+            }
+    };
+    // The sky first: its zone seen from the SkyZoneInfo with the camera's
+    // turn and none of its place, so that it stays at infinity; then the
+    // level over it, which shows it where its PF_FakeBackdrop surfaces are
+    // left out.
+    if (skyZone_ >= 0) {
+        float skyMvp[16];
+        viewFrom(skyAt_, skyMvp);
+        drawBsp(skyMvp, skyAt_, false, true);
+        drawMeshes(skyMvp, skyAt_, false, true);
+        drawBsp(skyMvp, skyAt_, true, true);
+        drawMeshes(skyMvp, skyAt_, true, true);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+        glClear(GL_DEPTH_BUFFER_BIT);
+    }
     float mvp[16];
-    for (int c = 0; c < 4; ++c)
-        for (int r = 0; r < 4; ++r) {
-            float sum = 0;
-            for (int k = 0; k < 4; ++k) sum += proj[k * 4 + r] * view[c * 4 + k];
-            mvp[c * 4 + r] = sum;
-        }
+    viewFrom(loc, mvp);
     // What is opaque first, the BSP, the terrains, the characters and the
     // static meshes; then the projectors on it; then what blends over it.
     // What is opaque first, the BSP, the terrains, the characters and the
     // static meshes; then the projectors on it; then what blends over it,
     // which writes no depth and would have what is drawn after it over it.
-    drawBsp(mvp, loc, false);
+    drawBsp(mvp, loc, false, false);
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
     for (const TerrainDraw& td : terrains_) {
@@ -1483,72 +1577,13 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
         }
     }
     drawSkeletal(mvp, loc, false);
-    // the static meshes, opaque then blended
-    glUseProgram(meshProgram_);
-    glActiveTexture(GL_TEXTURE0);
-    glUniform1i(glGetUniformLocation(meshProgram_, "uTex"), 0);
-    GLint uM = glGetUniformLocation(meshProgram_, "uMvp"), uA = glGetUniformLocation(meshProgram_, "uAmb");
-    GLint uB = glGetUniformLocation(meshProgram_, "uBaked"), uC = glGetUniformLocation(meshProgram_, "uCut");
-    for (int pass = 0; pass < 2; ++pass) {
-        if (pass == 1) {
-            // shadows and the like on what is drawn so far, the opaque world,
-            // before what blends over it
-            drawProjectors(mvp, loc);
-            drawBsp(mvp, loc, true);
-            drawSkeletal(mvp, loc, true);
-            glUseProgram(meshProgram_);
-            glActiveTexture(GL_TEXTURE0);
-        }
-        // the blended ones far to near, so that each blends over what is
-        // behind it
-        std::vector<const MeshDraw*> order;
-        order.reserve(meshDraws_.size());
-        for (const MeshDraw& d : meshDraws_)
-            if (d.shown) order.push_back(&d);
-        if (pass == 1) {
-            auto far = [&](const MeshDraw* d) {
-                Vec3 o{d->model[12], d->model[13], d->model[14]};
-                return length(o - loc);
-            };
-            std::stable_sort(order.begin(), order.end(),
-                             [&](const MeshDraw* x, const MeshDraw* y) { return far(x) > far(y); });
-        }
-        for (const MeshDraw* dp : order) {
-            const MeshDraw& d = *dp;
-            float m[16];
-            for (int c = 0; c < 4; ++c)
-                for (int r = 0; r < 4; ++r) {
-                    float sum = 0;
-                    for (int k = 0; k < 4; ++k) sum += mvp[k * 4 + r] * d.model[c * 4 + k];
-                    m[c * 4 + r] = sum;
-                }
-            glUniformMatrix4fv(uM, 1, GL_FALSE, m);
-            glUniform3f(uA, d.ambient.x, d.ambient.y, d.ambient.z);
-            glUniform1f(uB, d.colors && !d.unlit ? 1.0f : 0.0f);
-            glBindBuffer(GL_ARRAY_BUFFER, d.mesh->vertices);
-            glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), nullptr);
-            glEnableVertexAttribArray(1);
-            glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), reinterpret_cast<void*>(12));
-            if (d.colors) {
-                glBindBuffer(GL_ARRAY_BUFFER, d.colors);
-                glEnableVertexAttribArray(2);
-                glVertexAttribPointer(2, 3, GL_UNSIGNED_BYTE, GL_TRUE, 0, nullptr);
-            } else {
-                glDisableVertexAttribArray(2);
-                glVertexAttrib3f(2, 0.5f, 0.5f, 0.5f);
-            }
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, d.mesh->indices);
-            for (const MeshDraw::Part& part : d.parts) {
-                if (part.mat.blended() != (pass == 1)) continue;
-                applyBlend(part.mat);
-                glBindTexture(GL_TEXTURE_2D, part.texture);
-                glUniform1f(uC, part.mat.alphaRef);
-                glDrawElements(GL_TRIANGLES, part.count, GL_UNSIGNED_SHORT,
-                               reinterpret_cast<void*>(size_t(part.first) * 2));
-            }
-        }
-    }
+    // the static meshes, opaque then blended, with the projectors on what is
+    // opaque before what blends over it
+    drawMeshes(mvp, loc, false, false);
+    drawProjectors(mvp, loc);
+    drawBsp(mvp, loc, true, false);
+    drawSkeletal(mvp, loc, true);
+    drawMeshes(mvp, loc, true, false);
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
     glActiveTexture(GL_TEXTURE0);

@@ -61,6 +61,12 @@ adds the ambient to the baked light:
   the swamp, Hunt parts 3 and 4 and Hamlet's end, the one such material in
   the game, a reflection at 188 of 255 over the bed, where its fallback,
   drawn before, made it opaque cyan.
+- **The sky** first: the zone the SkyZoneInfo stands in (package-format.md, The
+  sky), its BSP and static meshes, seen from the SkyZoneInfo with the camera's
+  turn and none of its place, so it stays at infinity; then the depth is
+  cleared and the level drawn over it without its PF_FakeBackdrop surfaces,
+  through which the sky shows. Drawn with their own texture, those outer
+  walls stood around the swamp as a treeline tiled in stripes.
 - **Terrains**, from the engine's copy of the grid, each layer laid over the
   ones before by its weight from its alpha map, its texture coordinates the
   world position against its TerrainMatrix; lit by the baked vertex light × 2,
@@ -229,8 +235,6 @@ decides over what it wraps.
 
 ## Not yet
 
-- The sky: the sky zone drawn first from the SkyZoneInfo, behind the surfaces
-  flagged PF_FakeBackdrop, which show the clear colour now.
 - The Spotlight's cone in the vertex light computed for black instances
   (docs/package-format.md, StaticMeshInstance) and on characters.
 - Sprites and emitters, fog, translucency sorted by depth, water's cubemap.

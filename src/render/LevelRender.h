@@ -66,6 +66,7 @@ private:
         unsigned cube = 0;          // a reflection for the colour, or 0
         Vec3 normal;                // the surfaces' normal, for the reflection
         float opacity = 1;
+        bool sky = false;           // in the sky zone
     };
     unsigned textureFor(const SurfaceMaterial& m, int& width, int& height);
     unsigned cubeFor(const SurfaceMaterial& m);
@@ -114,6 +115,7 @@ private:
         Object* source = nullptr;   // the StaticMesh it was made for
         bool moves = false;         // not bStatic: placed again each frame
         bool shown = true;
+        bool sky = false;           // in the sky zone
     };
     // Skeletal meshes: per actor its wedges' positions, skinned each frame on
     // the CPU from the animator's pose, and its faces by material.
@@ -154,7 +156,12 @@ private:
     // opaque thing, their blended parts.
     void drawSkeletal(const float mvp[16], Vec3 eye, bool blended);
     // The BSP's opaque batches, or its blended ones.
-    void drawBsp(const float mvp[16], Vec3 eye, bool blended);
+    void drawBsp(const float mvp[16], Vec3 eye, bool blended, bool sky);
+    void drawMeshes(const float mvp[16], Vec3 eye, bool blended, bool sky);
+    // the sky zone, the one the SkyZoneInfo stands in, and where it stands;
+    // -1 for a level without one
+    int skyZone_ = -1;
+    Vec3 skyAt_;
     std::vector<Vec3> characterLight(Object* a, const SkeletalMesh& mesh, const std::vector<Vec3>& pts,
                                      const float r[3][3], Vec3 loc);
     std::vector<Object*> lights_;
