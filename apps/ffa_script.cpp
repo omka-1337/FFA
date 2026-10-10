@@ -16,8 +16,10 @@
 // against what the bytecode itself says.
 #include <algorithm>
 #include <iterator>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -27,6 +29,7 @@
 #include <tuple>
 
 #include "audio/Bink.h"
+#include "audio/BinkVideo.h"
 #include "script/VM.h"
 #include "render/Texture.h"
 #include "world/Bsp.h"
@@ -49,7 +52,9 @@ int usage() {
                  "       ffa-script level <System dir> <map.unr> [dump.tsv]\n"
                  "       ffa-script start <System dir> <map.unr>\n"
                  "       ffa-script run <System dir> <map.unr> <seconds> [--hold <key>] [--axis <var>=<value>] [--event <tag>] [--log <word>] [--exec <seconds>=<command>] [--tap <key>=<period>]...\n"
-                 "       ffa-script collide <System dir> <map.unr or .usx>...\n");
+                 "       ffa-script collide <System dir> <map.unr or .usx>...\n"
+                 "       ffa-script bink <sound.bik or .wav> [reference.f32]\n"
+                 "       ffa-script binkv <movie.bik> <binkw32.dll> [frames] [out.yuv]\n");
     return 2;
 }
 
@@ -1136,7 +1141,32 @@ int bink(const char* path, const char* reference) {
     return 0;
 }
 
+// A Bink movie's frames decoded, written as planar 4:2:0 when asked, to set
+// against ffmpeg -pix_fmt yuv420p's: how long they took, on stderr.
+int binkv(int argc, char** argv) {
+    std::ifstream in(argv[2], std::ios::binary);
+    std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    BinkVideo v(std::move(data), readBinkTables(argv[3]));
+    int frames = argc >= 5 ? std::min(std::atoi(argv[4]), v.frames()) : v.frames();
+    FILE* out = argc >= 6 ? std::fopen(argv[5], "wb") : nullptr;
+    std::vector<uint8_t> yuv;
+    auto t0 = std::chrono::steady_clock::now();
+    for (int i = 0; i < frames; ++i) {
+        v.next();
+        if (out) {
+            v.yuv(yuv);
+            std::fwrite(yuv.data(), 1, yuv.size(), out);
+        }
+    }
+    double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    if (out) std::fclose(out);
+    std::fprintf(stderr, "%s\t%dx%d\t%d of %d frames at %.2f a second\tdecoded in %.2f s\n", argv[2], v.width(), v.height(), frames,
+                v.frames(), v.fps(), s);
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc >= 4 && std::string(argv[1]) == "binkv") return binkv(argc, argv);
     if (argc >= 3 && std::string(argv[1]) == "bink") return bink(argv[2], argc >= 4 ? argv[3] : nullptr);
     if (argc < 3) return usage();
     std::string cmd = argv[1], dir = argv[2];

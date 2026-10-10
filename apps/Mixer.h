@@ -7,6 +7,8 @@
 // does not play while that one does; Talk is a slot, so a line cuts the last.
 // Each actor's AmbientSound loops while it is in reach, SoundRadius times 25
 // as the engine family measures it, at SoundVolume / 255 and SoundPitch / 64.
+// A stereo clip keeps its two channels. A movie the HUD plays has its sound
+// from its own file, at where its time is, while it plays and is not paused.
 // Music is not played yet: its Ogg Vorbis has no decoder here.
 #pragma once
 
@@ -14,14 +16,18 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <vector>
 
+#include "audio/Bink.h"
 #include "audio/SoundBank.h"
 #include "world/Audio.h"
 #include "world/Geometry.h"
+#include "world/Movie.h"
 
 namespace ffa {
 
@@ -73,7 +79,7 @@ public:
     void stop(Object* actor, Object* sound) override {
         std::lock_guard<std::mutex> lock(m_);
         for (Voice& v : voices_)
-            if (v.actor == actor && (!sound || v.sound == sound) && !v.ambient) v.done = true;
+            if (v.actor == actor && (!sound || v.sound == sound) && !v.ambient && !v.movie) v.done = true;
     }
     int playMusic(const std::string&, float, bool) override { return ++music_; }
     void stopMusic(int, float) override {}
@@ -84,6 +90,7 @@ public:
         if (!device_) return;
         float ax[3][3];
         rotationAxes(rot[0], rot[1], rot[2], ax);
+        movieSound();
         std::lock_guard<std::mutex> lock(m_);
         ear_ = at;
         right_ = {ax[1][0], ax[1][1], ax[1][2]};
@@ -130,10 +137,56 @@ private:
         int slot = 0;
         float volume = 1, radius = 0;
         double pos = 0, step = 1;
-        bool positional = true, ambient = false, done = false;
+        bool positional = true, ambient = false, movie = false, done = false;
         Vec3 at;
         float left = 1, right = 1;
     };
+
+    // The playing movie's sound, begun where its time is; ended when the
+    // movie ends, pauses or begins again. Decoded outside the lock, so the
+    // voices playing go on meanwhile.
+    void movieSound() {
+        Object* want = nullptr;
+        const World::MoviePlay* play = nullptr;
+        for (auto& [o, m] : w_.movies)
+            if (m.playing && m.pausedAt < 0) {
+                want = o;
+                play = &m;
+                break;
+            }
+        if (movie_ && (want != movie_ || play->start != movieStart_)) {
+            std::lock_guard<std::mutex> lock(m_);
+            for (Voice& v : voices_)
+                if (v.movie) v.done = true;
+            movie_ = nullptr;
+        }
+        if (!want || want == movie_) return;
+        movie_ = want;
+        movieStart_ = play->start;
+        std::string path = movieFile(w_, play->file);
+        if (path.empty()) return;
+        auto it = movieClips_.find(path);
+        if (it == movieClips_.end()) {
+            std::shared_ptr<const DecodedSound> clip;
+            try {
+                std::ifstream in(path, std::ios::binary);
+                std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                clip = std::make_shared<DecodedSound>(decodeBink(data.data(), data.size()));
+            } catch (const std::exception&) {
+                // black.bik has no sound
+            }
+            it = movieClips_.emplace(path, clip).first;
+        }
+        if (!it->second || it->second->samples.empty()) return;
+        Voice v;
+        v.clip = it->second;
+        v.movie = true;
+        v.positional = false;
+        v.step = double(v.clip->rate) / double(rate_);
+        v.pos = std::max(0.0, double(w_.time - play->start) * double(v.clip->rate));
+        std::lock_guard<std::mutex> lock(m_);
+        voices_.push_back(std::move(v));
+    }
 
     void place(Voice& v) {
         if (v.actor && !v.actor->deleted) w_.vm.unvector(w_.var(v.actor, "Location"), v.at.x, v.at.y, v.at.z);
@@ -155,7 +208,8 @@ private:
         for (Voice& v : voices_) {
             if (v.done) continue;
             const std::vector<float>& s = v.clip->samples;
-            const double n = double(s.size());
+            const size_t ch = v.clip->channels == 2 ? 2 : 1;
+            const double n = double(s.size() / ch);
             for (int i = 0; i < frames; ++i) {
                 if (v.pos >= n - 1) {
                     if (!v.ambient) {
@@ -164,11 +218,18 @@ private:
                     }
                     v.pos = std::fmod(v.pos, n - 1);
                 }
-                size_t k = size_t(v.pos);
-                float t = float(v.pos - double(k));
-                float x = s[k] + (s[k + 1] - s[k]) * t;
-                out[2 * i] += x * v.left;
-                out[2 * i + 1] += x * v.right;
+                size_t k = size_t(v.pos) * ch;
+                float t = float(v.pos - std::floor(v.pos));
+                float l = s[k] + (s[k + ch] - s[k]) * t;
+                if (ch == 1) {
+                    out[2 * i] += l * v.left;
+                    out[2 * i + 1] += l * v.right;
+                } else {
+                    // each side its own, at the gain a centred mono one has
+                    float r = s[k + 1] + (s[k + 3] - s[k + 1]) * t;
+                    out[2 * i] += l * v.left * float(M_SQRT2);
+                    out[2 * i + 1] += r * v.right * float(M_SQRT2);
+                }
                 v.pos += v.step;
             }
         }
@@ -183,6 +244,9 @@ private:
     Vec3 ear_, right_{0, 1, 0};
     float gain_ = 0.9f;
     int music_ = 0;
+    Object* movie_ = nullptr;
+    float movieStart_ = 0;
+    std::map<std::string, std::shared_ptr<const DecodedSound>> movieClips_;
 };
 
 }  // namespace ffa

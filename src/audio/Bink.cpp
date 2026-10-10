@@ -95,7 +95,8 @@ DecodedSound decodeBink(const uint8_t* b, size_t size) {
     size_t o = 44 + 4;
     int rate = b[o] | b[o + 1] << 8, flags = b[o + 2] | b[o + 3] << 8;
     o += 4 + 4;
-    if (!(flags & 0x1000) || (flags & 0x2000)) throw FormatError("a Bink sound not DCT and mono");
+    if (!(flags & 0x1000)) throw FormatError("a Bink sound not of the DCT variant");
+    const int channels = flags & 0x2000 ? 2 : 1;
     if (o + 4 * (size_t(frames) + 1) > size) throw FormatError("a Bink frame table past the file");
     std::vector<uint32_t> offsets(frames + 1);
     for (uint32_t i = 0; i <= frames; ++i) offsets[i] = le32(b + o + 4 * i) & ~1u;
@@ -113,7 +114,11 @@ DecodedSound decodeBink(const uint8_t* b, size_t size) {
 
     DecodedSound out;
     out.rate = rate;
-    std::vector<float> c(static_cast<size_t>(n)), block(static_cast<size_t>(n)), previous(static_cast<size_t>(overlap));
+    out.channels = channels;
+    std::vector<float> c(static_cast<size_t>(n));
+    std::vector<std::vector<float>> block(static_cast<size_t>(channels), std::vector<float>(static_cast<size_t>(n)));
+    std::vector<std::vector<float>> previous(static_cast<size_t>(channels),
+                                             std::vector<float>(static_cast<size_t>(overlap)));
     std::vector<float> q(bands.size() - 1);
     bool first = true;
     for (uint32_t f = 0; f < frames; ++f) {
@@ -125,37 +130,50 @@ DecodedSound decodeBink(const uint8_t* b, size_t size) {
         Bits g(b + at + 4, len);
         g.get(32);                              // the decoded size
         while (g.left()) {
+            // two bits a block, then each channel's coefficients in turn
+            // (binkw32.dll, 0x3001ad00)
             g.get(2);
-            std::fill(c.begin(), c.end(), 0.0f);
-            c[0] = g.real() * root;
-            c[1] = g.real() * root;
-            for (float& x : q) x = quant[std::min<uint32_t>(g.get(8), 95)];
-            size_t k = 0;
-            float qk = q[0];
-            int i = 2;
-            while (i < n) {
-                int j = g.get(1) ? i + kRun[g.get(4)] * 8 : i + 8;
-                j = std::min(j, n);
-                int width = int(g.get(4));
-                if (width == 0) {
-                    i = j;
-                    while (k < q.size() && bands[k] < i) qk = q[k++];
-                } else {
-                    for (; i < j; ++i) {
-                        if (k < q.size() && bands[k] == i) qk = q[k++];
-                        uint32_t v = g.get(width);
-                        if (v) c[size_t(i)] = g.get(1) ? -qk * float(v) : qk * float(v);
+            for (int ch = 0; ch < channels; ++ch) {
+                std::fill(c.begin(), c.end(), 0.0f);
+                c[0] = g.real() * root;
+                c[1] = g.real() * root;
+                for (float& x : q) x = quant[std::min<uint32_t>(g.get(8), 95)];
+                size_t k = 0;
+                float qk = q[0];
+                int i = 2;
+                while (i < n) {
+                    int j = g.get(1) ? i + kRun[g.get(4)] * 8 : i + 8;
+                    j = std::min(j, n);
+                    int width = int(g.get(4));
+                    if (width == 0) {
+                        i = j;
+                        while (k < q.size() && bands[k] < i) qk = q[k++];
+                    } else {
+                        for (; i < j; ++i) {
+                            if (k < q.size() && bands[k] == i) qk = q[k++];
+                            uint32_t v = g.get(width);
+                            if (v) c[size_t(i)] = g.get(1) ? -qk * float(v) : qk * float(v);
+                        }
                     }
                 }
+                // type III, the first coefficient whole, scaled by 2 / n
+                std::vector<float>& bl = block[size_t(ch)];
+                idct.run(c, bl);
+                // the crossfade over the channels' samples interleaved, as
+                // the DLL does it on its 16 bit output (0x3001b301): sample t
+                // of channel ch is the (t * channels + ch)th of the overlap
+                if (!first) {
+                    const float m = float(overlap * channels);
+                    for (int t = 0; t < overlap; ++t) {
+                        float w = float(t * channels + ch);
+                        bl[size_t(t)] = (previous[size_t(ch)][size_t(t)] * (m - w) + bl[size_t(t)] * w) / m;
+                    }
+                }
+                std::copy(bl.end() - overlap, bl.end(), previous[size_t(ch)].begin());
             }
-            // type III, the first coefficient whole, scaled by 2 / n
-            idct.run(c, block);
-            if (!first)
-                for (int t = 0; t < overlap; ++t)
-                    block[size_t(t)] = (previous[size_t(t)] * float(overlap - t) + block[size_t(t)] * float(t)) / float(overlap);
             first = false;
-            std::copy(block.end() - overlap, block.end(), previous.begin());
-            out.samples.insert(out.samples.end(), block.begin(), block.end() - overlap);
+            for (int t = 0; t < n - overlap; ++t)
+                for (int ch = 0; ch < channels; ++ch) out.samples.push_back(block[size_t(ch)][size_t(t)]);
             g.align32();
         }
     }

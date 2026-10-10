@@ -13,9 +13,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <iterator>
 
 #include "render/LevelRender.h"
 #include "world/Gui.h"
+#include "world/Movie.h"
 #include "world/World.h"
 
 namespace ffa {
@@ -343,6 +346,51 @@ unsigned LevelRender::hudPage(const FontData& f, int page, int& width, int& heig
     return textureFor(m, width, height);
 }
 
+// The frame a movie is at, by its time since it began: those between the
+// last shown and it decoded, as each is made from the one before. A movie
+// that cannot be decoded stays black, as one not decoded at all.
+unsigned LevelRender::movieFrame(Object* movie, const World::MoviePlay& play) {
+    World& w = *session_.world;
+    if (movie_.movie != movie || movie_.file != play.file || movie_.start != play.start) {
+        movie_.movie = movie;
+        movie_.file = play.file;
+        movie_.start = play.start;
+        movie_.video.reset();
+        try {
+            std::string path = movieFile(w, play.file);
+            if (path.empty()) return 0;
+            if (!binkTables_) binkTables_ = readBinkTables(w.gameDir + "/System/binkw32.dll");
+            std::ifstream in(path, std::ios::binary);
+            std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            movie_.video = std::make_unique<BinkVideo>(std::move(data), binkTables_);
+        } catch (const std::exception& ex) {
+            w.failures[std::string("movie: ") + ex.what()]++;
+            return 0;
+        }
+        BinkVideo& v = *movie_.video;
+        movie_.rgba.assign(size_t(v.width()) * size_t(v.height()) * 4, 0);
+        if (!movie_.texture) glGenTextures(1, &movie_.texture);
+        glBindTexture(GL_TEXTURE_2D, movie_.texture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, v.width(), v.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, movie_.rgba.data());
+    }
+    if (!movie_.video) return 0;
+    BinkVideo& v = *movie_.video;
+    double t = double((play.pausedAt >= 0 ? play.pausedAt : w.time) - play.start);
+    int f = std::max(0, int(t * v.fps()));
+    f = play.loop ? f % v.frames() : std::min(f, v.frames() - 1);
+    if (f < v.frame()) v.rewind();
+    if (f == v.frame()) return movie_.texture;
+    while (v.frame() < f) v.next();
+    v.rgba(movie_.rgba.data());
+    glBindTexture(GL_TEXTURE_2D, movie_.texture);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, v.width(), v.height(), GL_RGBA, GL_UNSIGNED_BYTE, movie_.rgba.data());
+    return movie_.texture;
+}
+
 void LevelRender::drawHud(int width, int height) {
     World& w = *session_.world;
     VM& vm = *session_.vm;
@@ -365,8 +413,8 @@ void LevelRender::drawHud(int width, int height) {
             return width;
         };
     current = this;
-    // A movie the HUD plays covers the frame. Its pictures are not decoded
-    // yet, so it is black for its length.
+    // A movie the HUD plays covers the frame in black, its pictures fitted
+    // in the middle.
     for (auto& [m, play] : w.movies)
         if (play.playing) {
             HudTile t;
@@ -375,6 +423,17 @@ void LevelRender::drawHud(int width, int height) {
             t.h = float(height);
             t.color[0] = t.color[1] = t.color[2] = 0;
             hud_.push_back(t);
+            if (unsigned tex = movieFrame(m, play)) {
+                const BinkVideo& v = *movie_.video;
+                float k = std::min(float(width) / float(v.width()), float(height) / float(v.height()));
+                HudTile f;
+                f.texture = tex;
+                f.w = float(v.width()) * k;
+                f.h = float(v.height()) * k;
+                f.x = (float(width) - f.w) / 2;
+                f.y = (float(height) - f.h) / 2;
+                hud_.push_back(f);
+            }
             break;
         }
     try {

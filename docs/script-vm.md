@@ -598,9 +598,9 @@ there (`src/world/Movie.cpp`). A movie is a Bink file of Movies/, its name's
 case not minded, as long as its header's frames over its frame rate say:
 DW_LOGO 21.7 seconds, ACTIVSN 10.4, KWlogo 12. At its end, or at StopNow,
 which Space and Escape ask for while one plays, the Movie's MovieEnded
-relays it to the MovieManager. Its pictures and its sound, Bink video and
-stereo Bink Audio, are not decoded yet: ffa-play covers the frame in black
-while one plays. ServerTravel leaves the next level in
+relays it to the MovieManager. ffa-play shows its pictures over the frame,
+fitted and in black, decoding up to the frame its time has reached
+(`src/audio/BinkVideo.cpp`), and plays its stereo sound from the same file. ServerTravel leaves the next level in
 Level.NextURL, KWGame adding the game state, Book_FrontEnd.unr?GameState=
 GSTATE000; once NextSwitchCountdown runs out the world asks for it, as do
 ClientTravel and the console's open, and ffa-play loads it in place of the

@@ -1518,7 +1518,7 @@ All 3769 sounds read this way, 3353 in `.uax` packages and 4 each in `.u` and
 files are 3353 Bink Audio, 22050 Hz mono, and 416 RIFF WAV, 16 bit PCM. Bink is
 RAD's own format, but FFmpeg decodes it: all 3769, extracted and decoded in
 full, with not one decoder error. Our own decoder (`tools/ubink.py`, and
-`src/audio/Bink.cpp` after it) reads the game's variant, DCT and mono; FFmpeg
+`src/audio/Bink.cpp` after it) reads the game's variant, DCT, mono and for the movies stereo; FFmpeg
 serves as the reference its output is measured against, to float precision
 (a largest difference of 8e-6 of the peak), and settled what the codec's
 public description leaves open: the inverse DCT counts the first coefficient
@@ -1569,6 +1569,38 @@ the a of "Donkey" (D, 3, 12 n, 9, 2 in that line), 4 o, oo and ou, 5 w, 6 s,
 13 r; 14 never rises past 0.22. Which viseme each phoneme takes is ours, by
 those letters (world/Animator.cpp, audio/LipSync.cpp), the engine's own table
 not being in the data.
+
+## Movies
+
+The four movies are Bink files of `Movies/`, outside the packages: the three
+logos, DW_LOGO, ACTIVSN and KWLogo, and FGMcommercial, each at 800x600 with
+512, 640 and 1024 wide variants beside it (KWLogo's own is 640x480), and
+black.bik. All are Bink 1, revision `i`, with one stereo DCT Bink Audio track
+but black.bik, which has none. The header's frames are at 8, the width and
+height at 20 and 24, the frame rate as a fraction at 28 and 32, the flags at
+36 (0 for all of them) and the tracks at 40; after the track headers, 12 bytes
+each, the frame offsets, the lowest bit marking a key frame. Each frame is
+its audio packets, a u32 length each, then the video.
+
+The video was worked out from the game's own `System/binkw32.dll`, not from
+another decoder, and its constant tables are read from that DLL where it keeps
+them: the sixteen code tables, the sixteen scan orders of the run blocks and
+the intra and inter quantisers. `tools/ubinkv.py` is the specification, with
+the DLL's addresses; `src/audio/BinkVideo.cpp` follows it. FFmpeg's decoding
+is the reference: all 17 files, every frame, are FFmpeg's to the byte.
+
+| Part | What it is |
+|--|--|
+| Frame | a u32 counting the bytes from it to the first chroma plane, Y after it; the second chroma plane begins at the 32-bit word where the reading of the first ended. Cr comes before Cb. Planes are rounded up to 8 pixels |
+| Plane | one bit stream, least significant bit first: nine code trees, then rows of 8x8 blocks. At each row's start every bundle that has run out reads its next part, in order block types, sub types, colours, patterns, x and y motion, intra and inter DC, runs; a part of length 0 ends the bundle for the plane |
+| Trees | 4 bits choose one of the DLL's tables; the symbols are the identity, or listed then the rest in order, or pairs swapped and merged in up to three passes |
+| Bundles | each part's length in the bits of N + 511, N the most a row can need; most may be one value filled; colours take their high nibble from one of sixteen trees chosen by the last high nibble |
+| Blocks | 0 skip, 1 a 16x16 block from an 8x8 one of sub type run, intra, fill, pattern or raw (in every other row), 2 motion, 3 run, 4 motion with a residue, 5 intra DCT, 6 fill, 7 motion with an inter DCT, 8 a two colour pattern, 9 raw |
+| DCT | the DC from its bundle, the rest coded bit plane by bit plane through a list of 4x4 groups, a 4 bit quantiser; an integer IDCT whose output is stored as a byte without clamping |
+
+The sound decodes as the game's sounds do (Sounds), stereo: two bits a block,
+then each channel's coefficients in turn, and the overlap faded over the
+channels' samples interleaved, as the DLL does it.
 
 ## Fonts
 

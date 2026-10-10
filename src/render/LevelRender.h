@@ -11,9 +11,11 @@
 #include <array>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "audio/BinkVideo.h"
 #include "core/Library.h"
 #include "render/Font.h"
 #include "render/Material.h"
@@ -146,6 +148,20 @@ private:
     void drawFlash();
     unsigned flashProgram_ = 0;
     std::vector<HudTile> hud_;
+    // The movie the HUD plays, its frames decoded as far as its time has
+    // gone, into one texture; its tables from the game's binkw32.dll.
+    struct MovieView {
+        Object* movie = nullptr;
+        std::string file;
+        float start = 0;
+        std::unique_ptr<BinkVideo> video;
+        unsigned texture = 0;
+        std::vector<uint8_t> rgba;
+    };
+    MovieView movie_;
+    std::shared_ptr<const BinkTables> binkTables_;
+    // the frame of a playing movie as a texture, 0 when it cannot be shown
+    unsigned movieFrame(Object* movie, const World::MoviePlay& play);
     Object* canvas_ = nullptr;
     unsigned hudProgram_ = 0;
     std::map<std::pair<const Package*, int>, FontData> fonts_;

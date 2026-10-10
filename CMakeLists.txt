@@ -16,6 +16,7 @@ endif()
 
 add_library(ffa_script
   src/audio/Bink.cpp
+  src/audio/BinkVideo.cpp
   src/audio/SoundBank.cpp
   src/audio/LipSync.cpp
   src/core/Library.cpp

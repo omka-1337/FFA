@@ -85,6 +85,8 @@ class Header:
         tracks, = struct.unpack_from('<I', b, 40)
         if tracks != 1:
             raise ValueError('%d audio tracks' % tracks)
+        w, h = struct.unpack_from('<II', b, 20)
+        self.video = (w, h) != (4, 4)
         o = 44 + 4 * tracks
         self.rate, self.flags = struct.unpack_from('<HH', b, o)
         o += 4 * tracks + 4 * tracks
@@ -102,8 +104,9 @@ class Header:
 
 class Decoder:
     def __init__(self, rate, channels, dct):
-        if not dct or channels != 1:
-            raise ValueError('only the DCT variant, mono, is the game\'s')
+        if not dct:
+            raise ValueError('only the DCT variant is the game\'s')
+        self.channels = channels
         bits = 9 if rate < 22050 else 10 if rate < 44100 else 11
         self.n = 1 << bits
         self.overlap = self.n // 16
@@ -114,14 +117,22 @@ class Decoder:
         while nb < 25 and CRITICAL[nb - 1] < half:
             nb += 1
         self.bands = [2] + [(CRITICAL[i - 1] * self.n // half) & ~1 for i in range(1, nb)] + [self.n]
-        self.previous = None
+        self.previous = [None] * channels
         # the DCT-III matrix, once
         n = self.n
         self.cos = [[math.cos(math.pi * k * (2 * j + 1) / (2 * n)) for k in range(n)] for j in range(n)]
 
     def block(self, g):
-        n = self.n
+        """A block: each channel's coefficients and samples in turn."""
+        out = []
         g.get(2)
+        for ch in range(self.channels):
+            out.append(self.channel(g, ch))
+        g.align32()
+        return out
+
+    def channel(self, g, ch):
+        n = self.n
         c = [0.0] * n
         c[0] = g.float() * self.root
         c[1] = g.float() * self.root
@@ -152,12 +163,15 @@ class Decoder:
         # the first coefficient counted whole, and the sum scaled by 2 / n,
         # as FFmpeg's output measures
         out = [(c[0] + sum(c[k] * self.cos[j][k] for k in range(1, n))) * 2 / n for j in range(n)]
-        if self.previous is not None:
-            m = self.overlap
-            for t in range(m):
-                out[t] = (self.previous[t] * (m - t) + out[t] * t) / m
-        self.previous = out[n - self.overlap:]
-        g.align32()
+        if self.previous[ch] is not None:
+            # the crossfade runs over the channels' samples interleaved, as
+            # the DLL does it on its 16 bit output (0x3001b301): sample t of
+            # channel ch is the (t * channels + ch)th of channels * overlap
+            m = self.overlap * self.channels
+            for t in range(self.overlap):
+                i = t * self.channels + ch
+                out[t] = (self.previous[ch][t] * (m - i) + out[t] * i) / m
+        self.previous[ch] = out[n - self.overlap:]
         return out[:n - self.overlap]
 
     def packet(self, data):
@@ -165,7 +179,9 @@ class Decoder:
         g.get(32)                   # the decoded size
         samples = []
         while g.left() > 0:
-            samples += self.block(g)
+            chans = self.block(g)
+            for i in range(len(chans[0])):
+                samples += [c[i] for c in chans]
         return samples
 
 

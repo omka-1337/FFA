@@ -10,22 +10,6 @@ namespace {
 
 World* worldOf(NativeCall& c) { return World::of(c.vm); }
 
-// A file of Movies/, its name's case not minded: the game asks for
-// KWlogo.bik, and the disc has KWLogo.bik.
-std::string movieFile(const World& w, const std::string& name) {
-    namespace fs = std::filesystem;
-    fs::path dir = fs::path(w.gameDir) / "Movies";
-    std::error_code ec;
-    std::string want = name;
-    for (char& ch : want) ch = char(std::tolower(static_cast<unsigned char>(ch)));
-    for (const auto& e : fs::directory_iterator(dir, ec)) {
-        std::string f = e.path().filename().string();
-        for (char& ch : f) ch = char(std::tolower(static_cast<unsigned char>(ch)));
-        if (f == want) return e.path().string();
-    }
-    return {};
-}
-
 uint32_t le32(const unsigned char* p) {
     return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
 }
@@ -61,6 +45,20 @@ void end(World& w, Object* movie) {
 }
 
 }  // namespace
+
+std::string movieFile(const World& w, const std::string& name) {
+    namespace fs = std::filesystem;
+    fs::path dir = fs::path(w.gameDir) / "Movies";
+    std::error_code ec;
+    std::string want = name;
+    for (char& ch : want) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+    for (const auto& e : fs::directory_iterator(dir, ec)) {
+        std::string f = e.path().filename().string();
+        for (char& ch : f) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+        if (f == want) return e.path().string();
+    }
+    return {};
+}
 
 void giveMovie(World& w, Object* hud) {
     Class* hudClass = w.vm.findClass("HUD");

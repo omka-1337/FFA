@@ -1,7 +1,8 @@
-// Bink Audio, the codec of 3353 of the game's sounds: its container and its
-// DCT variant, mono, the only one the game uses. tools/ubink.py is the
-// specification, with the layout and how it was found; its output agrees with
-// FFmpeg's decoding of the game's files to float precision.
+// Bink Audio, the codec of 3353 of the game's sounds and its movies' sound:
+// its container and its DCT variant, mono or stereo, the only one the game
+// uses. tools/ubink.py is the specification, with the layout and how it was
+// found; its output agrees with FFmpeg's decoding of the game's files to float
+// precision.
 #pragma once
 
 #include <cstddef>

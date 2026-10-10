@@ -217,6 +217,7 @@ LevelRender::~LevelRender() {
     for (unsigned t : lightMapTex_) glDeleteTextures(1, &t);
     for (auto& [k, t] : cubes_) glDeleteTextures(1, &t);
     glDeleteTextures(1, &white_);
+    if (movie_.texture) glDeleteTextures(1, &movie_.texture);
     glDeleteProgram(program_);
 }
 

@@ -141,8 +141,9 @@ whose records carry native data after their properties.
 - [ ] The class header fields between the struct and the defaults, and what
   the lone token 0x42 is.
 
-Not formats of our own: music is plain Ogg Vorbis, and the cutscenes are Bink
-video, which FFmpeg decodes.
+Not formats of our own: music is plain Ogg Vorbis, and the movies are Bink
+video, decoded by our own reading of the game's binkw32.dll, FFmpeg's to the
+byte.
 
 Engine:
 
@@ -203,7 +204,7 @@ Engine:
   blinks. Not the head and eyes, nor the emotion a line starts with.
 - [x] The game from its start: Default.ini's LocalMap, the logos as movies of
   their length, and travel to the next level, the menu.
-- [ ] Movies' pictures and sound: Bink video, stereo Bink Audio.
+- [x] Movies' pictures and sound: Bink video, stereo Bink Audio.
 - [x] The GUI: the controller, pages from their templates, styles, fonts,
   timers, mouse, keys and pad, DrawActor; the menu and the in-game menu, and
   the pause.
