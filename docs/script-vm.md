@@ -445,7 +445,11 @@ go of the vine, Shrek fell past it and caught it at once. With GetAnimNumFrames,
 by which the hang lifts the pawn over the first eighth of jumptohang, Shrek
 jumping from the swamp's stump catches the vine (jumptohang2, hangidle2),
 shimmies along it with the strafe keys (shimmyright2, 120 a second), and lets
-go with back.
+go with back. The top must be close in front, within 24 of the pawn's face:
+the climb carries the pawn only some 22 forward, the script keeping the
+height of the move it is given and not its length, and from a top found 80 in
+Shrek rose, stayed short of the edge, fell back and caught it again, a round
+every three seconds by the swamp's mount volumes.
 
 The vine itself is the ShimmyVine that the ShimmyStatVine spawns and sizes by
 SetDrawScale3D, 1.2 by 1.75 by 1.75 on the swamp; without it the vine stopped

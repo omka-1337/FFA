@@ -194,7 +194,10 @@ void tryMount(World& w, Object* a, const TraceHit* met = nullptr) {
     // met from below, as a vine overhead is in a jump, its top is right above
     std::vector<float> reach;
     if (wall.normal.z < -0.3f) reach.push_back(0);
-    for (float d = ext.x + 8; d <= 2 * ext.x + 40; d += 16) reach.push_back(d);
+    // the top close in front: the climb carries the pawn some 22 forward and
+    // drops the rest of the way to it, and from a top found 80 in Shrek rose,
+    // stayed short of the edge, fell back and caught it again, over and over
+    for (float d = ext.x + 8; d <= ext.x + 24; d += 16) reach.push_back(d);
     for (float d : reach) {
         Vec3 p = at + into * d;
         // volumes are not ledges: the swamp's vine has a blocking volume
