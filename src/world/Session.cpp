@@ -10,6 +10,7 @@
 
 #include "world/AI.h"
 #include "world/Karma.h"
+#include "world/Audio.h"
 #include "world/Physics.h"
 
 namespace ffa {
@@ -113,11 +114,14 @@ Session::Session(const std::string& sys, const std::string& map) : systemDir(sys
     registerPhysicsNatives(*vm);
     registerAINatives(*vm);
     registerKarmaNatives(*vm);
+    registerAudioNatives(*vm);
     world = std::make_unique<World>(*vm, pkg, level);
     collision = std::make_unique<Collision>(*world, pkg, level.model, gameDir);
     world->collision = collision.get();
     library = std::make_unique<Library>(gameDir);
     collision->library = library.get();
+    sounds = std::make_unique<SoundBank>(*library);
+    world->sounds = sounds.get();
     library->adopt(linker->packages[size_t(pkg)].get());
     animator = std::make_unique<Animator>(*world, *library);
     registerAnimationNatives(*vm);

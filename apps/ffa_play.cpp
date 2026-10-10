@@ -33,6 +33,7 @@
 #include <string>
 #include <thread>
 
+#include "Mixer.h"
 #include "core/Library.h"
 #include "render/LevelRender.h"
 #include "world/Session.h"
@@ -87,7 +88,7 @@ int main(int argc, char** argv) {
         }
     }
     try {
-        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) throw std::runtime_error(SDL_GetError());
+        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_AUDIO) != 0) throw std::runtime_error(SDL_GetError());
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
@@ -122,6 +123,10 @@ int main(int argc, char** argv) {
         if (logFile) session.vm->sink = [&](const std::string& tag, const std::string& text) { logLine(stamp() + tag + "  " + text); };
         Library lib(sys + "/..");
         lib.adopt(session.linker->packages[size_t(session.pkg)].get());
+        // the sound, before play begins, so that the level's first sounds play
+        Mixer mixer(*session.world);
+        if (mixer.open()) session.world->audio = &mixer;
+        else std::printf("sound               none: %s\n", SDL_GetError());
         session.begin();
         LevelRender render(session, lib);
         std::printf("drawing             %zu triangles: %zu BSP batches, %zu meshes; %zu textures (%zu not decoded), "
@@ -311,6 +316,7 @@ int main(int argc, char** argv) {
             Vec3 loc;
             int32_t rot[3] = {0, 0, 0};
             session.view(loc, rot);
+            mixer.update(loc, rot);
             float fov = 85;
             if (session.controller) fov = w.var(session.controller, "FovAngle").f();
             if (fov < 10 || fov > 170) fov = 85;

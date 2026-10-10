@@ -15,6 +15,8 @@ else()
 endif()
 
 add_library(ffa_script
+  src/audio/Bink.cpp
+  src/audio/SoundBank.cpp
   src/core/Library.cpp
   src/core/Name.cpp
   src/core/Package.cpp
@@ -33,6 +35,7 @@ add_library(ffa_script
   src/world/Level.cpp
   src/world/AI.cpp
   src/world/Karma.cpp
+  src/world/Audio.cpp
   src/world/Physics.cpp
   src/world/Session.cpp
   src/world/SkeletalMesh.cpp

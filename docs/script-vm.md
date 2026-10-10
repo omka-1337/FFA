@@ -552,8 +552,22 @@ plays to its end: the swamp's NEWSwampIntro in 68 seconds of level time, the
 carriage's in 38, the hunt's in 33, Hamlet's in 49, and the player has the
 pawn back after it. Space bypasses one, BypassCutscene, an exec function of
 the HUD, which the console reaches after the controller and its pawn.
-Dialogue has no length yet without its sound, so a Say lasts as its text does
-in the subtitle, and nothing is heard.
+A line lasts as its sound does: GetSoundDuration counts what a Bink file's
+packets say they decode to, without decoding it, and DeliverLocalizedDialog
+and WaitForSay wait on that.
+
+**Sound.** `src/world/Audio.cpp` takes PlaySound, PlayOwnedSound and
+DemoPlaySound, StopSound and the music natives, filling what a call leaves
+out from the actor's TransientSoundVolume, TransientSoundRadius and
+TransientSoundPitch, and hands them to the world's audio sink. ffa-play's is
+a mixer on SDL (`apps/Mixer.h`): each sound a voice from its actor, falling
+off linearly to its radius and panned against the camera's right; a slot
+other than SLOT_None replaced, or kept with bNoOverride; and every actor's
+AmbientSound looping within SoundRadius times 25, as the engine family
+measures it (the swamp's water has 50 to 90, its birds 400), at SoundVolume
+over 255 and SoundPitch over 64. Sounds are decoded when first played and
+kept (`src/audio/SoundBank.cpp`); a line of a few seconds takes a few
+milliseconds. Music, Ogg Vorbis, is not played yet.
 
 **AI.** `src/world/AI.cpp` does the engine's part of what controllers do. A
 controller other than the player's turns its pawn toward its Focus, or its

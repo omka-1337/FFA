@@ -53,6 +53,11 @@ public:
     std::unordered_set<Object*> projectors;
     // The AI's view of the level's paths, built when first asked (world/AI.cpp).
     std::shared_ptr<void> ai;
+    // Sound: the game's sounds, and who plays them, ffa-play's mixer, or
+    // none, when they are only timed (world/Audio.h).
+    class SoundBank* sounds = nullptr;
+    struct AudioSink* audio = nullptr;
+    size_t soundsPlayed = 0;
     // Karma's hanging bodies, found when first asked (world/Karma.cpp).
     std::shared_ptr<void> karma;
     // Where a walking pawn last found its floor, standing on the world: a pawn

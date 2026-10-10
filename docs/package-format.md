@@ -1517,7 +1517,12 @@ All 3769 sounds read this way, 3353 in `.uax` packages and 4 each in `.u` and
 `.ukx`, for 136.5 MB, every lazy offset landing on the end of its data. The
 files are 3353 Bink Audio, 22050 Hz mono, and 416 RIFF WAV, 16 bit PCM. Bink is
 RAD's own format, but FFmpeg decodes it: all 3769, extracted and decoded in
-full, with not one decoder error. Music is not in packages at all; it is plain
+full, with not one decoder error. Our own decoder (`tools/ubink.py`, and
+`src/audio/Bink.cpp` after it) reads the game's variant, DCT and mono; FFmpeg
+serves as the reference its output is measured against, to float precision
+(a largest difference of 8e-6 of the peak), and settled what the codec's
+public description leaves open: the inverse DCT counts the first coefficient
+whole and scales by 2 over the block length. Music is not in packages at all; it is plain
 Ogg Vorbis in `Music/`.
 
 **Lip sync.** After every sound comes a block starting with an i32 version,

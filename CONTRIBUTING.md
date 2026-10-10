@@ -196,7 +196,10 @@ Engine:
   LineOfSightTo and CanSee.
 - [ ] Sight and hearing events (SeePlayer, HearNoise), the AI's adjusting
   round what blocks it, jumping and ladders on a route.
-- [ ] Dialogue: sounds' lengths for Say, and sound and music at all.
+- [x] Dialogue: sounds' lengths for Say, and sound: Bink and WAV decoded,
+  mixed in ffa-play with distance, panning, slots and ambient loops.
+- [ ] Music: Ogg Vorbis, which needs a decoder of our own.
+- [ ] Lip sync driving the characters' mouths.
 - [x] A window: `ffa-play`, SDL2 and OpenGL ES 2, the BSP, terrains and
   static meshes textured and lit as baked, from the game's own camera.
 - [ ] The sky zone behind the PF_FakeBackdrop surfaces.

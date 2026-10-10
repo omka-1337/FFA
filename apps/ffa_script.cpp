@@ -15,6 +15,7 @@
 // default block decodes, and the state tail and cast table are tested
 // against what the bytecode itself says.
 #include <algorithm>
+#include <iterator>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -25,6 +26,7 @@
 #include <sstream>
 #include <tuple>
 
+#include "audio/Bink.h"
 #include "script/VM.h"
 #include "render/Texture.h"
 #include "world/Bsp.h"
@@ -1098,7 +1100,32 @@ int poses(const std::string& gameDir, const char* out) {
     return 0;
 }
 
+// A Bink or WAV sound file decoded, against FFmpeg's decoding of it as 32 bit
+// floats when given: the largest difference, over the reference's peak.
+int bink(const char* path, const char* reference) {
+    std::ifstream in(path, std::ios::binary);
+    std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    bool wav = data.size() >= 4 && std::memcmp(data.data(), "RIFF", 4) == 0;
+    DecodedSound s = wav ? decodeWav(data.data(), data.size()) : decodeBink(data.data(), data.size());
+    std::printf("%s\t%d Hz\t%zu samples", path, s.rate, s.samples.size());
+    if (reference) {
+        std::ifstream r(reference, std::ios::binary);
+        std::vector<char> raw((std::istreambuf_iterator<char>(r)), std::istreambuf_iterator<char>());
+        std::vector<float> ref(raw.size() / 4);
+        std::memcpy(ref.data(), raw.data(), ref.size() * 4);
+        float err = 0, peak = 1e-9f;
+        for (size_t i = 0; i < std::min(ref.size(), s.samples.size()); ++i) {
+            err = std::max(err, std::fabs(ref[i] - s.samples[i]));
+            peak = std::max(peak, std::fabs(ref[i]));
+        }
+        std::printf("\treference %zu\terror %.2e", ref.size(), err / peak);
+    }
+    std::printf("\n");
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc >= 3 && std::string(argv[1]) == "bink") return bink(argv[2], argc >= 4 ? argv[3] : nullptr);
     if (argc < 3) return usage();
     std::string cmd = argv[1], dir = argv[2];
     try {

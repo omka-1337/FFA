@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "audio/SoundBank.h"
 #include "core/Library.h"
 #include "script/Linker.h"
 #include "script/VM.h"
@@ -37,6 +38,7 @@ public:
     std::unique_ptr<World> world;
     std::unique_ptr<Collision> collision;
     std::unique_ptr<Library> library;
+    std::unique_ptr<SoundBank> sounds;
     std::unique_ptr<Animator> animator;
 
     std::string gameName;           // Game= of the URL, else Default.ini's DefaultGame
