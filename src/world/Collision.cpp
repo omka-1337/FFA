@@ -93,6 +93,10 @@ Collision::Collision(World& w, int mapPkg, int32_t model, const std::string& gam
     for (Object* a : w.actors) {
         if (a->deleted || w.var(a, "DrawType").i() != DT_StaticMesh) continue;
         if (!w.flag(a, "bCollideActors")) continue;
+        // one that asks for its cylinder collides by it, not its triangles:
+        // the energy bars are such, and by their triangles they stopped Shrek,
+        // whom they do not block, before he picked them up
+        if (w.flag(a, "bUseCylinderCollision")) continue;
         // a line and a box ask different flags
         bool line = w.flag(a, "bBlockZeroExtentTraces");
         bool box = w.flag(a, "bBlockNonZeroExtentTraces") && (w.flag(a, "bBlockActors") || w.flag(a, "bBlockPlayers"));
