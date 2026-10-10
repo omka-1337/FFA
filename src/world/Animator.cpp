@@ -532,6 +532,20 @@ void registerAnimationNatives(VM& vm) {
         return Value::Bool(animator(c).channel(c.self, c.i(0)).animating);
     };
     n["actor.hasanim"] = [](NativeCall& c) { return Value::Bool(animator(c).find(c.self, c.n(0).str()) != nullptr); };
+    // GetAnimTime and SetAnimTime: how far through its sequence a channel is,
+    // 0 to 1, as KWPawn's climb reads it: it moves the pawn up the ledge over
+    // the first 0.2 of the animation and onto it between 0.85 and 0.95.
+    n["actor.getanimtime"] = [](NativeCall& c) {
+        AnimChannel& ch = animator(c).channel(c.self, c.i(0));
+        return Value::Float(ch.seq ? ch.frame : 0.0f);
+    };
+    n["actor.setanimtime"] = [](NativeCall& c) {
+        Animator& an = animator(c);
+        AnimChannel& ch = an.channel(c.self, c.i(1));
+        ch.frame = std::clamp(c.f(0), 0.0f, 1.0f);
+        ++an.state(c.self).version;
+        return Value();
+    };
     n["actor.getanimsequence"] = [](NativeCall& c) {
         AnimChannel& ch = animator(c).channel(c.self, c.i(0));
         return Value::Nm(ch.seq ? Name(ch.name) : Name());

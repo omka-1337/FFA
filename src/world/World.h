@@ -55,6 +55,9 @@ public:
     // Where a walking pawn last found its floor, standing on the world: a pawn
     // that has not moved since need not look for it again (world/Physics.cpp).
     std::unordered_map<const Object*, Vec3> restingAt;
+    // When a pawn whose Mount turned a ledge down may be asked again.
+    std::unordered_map<const Object*, float> mountTried;
+    std::unordered_set<const Object*> jumpPressed;
     // Counted up by SetCollision, so that what keeps a list of the actors
     // that collide knows it is out of date.
     size_t collisionChanges = 0;

@@ -414,7 +414,22 @@ ChangeAnimation keeps up to date, apparently for this. Leaving the ground
 going up is a jump: the engine sends PlayJump, which no script calls, and
 KWPawn plays its take-off on channel 1 over the whole body; walking off an
 edge is the Falling event instead. Without it the jump had no animation, only
-the landing on channel 1 when it came down. When the engine switches
+the landing on channel 1 when it came down.
+
+KnowWonder's pawns climb ledges by their script, KWPawn.Mount(Delta, A) and
+its states Mounting and MountFinish, once the engine has found a ledge and
+called Mount with the move to its top and what is under it: none for the
+level, which a MountVolume around the pawn must make climbable, else an actor
+with bIsMountable. The engine's search is not in the data; it is modelled
+(world/Physics.cpp, tryMount): in the air, or on the ground when the player
+pressed jump, something in the way, and on it a floor higher than a step and
+no higher than MaxMountHeight (256 for the heroes) above the feet, where the
+pawn fits. The script then plays the climb by how high it is (climb32,
+climb64, the big climb, or for a lily pad, MA_StepUpOnlyMount, stepup) and
+moves the pawn up by GetAnimTime, the channel's way through its sequence, 0
+to 1. Wading on the swamp, where ShHeroPawn's DoJump will not jump, Shrek
+pressed against a lily pad steps up onto it with stepup2 and stands on it,
+from 249 below to 208. When the engine switches
 is modelled, not measured. Holding forward on the swamp, Shrek runs `run`,
 falls on channel 1 in `jumploop`, lands with `jumplandtorun`, idles in `Idle`,
 and blinks on channel 34. Twenty seconds of every level start 10605 sequences,

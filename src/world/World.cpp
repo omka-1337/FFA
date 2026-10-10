@@ -243,6 +243,17 @@ void World::tick(float dt) {
             }
         }
     }
+    // The players who pressed jump since the last frame: a pawn that cannot
+    // jump where it stands, as Shrek wading, climbs what it stands against
+    // from the ground (Physics.cpp, tryMount); the controller's PlayerMove
+    // has let go of bPressedJump before the physics runs.
+    jumpPressed.clear();
+    if (playerControllerClass)
+        for (size_t i = 0; i < n; ++i) {
+            Object* c = actors[i];
+            if (c->deleted || !c->isA(playerControllerClass) || !flag(c, "bPressedJump")) continue;
+            if (Object* p = obj(c, "Pawn"); p && !p->deleted) jumpPressed.insert(p);
+        }
     ticking = nullptr;
     tickPart = "animation";
     if (animator) {

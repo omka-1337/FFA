@@ -149,7 +149,65 @@ void physicsRotation(World& w, Object* a, float dt) {
     w.var(a, "Rotation") = w.vm.rotator(r[0], r[1], r[2]);
 }
 
+// A ledge to climb, for KnowWonder's pawns, which climb by their script's Mount
+// once the engine has found one: in the air, or on the ground when its player
+// pressed jump, as Shrek wading cannot jump. Something in the way where the
+// pawn is going or, still, faces; on it, towards its middle for an actor, else
+// into its face, a floor higher than a step and no higher than MaxMountHeight
+// above the feet, where the pawn fits. Mount takes the move to there and what
+// it stands on: none for the level, which its MountVolumes make climbable,
+// else an actor that lets itself be climbed by bIsMountable. The swamp's lily
+// pads are such, 40 over Shrek's feet where he wades, and he steps up onto
+// them. One that Mount turns down is not asked again for a quarter of a
+// second. How the game finds its ledges is not known; this is a model.
+void tryMount(World& w, Object* a) {
+    float maxH = fopt(w, a, "MaxMountHeight", 0);
+    if (maxH <= 0 || !a->cls->findFunction(Name("Mount"))) return;
+    auto& next = w.mountTried[a];
+    if (w.time < next) return;
+    Collision& c = *w.collision;
+    Vec3 at = vget(w, a, "Location"), ext = extentOf(w, a);
+    Vec3 acc = vget(w, a, "Acceleration");
+    acc.z = 0;
+    Vec3 dir;
+    if (length(acc) > 1) {
+        dir = acc * (1 / length(acc));
+    } else {
+        int32_t pitch, yaw, roll;
+        w.vm.unrotator(w.var(a, "Rotation"), pitch, yaw, roll);
+        float ax[3][3];
+        rotationAxes(0, yaw, 0, ax);
+        dir = {ax[0][0], ax[0][1], 0};
+    }
+    float feet = at.z - ext.z;
+    // what is in the way, and the way into it, against its face: a pawn
+    // sliding along a lily pad meets it to one side
+    TraceHit wall = c.boxCheck(at, at + dir * (ext.x + 8), ext, a);
+    if (!wall || wall.normal.z >= MinFloorZ) return;
+    Vec3 into{-wall.normal.x, -wall.normal.y, 0};
+    if (wall.actor && wall.actor != w.info && !w.flag(wall.actor, "bWorldGeometry")) {
+        Vec3 o = vget(w, wall.actor, "Location");
+        into = Vec3{o.x - at.x, o.y - at.y, 0};
+    }
+    if (length(into) < 0.1f) return;
+    into = into * (1 / length(into));
+    for (float d = ext.x + 8; d <= 2 * ext.x + 40; d += 16) {
+        Vec3 p = at + into * d;
+        TraceHit top = c.lineCheck(Vec3{p.x, p.y, feet + maxH}, Vec3{p.x, p.y, feet + MaxStepHeight}, a, true);
+        if (!top || top.startSolid || top.normal.z < MinFloorZ) continue;
+        Vec3 dest{p.x, p.y, top.location.z + ext.z + MaxFloorDist};
+        if (!c.fits(dest, ext, a)) continue;
+        Object* on = top.actor;
+        if (on == w.info || (on && (on->cls->name == Name("TerrainInfo") || w.flag(on, "bWorldGeometry")))) on = nullptr;
+        Vec3 delta = dest - at;
+        if (!w.vm.event(a, "Mount", {w.vm.vector(delta.x, delta.y, delta.z), Value::Obj(on)}).b()) next = w.time + 0.25f;
+        return;
+    }
+}
+
 void physFalling(World& w, Object* a, float dt) {
+    tryMount(w, a);
+    if (a->deleted || w.var(a, "Physics").i() != PHYS_Falling) return;
     Vec3 v = vget(w, a, "Velocity");
     Vec3 acc = vget(w, a, "Acceleration");
     float air = fopt(w, a, "AirControl", 0);
@@ -180,6 +238,10 @@ void physFalling(World& w, Object* a, float dt) {
 }
 
 void physWalking(World& w, Object* a, float dt) {
+    if (w.jumpPressed.count(a)) {
+        tryMount(w, a);
+        if (a->deleted || w.var(a, "Physics").i() != PHYS_Walking) return;
+    }
     Vec3 v = vget(w, a, "Velocity");
     Vec3 acc = vget(w, a, "Acceleration");
     acc.z = 0;
@@ -487,6 +549,13 @@ void registerPhysicsNatives(VM& vm) {
             updateTouching(*w, c.self);
         }
         return Value::Bool(length(vget(*w, c.self, "Location") - before) > 0 || length(d) == 0);
+    };
+    // SetBase(NewBase, optional NewFloor): what the actor stands on, which
+    // it then moves with; KWPawn's climb stands on the ledge it climbs.
+    n["actor.setbase"] = [](NativeCall& c) {
+        World* w = World::of(c.vm);
+        if (w) setBase(*w, c.self, c.o(0));
+        return Value();
     };
     n["actor.setphysics"] = [](NativeCall& c) {
         World* w = World::of(c.vm);
