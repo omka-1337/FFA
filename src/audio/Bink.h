@@ -19,7 +19,7 @@ struct DecodedSound {
 // Throws FormatError for what is not a Bink file of the game's kind.
 DecodedSound decodeBink(const uint8_t* data, size_t size);
 
-// A RIFF WAV of 16 bit PCM, the game's other 416.
+// A RIFF WAV of 16 bit PCM, the game's other 416, made mono.
 DecodedSound decodeWav(const uint8_t* data, size_t size);
 
 }  // namespace ffa

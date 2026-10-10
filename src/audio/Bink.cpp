@@ -187,6 +187,15 @@ DecodedSound decodeWav(const uint8_t* b, size_t size) {
         o += 8 + len + (len & 1);
     }
     if (!out.rate) throw FormatError("a WAV without its format");
+    // mono, the channels' mean: a sound plays from where its actor is, and
+    // the four of the game's that are stereo, the ground pound's shake and
+    // the Fairy Godmother's office doors, played as mono ran at half speed
+    // with their channels one after the other
+    if (out.channels == 2) {
+        for (size_t i = 0; i + 1 < out.samples.size(); i += 2) out.samples[i / 2] = 0.5f * (out.samples[i] + out.samples[i + 1]);
+        out.samples.resize(out.samples.size() / 2);
+        out.channels = 1;
+    }
     return out;
 }
 
