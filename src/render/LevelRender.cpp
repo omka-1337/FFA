@@ -736,11 +736,13 @@ void LevelRender::addMesh(Object* a) {
     d.moves = !w.flag(a, "bStatic");
     placeMesh(a, d.model);
     Vec3 centre{};
+    float top = -1e30f;
     for (const Vec3& v : m->positions) {
         Vec3 q{d.model[0] * v.x + d.model[4] * v.y + d.model[8] * v.z, d.model[1] * v.x + d.model[5] * v.y + d.model[9] * v.z,
                d.model[2] * v.x + d.model[6] * v.y + d.model[10] * v.z};
         d.radius = std::max(d.radius, length(q));
         centre = centre + q;
+        top = std::max(top, q.z + d.model[14]);
     }
     if (!m->positions.empty())
         centre = centre * (1.0f / float(m->positions.size())) + Vec3{d.model[12], d.model[13], d.model[14]};
@@ -798,12 +800,18 @@ void LevelRender::addMesh(Object* a) {
         BspModel::Region rg = session_.collision->bsp.regionAt(centre);
         d.sky = rg.leaf >= 0 && rg.zone == skyZone_;
     }
+    // Where its middle is in solid too, as for a rock sunk half into the
+    // ground, the zone just over its top: the swamp's rock steps by the
+    // stump had none and were black where no light reached.
     if (zone == w.info) {
         const BspModel& bm = session_.collision->bsp;
-        BspModel::Region rg = bm.regionAt(centre);
-        if (rg.leaf >= 0 && rg.zone >= 0 && size_t(rg.zone) < bm.zoneActors.size()) {
+        for (Vec3 at : {centre, Vec3{centre.x, centre.y, top + 16}}) {
+            BspModel::Region rg = bm.regionAt(at);
+            if (rg.leaf < 0 || rg.zone < 0 || size_t(rg.zone) >= bm.zoneActors.size()) continue;
             auto it = w.actorAt.find(bm.zoneActors[size_t(rg.zone)]);
-            if (it != w.actorAt.end()) zone = it->second;
+            if (it == w.actorAt.end()) continue;
+            zone = it->second;
+            break;
         }
     }
     // and the actor's AmbientGlow once, as a character takes it: the levels

@@ -136,7 +136,9 @@ Where that is the LevelInfo, which has no ambient, the mesh's origin is in
 solid, sunk into the ground, for most of them: 92 of the swamp's 221 have the
 zone of a ZoneInfo around their middle, among them the two bushes by the pond,
 which the game shows dark green, not black. Those take the zone around their
-middle.
+middle, and where the middle is in solid too, as for a rock sunk half into
+the ground, the zone just over the mesh's top: the swamp's rock steps by the
+jumping stump had none and were black where no light reached.
 
 ## The order of a frame
 
