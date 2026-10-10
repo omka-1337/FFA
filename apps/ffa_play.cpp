@@ -12,13 +12,19 @@
 // controller through the game's own bindings in DefUser.ini, and the view is
 // the one the controller's PlayerCalcView gives. The mouse goes through its
 // bindings too, MouseX and MouseY, and the mouse buttons; Tab lets the mouse
-// go. Escape quits.
+// go. Escape quits. A game controller plays as the keys and the mouse do (the
+// game's own Joy bindings are all empty): the left stick moves as WASD, by how
+// far it is pushed, the right stick turns the camera as the mouse does, A
+// jumps (RightMouse), X punches (LeftMouse), B grabs (G), Y uses (Enter), LB
+// ducks (C), RB turns to the nearest (O), Start skips a cutscene (Space), the
+// pad is the arrow keys and the right stick's button zooms (MiddleMouse).
 #include <SDL2/SDL.h>
 #include <GLES2/gl2.h>
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -81,7 +87,7 @@ int main(int argc, char** argv) {
         }
     }
     try {
-        if (SDL_Init(SDL_INIT_VIDEO) != 0) throw std::runtime_error(SDL_GetError());
+        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) throw std::runtime_error(SDL_GetError());
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
@@ -170,10 +176,24 @@ int main(int argc, char** argv) {
         if (!shot) SDL_SetRelativeMouseMode(SDL_TRUE);
         int drawn = 0;
         Uint64 titled = SDL_GetPerformanceCounter();
+        SDL_GameController* pad = nullptr;
+        auto openPad = [&] {
+            for (int i = 0; !pad && i < SDL_NumJoysticks(); ++i)
+                if (SDL_IsGameController(i) && (pad = SDL_GameControllerOpen(i)))
+                    std::printf("controller          %s\n", SDL_GameControllerName(pad));
+        };
+        openPad();
         while (running) {
             SDL_Event e;
             while (SDL_PollEvent(&e)) {
                 if (e.type == SDL_QUIT) running = false;
+                if (e.type == SDL_CONTROLLERDEVICEADDED && !pad) openPad();
+                if (e.type == SDL_CONTROLLERDEVICEREMOVED && pad &&
+                    e.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad))) {
+                    SDL_GameControllerClose(pad);
+                    pad = nullptr;
+                    openPad();
+                }
                 if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) running = false;
                 if (e.type == SDL_KEYDOWN && !e.key.repeat && e.key.keysym.sym == SDLK_TAB) {
                     // Tab lets the mouse go and takes it again
@@ -189,6 +209,25 @@ int main(int argc, char** argv) {
                     std::string k = e.button.button == SDL_BUTTON_LEFT ? "LeftMouse"
                                     : e.button.button == SDL_BUTTON_RIGHT ? "RightMouse" : "MiddleMouse";
                     (e.type == SDL_MOUSEBUTTONDOWN ? pressed : released) = k;
+                }
+                if (e.type == SDL_CONTROLLERBUTTONDOWN || e.type == SDL_CONTROLLERBUTTONUP) {
+                    const char* k = nullptr;
+                    switch (e.cbutton.button) {
+                    case SDL_CONTROLLER_BUTTON_A: k = "RightMouse"; break;
+                    case SDL_CONTROLLER_BUTTON_X: k = "LeftMouse"; break;
+                    case SDL_CONTROLLER_BUTTON_B: k = "G"; break;
+                    case SDL_CONTROLLER_BUTTON_Y: k = "Enter"; break;
+                    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: k = "C"; break;
+                    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: k = "O"; break;
+                    case SDL_CONTROLLER_BUTTON_START: k = "Space"; break;
+                    case SDL_CONTROLLER_BUTTON_RIGHTSTICK: k = "MiddleMouse"; break;
+                    case SDL_CONTROLLER_BUTTON_DPAD_UP: k = "Up"; break;
+                    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: k = "Down"; break;
+                    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: k = "Left"; break;
+                    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: k = "Right"; break;
+                    default: break;
+                    }
+                    if (k) (e.type == SDL_CONTROLLERBUTTONDOWN ? pressed : released) = k;
                 }
                 if (e.type == SDL_MOUSEMOTION && SDL_GetRelativeMouseMode()) {
                     mouseX += float(e.motion.xrel);
@@ -221,6 +260,23 @@ int main(int argc, char** argv) {
             Uint64 nowMouse = SDL_GetPerformanceCounter();
             float frameTime = std::max(0.001f, float(double(nowMouse - lastMouse) / double(SDL_GetPerformanceFrequency())));
             lastMouse = nowMouse;
+            // The sticks, past a dead zone of a fifth: the left one as the
+            // movement keys, by how far it is pushed; the right one as the
+            // mouse, 1200 counts a second at its full, which turns Shrek's
+            // camera some 180 degrees a second.
+            if (pad) {
+                auto stick = [&](SDL_GameControllerAxis ax) {
+                    float v = float(SDL_GameControllerGetAxis(pad, ax)) / 32767.0f;
+                    if (std::fabs(v) < 0.2f) return 0.0f;
+                    return std::clamp((v - std::copysign(0.2f, v)) / 0.8f, -1.0f, 1.0f);
+                };
+                float lx = stick(SDL_CONTROLLER_AXIS_LEFTX), ly = stick(SDL_CONTROLLER_AXIS_LEFTY);
+                float rx = stick(SDL_CONTROLLER_AXIS_RIGHTX), ry = stick(SDL_CONTROLLER_AXIS_RIGHTY);
+                if (ly != 0) w.held.emplace_back("aBaseY", -ly * 1200.0f);
+                if (lx != 0) w.held.emplace_back("aStrafe", lx * 1200.0f);
+                mouseX += rx * 1200.0f * frameTime;
+                mouseY -= ry * 1200.0f * frameTime;
+            }
             mouseX *= 0.2f / frameTime;
             mouseY *= 0.2f / frameTime;
             if (mouseX != 0 || mouseY != 0) {
