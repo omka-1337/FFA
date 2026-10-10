@@ -318,8 +318,13 @@ node sinks a median 2.50 before it touches, the same as the line trace says.
 
 The modes are the engine family's, with its constants, none of them in the
 data: Walking with friction, acceleration up to GroundSpeed, a step up of 35,
-sliding along walls, and the floor kept 1.9 to 2.4 below, or Falling when it
-is gone; Falling with gravity from the PhysicsVolume, TerminalVelocity, and
+sliding along walls by their face as it stands, their slope left out, and the
+floor kept 1.9 to 2.4 below, or Falling when it is gone; a pawn whose box
+touches a steep bank at its edge while its middle stands on the ground keeps
+standing. Pressed into the swamp's steep banks, Shrek slid up the slope's own
+normal onto it, fell, landed and walked into it again, a round every four
+frames; now he stands, and jumping onto the bank he slides back down in the
+air, as the game does; Falling with gravity from the PhysicsVolume, TerminalVelocity, and
 Landed on a floor whose normal has Z of 0.7 or more, HitWall otherwise, each
 offered to the controller first; Flying, Rotating, Projectile and Trailer.
 Swimming, Karma, MovingBrush and the rest are counted as missing. A move ends

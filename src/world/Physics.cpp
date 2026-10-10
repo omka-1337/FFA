@@ -289,9 +289,17 @@ void physWalking(World& w, Object* a, float dt) {
                 w.collision->place(a, before);
                 hitWall(w, a, h);
                 if (a->deleted || w.var(a, "Physics").i() != PHYS_Walking) return;
-                Vec3 slide = rest - h.normal * dot(rest, h.normal);
-                slide.z = 0;
-                move(w, a, slide);
+                // along the wall's face as it stands, its slope left out:
+                // along a steep bank the slope's own normal pressed Shrek
+                // into it and up onto it, where he fell, and landed, and
+                // walked into it again, four frames a round
+                Vec3 n{h.normal.x, h.normal.y, 0};
+                if (length(n) > 1e-3f) {
+                    n = n * (1 / length(n));
+                    Vec3 slide = rest - n * dot(rest, n);
+                    slide.z = 0;
+                    move(w, a, slide);
+                }
             }
         }
     }
@@ -317,6 +325,19 @@ void physWalking(World& w, Object* a, float dt) {
     }
     float probe = MaxStepHeight + MaxFloorDist;
     TraceHit floor = c.boxCheck(at, at - Vec3{0, 0, probe}, extentOf(w, a), a);
+    // The box's edge on a steep bank where the pawn's middle stands on the
+    // ground is still standing: it stays where it is, on what is under its
+    // middle.
+    if (floor && floor.normal.z < MinFloorZ) {
+        float h = extentOf(w, a).z;
+        TraceHit mid = c.lineCheck(at, at - Vec3{0, 0, h + probe}, a);
+        if (mid && mid.normal.z >= MinFloorZ) {
+            if (mid.actor && mid.actor->cls->name != Name("TerrainInfo")) setBase(w, a, mid.actor);
+            else setBase(w, a, w.info);
+            w.restingAt[a] = at;
+            return;
+        }
+    }
     if (!floor || floor.normal.z < MinFloorZ) {
         setPhysics(w, a, PHYS_Falling);
         w.vm.event(a, "Falling");
