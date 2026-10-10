@@ -377,9 +377,22 @@ void Animator::tick(float dt) {
 
 void Animator::movement(Object* a) {
     World& w = world;
-    if (!w.flag(a, "bPhysicsAnimUpdate") || w.var(a, "Physics").i() != 1) return;
+    if (!w.flag(a, "bPhysicsAnimUpdate")) return;
+    int phys = w.var(a, "Physics").i();
     Vec3 v;
     w.vm.unvector(w.var(a, "Velocity"), v.x, v.y, v.z);
+    // Leaving the ground going up is a jump, which the game plays from
+    // PlayJump, KWPawn's take-off on channel 1; walking off an edge is the
+    // Falling event the physics sends. Not while a controller, as a
+    // cutscene's, plays the animations.
+    AnimState& st = state(a);
+    int was = st.physics;
+    st.physics = phys;
+    if (phys == 2 && was >= 0 && was != 2 && v.z > 0) {
+        Object* c = w.obj(a, "Controller");
+        if (!(c && !c->deleted && w.flag(c, "bControlAnimations"))) w.vm.event(a, "PlayJump");
+    }
+    if (phys != 1) return;
     float speed = std::sqrt(v.x * v.x + v.y * v.y);
     Prop* mp = a->cls->findProp(Name("MovementAnims"));
     if (!mp) return;

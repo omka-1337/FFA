@@ -59,6 +59,7 @@ struct AnimState {
     };
     std::vector<Added> added;
     int notifyChannel = 0;
+    int physics = -1;               // the Physics it had last frame
     // The pose, kept until a channel changes: GetBoneCoords asks for it many
     // times a frame, the factory's lasers each frame the hero stands still.
     uint64_t version = 0, poseVersion = ~0ull;
