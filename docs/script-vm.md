@@ -434,7 +434,22 @@ climb64, the big climb, or for a lily pad, MA_StepUpOnlyMount, stepup) and
 moves the pawn up by GetAnimTime, the channel's way through its sequence, 0
 to 1. Wading on the swamp, where ShHeroPawn's DoJump will not jump, Shrek
 pressed against a lily pad steps up onto it with stepup2 and stands on it,
-from 249 below to 208. When the engine switches
+from 249 below to 208. What the pawn runs or jumps into counts, from any side: met from below,
+the top looked for is right above. Volumes are passed through on the way down
+to it, as the swamp's vine has a blocking volume over it, and what is only
+hung from (MA_UnAbleFinishMount) needs no room on top. A static mesh is world
+geometry, yet one with bIsMountable is still the actor Mount is given, else
+the vine counted as the level and wanted a MountVolume. Once a pawn has let go
+of something it does not take hold of it again until it has walked: letting
+go of the vine, Shrek fell past it and caught it at once. With GetAnimNumFrames,
+by which the hang lifts the pawn over the first eighth of jumptohang, Shrek
+jumping from the swamp's stump catches the vine (jumptohang2, hangidle2),
+shimmies along it with the strafe keys (shimmyright2, 120 a second), and lets
+go with back.
+
+The vine itself is the ShimmyVine that the ShimmyStatVine spawns and sizes by
+SetDrawScale3D, 1.2 by 1.75 by 1.75 on the swamp; without it the vine stopped
+short of its stump. When the engine switches
 is modelled, not measured. Holding forward on the swamp, Shrek runs `run`,
 falls on channel 1 in `jumploop`, lands with `jumplandtorun`, idles in `Idle`,
 and blinks on channel 34. Twenty seconds of every level start 10605 sequences,

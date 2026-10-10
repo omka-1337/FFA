@@ -34,6 +34,7 @@ World::World(VM& vm, int pkg, const LevelRecord& level) : vm(vm), linker(vm.link
     actorClass = vm.findClass("Actor");
     pawnClass = vm.findClass("Pawn");
     brushClass = vm.findClass("Brush");
+    volumeClass = vm.findClass("Volume");
     playerControllerClass = vm.findClass("PlayerController");
     controllerClass = vm.findClass("Controller");
 }
@@ -435,6 +436,12 @@ void registerWorldNatives(VM& vm) {
     };
     n["actor.setdrawscale"] = [](NativeCall& c) {
         world(c).var(c.self, "DrawScale") = Value::Float(c.f(0));
+        return Value();
+    };
+    // SetDrawScale3D: the swamp's shimmy vines are stretched by it from the
+    // ShimmyStatVine that spawns them to the stump they reach
+    n["actor.setdrawscale3d"] = [](NativeCall& c) {
+        world(c).var(c.self, "DrawScale3D") = c.get(0);
         return Value();
     };
     n["actor.setdrawtype"] = [](NativeCall& c) {

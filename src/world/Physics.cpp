@@ -160,7 +160,7 @@ void physicsRotation(World& w, Object* a, float dt) {
 // pads are such, 40 over Shrek's feet where he wades, and he steps up onto
 // them. One that Mount turns down is not asked again for a quarter of a
 // second. How the game finds its ledges is not known; this is a model.
-void tryMount(World& w, Object* a) {
+void tryMount(World& w, Object* a, const TraceHit* met = nullptr) {
     float maxH = fopt(w, a, "MaxMountHeight", 0);
     if (maxH <= 0 || !a->cls->findFunction(Name("Mount"))) return;
     auto& next = w.mountTried[a];
@@ -182,7 +182,7 @@ void tryMount(World& w, Object* a) {
     float feet = at.z - ext.z;
     // what is in the way, and the way into it, against its face: a pawn
     // sliding along a lily pad meets it to one side
-    TraceHit wall = c.boxCheck(at, at + dir * (ext.x + 8), ext, a);
+    TraceHit wall = met ? *met : c.boxCheck(at, at + dir * (ext.x + 8), ext, a);
     if (!wall || wall.normal.z >= MinFloorZ) return;
     Vec3 into{-wall.normal.x, -wall.normal.y, 0};
     if (wall.actor && wall.actor != w.info && !w.flag(wall.actor, "bWorldGeometry")) {
@@ -191,16 +191,40 @@ void tryMount(World& w, Object* a) {
     }
     if (length(into) < 0.1f) return;
     into = into * (1 / length(into));
-    for (float d = ext.x + 8; d <= 2 * ext.x + 40; d += 16) {
+    // met from below, as a vine overhead is in a jump, its top is right above
+    std::vector<float> reach;
+    if (wall.normal.z < -0.3f) reach.push_back(0);
+    for (float d = ext.x + 8; d <= 2 * ext.x + 40; d += 16) reach.push_back(d);
+    for (float d : reach) {
         Vec3 p = at + into * d;
-        TraceHit top = c.lineCheck(Vec3{p.x, p.y, feet + maxH}, Vec3{p.x, p.y, feet + MaxStepHeight}, a, true);
+        // volumes are not ledges: the swamp's vine has a blocking volume
+        // over it, and the trace goes on below one
+        Vec3 from{p.x, p.y, feet + maxH}, to{p.x, p.y, feet + MaxStepHeight};
+        TraceHit top = c.lineCheck(from, to, a, true);
+        for (int k = 0; k < 4 && top && top.actor && w.volumeClass && top.actor->isA(w.volumeClass); ++k) {
+            from.z = top.location.z - 1;
+            if (from.z <= to.z) break;
+            top = c.lineCheck(from, to, a, true);
+        }
         if (!top || top.startSolid || top.normal.z < MinFloorZ) continue;
         Vec3 dest{p.x, p.y, top.location.z + ext.z + MaxFloorDist};
-        if (!c.fits(dest, ext, a)) continue;
         Object* on = top.actor;
-        if (on == w.info || (on && (on->cls->name == Name("TerrainInfo") || w.flag(on, "bWorldGeometry")))) on = nullptr;
+        // the level, unless what it is lets itself be climbed: the vine, a
+        // static mesh and so world geometry, does
+        if (on == w.info || (on && !w.flag(on, "bIsMountable") && (on->cls->name == Name("TerrainInfo") || w.flag(on, "bWorldGeometry"))))
+            on = nullptr;
+        // what is only hung from, MA_UnAbleFinishMount, as the swamp's vine
+        // under its willow, is never stood on, and need not have room above
+        bool hangOnly = on && on->cls->findProp(Name("MountAction")) && w.var(on, "MountAction").i() == 2;
+        if (!hangOnly && !c.fits(dest, ext, a)) continue;
         Vec3 delta = dest - at;
-        if (!w.vm.event(a, "Mount", {w.vm.vector(delta.x, delta.y, delta.z), Value::Obj(on)}).b()) next = w.time + 0.25f;
+        // what the pawn let go of it takes hold of again only once it has
+        // stood on the ground: letting go of the vine, it fell past it and
+        // caught it again at once
+        auto held = w.mountedFrom.find(a);
+        if (held != w.mountedFrom.end() && held->second == on) continue;
+        if (w.vm.event(a, "Mount", {w.vm.vector(delta.x, delta.y, delta.z), Value::Obj(on)}).b()) w.mountedFrom[a] = on;
+        else next = w.time + 0.25f;
         return;
     }
 }
@@ -229,6 +253,8 @@ void physFalling(World& w, Object* a, float dt) {
         }
         hitWall(w, a, h);
         if (a->deleted || w.var(a, "Physics").i() != PHYS_Falling) return;
+        tryMount(w, a, &h);
+        if (a->deleted || w.var(a, "Physics").i() != PHYS_Falling) return;
         // slide along what was hit with what is left of the move
         Vec3 rest = delta * (1 - h.time);
         delta = rest - h.normal * dot(rest, h.normal);
@@ -238,6 +264,7 @@ void physFalling(World& w, Object* a, float dt) {
 }
 
 void physWalking(World& w, Object* a, float dt) {
+    w.mountedFrom.erase(a);
     if (w.jumpPressed.count(a)) {
         tryMount(w, a);
         if (a->deleted || w.var(a, "Physics").i() != PHYS_Walking) return;

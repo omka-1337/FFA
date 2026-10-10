@@ -41,6 +41,7 @@ public:
     Class* actorClass = nullptr;
     Class* pawnClass = nullptr;
     Class* brushClass = nullptr;
+    Class* volumeClass = nullptr;
     Class* playerControllerClass = nullptr;
     Class* controllerClass = nullptr;
     std::unordered_map<const Object*, int32_t> exportOf;   // the loaded actors' exports
@@ -58,6 +59,8 @@ public:
     // When a pawn whose Mount turned a ledge down may be asked again.
     std::unordered_map<const Object*, float> mountTried;
     std::unordered_set<const Object*> jumpPressed;
+    // What each pawn last climbed or hung from, until it walks again.
+    std::unordered_map<const Object*, const Object*> mountedFrom;
     // Counted up by SetCollision, so that what keeps a list of the actors
     // that collide knows it is out of date.
     size_t collisionChanges = 0;

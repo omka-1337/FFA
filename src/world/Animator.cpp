@@ -546,6 +546,12 @@ void registerAnimationNatives(VM& vm) {
         ++an.state(c.self).version;
         return Value();
     };
+    // GetAnimNumFrames: the frames of a channel's sequence, against which
+    // KWPawn's hang lifts the pawn over the first eighth of jumptohang
+    n["actor.getanimnumframes"] = [](NativeCall& c) {
+        AnimChannel& ch = animator(c).channel(c.self, c.i(0));
+        return Value::Float(ch.seq ? float(ch.seq->numFrames) : 0.0f);
+    };
     n["actor.getanimsequence"] = [](NativeCall& c) {
         AnimChannel& ch = animator(c).channel(c.self, c.i(0));
         return Value::Nm(ch.seq ? Name(ch.name) : Name());
