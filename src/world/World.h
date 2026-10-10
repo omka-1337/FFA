@@ -11,6 +11,7 @@
 // said so at the place.
 #pragma once
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -78,6 +79,13 @@ public:
     std::map<Object*, MoviePlay> movies;
     std::string gameDir;            // the directory above System
     std::string mapFile;            // the level's file, 1_Shreks_Swamp.unr
+    // A key of a section of the game's configuration, Default.ini then
+    // DefUser.ini, or empty: the console's get reads it.
+    std::function<std::string(const std::string& section, const std::string& key)> config;
+    std::function<void(const std::string& section, const std::string& key, const std::string& value)> configSet;
+    // A line of text's width in pixels in a Font, as the renderer measures
+    // it; the GUI sizes its tab buttons by it.
+    std::function<float(Object* font, const String& text)> textWidth;
     // The level the game asked to go to, its URL: Level.NextURL once its
     // countdown is out, as ServerTravel leaves it, or ClientTravel's, or an
     // open command's. Whoever plays the world goes there.

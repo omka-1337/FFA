@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cmath>
 #include <ctime>
+#include <sstream>
 #include <stdexcept>
 
 namespace ffa {
@@ -448,8 +449,8 @@ void registerWorldNatives(VM& vm) {
     };
     // ConsoleCommand(Command): of the engine's commands, open, start and
     // travel go to a level, exit and quit end the game, getcurrentres tells
-    // the screen; what else script asks of the console, such as get ini:,
-    // answers nothing, which the game takes as the default.
+    // the screen, get reads the configuration; what else script asks of the
+    // console answers nothing, which the game takes as the default.
     auto console = [](NativeCall& c) {
         World& w = world(c);
         std::string cmd = utf8(c.s(0));
@@ -460,6 +461,47 @@ void registerWorldNatives(VM& vm) {
             w.travel = cmd.substr(cmd.find_first_not_of(' ', sp));
         if (verb == "getcurrentres") return Value::Str(widen(guiResolution(w)));
         if (verb == "exit" || verb == "quit") w.quit = true;
+        // get <class> <variable>: the class's configuration; with ini:, the
+        // class an engine setting names, ini:Engine.Engine.ViewportManager
+        // being WinDrv.WindowsClient, whose FullscreenViewportX the menus
+        // size themselves and choose their movies by
+        // and set <class> <variable> <value> sets it, for this session; the
+        // class Input is the key bindings, [Engine.Input]
+        if ((verb == "get" || verb == "set") && w.config) {
+            std::istringstream in(cmd.substr(sp == std::string::npos ? cmd.size() : sp));
+            std::string cls, var, value;
+            in >> cls >> var;
+            std::getline(in >> std::ws, value);
+            if (cls.size() > 4 && lower(cls.substr(0, 4)) == "ini:") {
+                std::string setting = cls.substr(4);
+                size_t dot = setting.find_last_of('.');
+                cls = dot == std::string::npos ? std::string() : w.config(setting.substr(0, dot), setting.substr(dot + 1));
+            } else if (lower(cls) == "input") {
+                cls = "Engine.Input";
+            }
+            if (!cls.empty() && !var.empty()) {
+                if (verb == "get") return Value::Str(widen(w.config(cls, var)));
+                if (w.configSet) w.configSet(cls, var, value);
+            }
+        }
+        // keyname <n>: the name of key n of EInputKey, as the bindings name
+        // it (IK_W is W); keybinding <name>: what the key is bound to
+        if (verb == "keyname" && sp != std::string::npos) {
+            static EnumType* keys = nullptr;
+            if (!keys)
+                if (Class* ic = w.vm.findClass("Interaction"))
+                    if (Function* f = ic->findFunction(Name("KeyEvent")); f && !f->params.empty())
+                        keys = f->params[0]->enumType();
+            int k = std::atoi(cmd.c_str() + sp + 1);
+            if (keys && k >= 0 && size_t(k) < keys->values.size()) {
+                std::string name = keys->values[size_t(k)].str();
+                if (name.rfind("IK_", 0) == 0) name = name.substr(3);
+                return Value::Str(widen(name));
+            }
+            return Value::Str(String());
+        }
+        if (verb == "keybinding" && sp != std::string::npos && w.config)
+            return Value::Str(widen(w.config("Engine.Input", cmd.substr(cmd.find_first_not_of(' ', sp)))));
         return Value::Str(String());
     };
     n["actor.consolecommand"] = console;

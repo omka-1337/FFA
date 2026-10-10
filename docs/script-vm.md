@@ -578,6 +578,17 @@ over 255 and SoundPitch over 64. Sounds are decoded when first played and
 kept (`src/audio/SoundBank.cpp`); a line of a few seconds takes a few
 milliseconds. Music, Ogg Vorbis, is not played yet.
 
+**The console.** ConsoleCommand answers what the game asks of it: open,
+start and travel go to a level, exit and quit end the game, getcurrentres
+tells the screen; get <class> <variable> reads the configuration,
+Default.ini then DefUser.ini, ini:Engine.Engine.ViewportManager naming the
+class an engine setting names, WinDrv.WindowsClient, whose
+FullscreenViewportX, 800, the options page sizes its tabs and the preamble
+chooses its movies by; set changes one for the session, the class Input being
+the key bindings; keyname gives a key's name by its number in EInputKey and
+keybinding what it is bound to, as the options page lists the controls.
+What is set is not written back yet.
+
 **Movies and levels.** The game begins as Default.ini's LocalMap says,
 SH2_Preamble.unr: its CutFactory sends its PlayerStart's event, MovieManager,
 and the level's SHMovieManager plays the logos on the HUD's Movie, one each
@@ -588,7 +599,8 @@ case not minded, as long as its header's frames over its frame rate say:
 DW_LOGO 21.7 seconds, ACTIVSN 10.4, KWlogo 12. At its end, or at StopNow,
 which Space and Escape ask for while one plays, the Movie's MovieEnded
 relays it to the MovieManager. Its pictures and its sound, Bink video and
-stereo Bink Audio, are not decoded yet. ServerTravel leaves the next level in
+stereo Bink Audio, are not decoded yet: ffa-play covers the frame in black
+while one plays. ServerTravel leaves the next level in
 Level.NextURL, KWGame adding the game state, Book_FrontEnd.unr?GameState=
 GSTATE000; once NextSwitchCountdown runs out the world asks for it, as do
 ClientTravel and the console's open, and ffa-play loads it in place of the
@@ -623,7 +635,14 @@ go to the page's OnKeyEvent, then Escape closes the menu, Enter clicks what
 is watched, and the arrows, the pad's among them, move what is watched to the
 nearest control that way, Shrek's buttons being all bNeverFocus. Calling a
 delegate by name through super runs the parent's own body, not the delegate,
-as ShInGameMenuGUIPage's Internal_OnDraw ends with super.OnDraw(Canvas).
+as ShInGameMenuGUIPage's Internal_OnDraw ends with super.OnDraw(Canvas); and
+a delegate set to None is unbound, its own body run, as Tab_OptionsSound sets
+each control's OnActivate. A tab control draws its tab buttons and the
+active tab's panel only, not the other panels it holds: Shrek's sound tab
+shows its controls again whenever it is drawn. Its buttons go in a row along
+its top, TabHeight high, each as wide as its caption in its style's font with
+half the height either side; the panels keep their places, and the control's
+own style is not drawn, only a BackgroundStyle or BackgroundImage.
 While Level.Pauser is set, as the in-game menu's SetPause sets it, the level's
 time stands and only the player's controller and what is bAlwaysTick tick and
 animate, the menu's book among them; the LevelInfo keeps the clock, which the

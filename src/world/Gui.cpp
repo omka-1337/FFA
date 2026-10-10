@@ -25,7 +25,7 @@ struct Gui {
     std::vector<Object*> timers;
     std::unordered_set<Object*> made;       // controls made from templates
     Class *component = nullptr, *multi = nullptr, *page = nullptr, *button = nullptr, *label = nullptr,
-          *image = nullptr;
+          *image = nullptr, *tabs = nullptr;
 };
 
 Gui& gui(World& w) {
@@ -37,6 +37,7 @@ Gui& gui(World& w) {
         g->button = w.vm.findClass("GUIButton");
         g->label = w.vm.findClass("GUILabel");
         g->image = w.vm.findClass("GUIImage");
+        g->tabs = w.vm.findClass("GUITabControl");
         w.gui = g;
     }
     return *static_cast<Gui*>(w.gui.get());
@@ -107,6 +108,22 @@ std::vector<Object*> controlsOf(World& w, Object* c) {
     return out;
 }
 
+// What is drawn and clicked on a control, in order: its controls, but of a
+// tab control its tab buttons and the active tab's panel only, as the
+// engine's draws it; Shrek's sound tab shows its controls again whenever it
+// is drawn.
+std::vector<Object*> childrenOf(World& w, Object* c) {
+    Gui& g = gui(w);
+    if (!g.tabs || !c->isA(g.tabs)) return controlsOf(w, c);
+    std::vector<Object*> out;
+    if (const Value& v = w.var(c, "TabStack"); v.isArr())
+        for (const Value& e : v.arr())
+            if (Object* t = e.o(); t && !t->deleted) out.push_back(t);
+    if (Object* active = w.obj(c, "ActiveTab"))
+        if (Object* panel = w.obj(active, "MyPanel"); panel && !panel->deleted) out.push_back(panel);
+    return out;
+}
+
 Object* activePage(World& w) {
     Gui& g = gui(w);
     return g.controller ? w.obj(g.controller, "ActivePage") : nullptr;
@@ -115,7 +132,7 @@ Object* activePage(World& w) {
 // The control the mouse is over on a page: the last drawn that takes input.
 Object* hitTest(World& w, Object* c, float x, float y) {
     if (!w.flag(c, "bVisible")) return nullptr;
-    std::vector<Object*> kids = controlsOf(w, c);
+    std::vector<Object*> kids = childrenOf(w, c);
     for (auto it = kids.rbegin(); it != kids.rend(); ++it)
         if (Object* hit = hitTest(w, *it, x, y)) return hit;
     Gui& g = gui(w);
@@ -140,7 +157,7 @@ void watch(World& w, Object* hit) {
 // as the mouse would.
 void collect(World& w, Object* c, std::vector<Object*>& out) {
     if (!w.flag(c, "bVisible")) return;
-    for (Object* k : controlsOf(w, c)) collect(w, k, out);
+    for (Object* k : childrenOf(w, c)) collect(w, k, out);
     Gui& g = gui(w);
     if (!c->isA(g.page) && w.flag(c, "bAcceptsInput") && w.var(c, "MenuState").i() != MSAT_Disabled &&
         boxOf(w, c).w > 0)
@@ -233,6 +250,32 @@ void styleText(World& w, Object* canvas, Object* style, int state, const Box& b,
                                             Value::Float(b.x + b.w), Value::Float(b.y + b.h)});
 }
 
+// A tab control's buttons, in a row along its top: TabHeight high, of the
+// screen when 1 or less, each as wide as its caption in its style's font with
+// half its height either side. Placed in pixels from the control's corner,
+// the buttons being bBoundToParent. The panels keep their own places.
+void placeTabs(World& w, Object* canvas, Object* c) {
+    Gui& g = gui(w);
+    float h = w.var(c, "TabHeight").f();
+    if (h <= 1) h *= g.height;
+    float x = 0;
+    for (Object* t : childrenOf(w, c)) {
+        if (!has(t, "MyPanel")) continue;
+        float width = 2 * h;
+        Object* style = w.obj(t, "Style");
+        int state = w.var(t, "MenuState").i();
+        if (style && w.textWidth)
+            if (Object* font = element(style, "Fonts", state).o())
+                if (Object* f = w.vm.call(font, "GetFont", {Value::Obj(canvas), Value::Int(int(g.width))}).o())
+                    width = w.textWidth(f, w.var(t, "Caption").s()) + h;
+        w.var(t, "WinLeft") = Value::Float(x);
+        w.var(t, "WinTop") = Value::Float(0);
+        w.var(t, "WinWidth") = Value::Float(width);
+        w.var(t, "WinHeight") = Value::Float(h);
+        x += width;
+    }
+}
+
 // What a control draws of its own, by its kind: a button its style and its
 // caption, a label its caption, an image its image, the rest their style.
 void drawOwn(World& w, Object* canvas, Object* c, Object* style, int state, const Box& b) {
@@ -258,6 +301,10 @@ void drawOwn(World& w, Object* canvas, Object* c, Object* style, int state, cons
         setColor(w, canvas, w.var(c, "ImageColor"));
         w.var(canvas, "Style") = Value::Int(w.var(c, "ImageRenderStyle").i());
         drawImage(w, canvas, w.obj(c, "Image"), w.var(c, "ImageStyle").i(), b);
+    } else if (g.tabs && c->isA(g.tabs)) {
+        // not its style: its BackgroundStyle or BackgroundImage, if it has one
+        if (Object* bg = w.obj(c, "BackgroundStyle")) styleDraw(w, canvas, bg, state, b);
+        if (Object* img = w.obj(c, "BackgroundImage")) drawImage(w, canvas, img, 1, b);
     } else {
         styleDraw(w, canvas, style, state, b);
     }
@@ -286,7 +333,8 @@ void drawControl(World& w, Object* canvas, Object* c) {
         }
     bool drew = w.vm.call(c, "OnDraw", {Value::Obj(canvas)}).b();
     if (!drew && !c->isA(g.page)) drawOwn(w, canvas, c, style, state, b);
-    for (Object* k : controlsOf(w, c)) drawControl(w, canvas, k);
+    if (g.tabs && c->isA(g.tabs)) placeTabs(w, canvas, c);
+    for (Object* k : childrenOf(w, c)) drawControl(w, canvas, k);
 }
 
 // Make a page's controls from its class's templates: each variable of the

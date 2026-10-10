@@ -449,7 +449,7 @@ int main(int argc, char** argv) {
                 Uint64 t = SDL_GetPerformanceCounter();
                 if (double(t - titled) / double(SDL_GetPerformanceFrequency()) >= 1.0) {
                     char title[128];
-                    std::snprintf(title, sizeof title, "Far Far Away - %s - %d fps", session.level.map.c_str(), drawn);
+                    std::snprintf(title, sizeof title, "Far Far Away - %s - %d fps", w.mapFile.c_str(), drawn);
                     SDL_SetWindowTitle(win, title);
                     if (logFile) {
                         Object* pawn = session.pawn();

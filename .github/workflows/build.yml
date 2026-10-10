@@ -13,7 +13,7 @@ jobs:
   linux:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Dependencies
         run: |
@@ -32,7 +32,7 @@ jobs:
       - name: Python tools
         run: python3 -m py_compile ffa tools/*.py tests/fixtures.py
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ffa-linux-x86_64
           path: |

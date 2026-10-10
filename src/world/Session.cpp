@@ -26,7 +26,12 @@ std::string lower(std::string x) {
 
 }  // namespace
 
+void Session::setIni(const std::string& section, const std::string& key, const std::string& value) {
+    set_[lower(section) + "/" + lower(key)] = value;
+}
+
 std::string Session::ini(const std::string& file, const std::string& section, const std::string& key) const {
+    if (auto it = set_.find(lower(section) + "/" + lower(key)); it != set_.end()) return it->second;
     std::ifstream in(systemDir + "/" + file);
     std::string line, at;
     while (std::getline(in, line)) {
@@ -123,6 +128,13 @@ Session::Session(const std::string& sys, const std::string& map, const std::stri
     world = std::make_unique<World>(*vm, pkg, level);
     world->gameDir = gameDir;
     world->mapFile = map.substr(map.find_last_of("/\\") + 1);
+    world->config = [this](const std::string& section, const std::string& key) {
+        std::string v = ini("Default.ini", section, key);
+        return v.empty() ? ini("DefUser.ini", section, key) : v;
+    };
+    world->configSet = [this](const std::string& section, const std::string& key, const std::string& value) {
+        setIni(section, key, value);
+    };
     collision = std::make_unique<Collision>(*world, pkg, level.model, gameDir);
     world->collision = collision.get();
     library = std::make_unique<Library>(gameDir);

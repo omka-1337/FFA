@@ -211,6 +211,7 @@ void LevelRender::fillTexture(Object* o) {
 
 LevelRender::~LevelRender() {
     session_.linker->onStub = nullptr;
+    if (session_.world) session_.world->textWidth = nullptr;
     for (Batch& b : batches_) glDeleteBuffers(1, &b.buffer);
     for (auto& [k, t] : textures_) glDeleteTextures(1, &t.first);
     for (unsigned t : lightMapTex_) glDeleteTextures(1, &t);

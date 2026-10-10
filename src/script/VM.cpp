@@ -361,7 +361,7 @@ std::pair<Function*, Object*> VM::bindDelegate(Function* fn, Object* self) {
         Prop* p = self->cls->findProp(Name("__" + fn->name.str() + "__Delegate"));
         if (p && size_t(p->slot) < self->props.size()) {
             Delegate d = self->props[size_t(p->slot)].d();
-            if (d.obj && !d.obj->deleted)
+            if (d.obj && !d.obj->deleted && !d.func.isNone())
                 if (Function* f2 = findVirtual(d.obj, d.func)) return {f2, d.obj};
         }
     }
@@ -943,9 +943,11 @@ Value VM::ev(const Ins& n, Frame& f, Object* ctx) {
         // Call through the delegate property: its bound function on its
         // object, or, unbound, the delegate's own body on this object.
         if (!ctx) throw error("delegate call " + n.name.str() + " with no object");
+        // A delegate set to None, its function None, is unbound too.
         Delegate d = slot(ctx, n.prop, &f, &n)->d();
-        Object* self = d.obj && !d.obj->deleted ? d.obj : ctx;
-        Name fname = d.obj && !d.obj->deleted ? d.func : n.name;
+        bool bound = d.obj && !d.obj->deleted && !d.func.isNone();
+        Object* self = bound ? d.obj : ctx;
+        Name fname = bound ? d.func : n.name;
         Function* fn = findVirtual(self, fname);
         if (!fn) throw error(self->path() + " has no function " + fname.str());
         return invoke(fn, self, n.kids, f);

@@ -74,10 +74,14 @@ public:
     // under System such as Cutscenes\SwampIntro, its case not minded.
     bool localize(const std::string& section, const std::string& key, const std::string& package, String& out);
 
-    // A key of an .ini file in the System directory, or empty.
+    // A key of an .ini file in the System directory, or empty; one the game
+    // set this session, its new value.
     std::string ini(const std::string& file, const std::string& section, const std::string& key) const;
+    // The console's set: a key's new value for this session, not yet written.
+    void setIni(const std::string& section, const std::string& key, const std::string& value);
 
 private:
+    std::map<std::string, std::string> set_;    // section/key, lowercase, to its value
     std::map<std::string, Object*> loaded_;
     // localisation files read, by lowercase package: section/key to value
     std::map<std::string, std::map<std::string, String>> int_;

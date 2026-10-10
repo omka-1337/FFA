@@ -356,7 +356,27 @@ void LevelRender::drawHud(int width, int height) {
         canvas_ = vm.spawn(cc);
         registerCanvasNatives(vm);
     }
+    if (!w.textWidth)
+        w.textWidth = [this](Object* font, const String& text) {
+            float width = 0;
+            if (const FontData* f = hudFont(font))
+                for (char16_t ch : text)
+                    if (const FontGlyph* gl = f->glyph(ch)) width += float(gl->width);
+            return width;
+        };
     current = this;
+    // A movie the HUD plays covers the frame. Its pictures are not decoded
+    // yet, so it is black for its length.
+    for (auto& [m, play] : w.movies)
+        if (play.playing) {
+            HudTile t;
+            t.texture = white_;
+            t.w = float(width);
+            t.h = float(height);
+            t.color[0] = t.color[1] = t.color[2] = 0;
+            hud_.push_back(t);
+            break;
+        }
     try {
         vm.call(canvas_, "Reset");
         field(vm, canvas_, "SizeX") = Value::Int(width);
