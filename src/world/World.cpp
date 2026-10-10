@@ -370,7 +370,10 @@ void World::tick(float dt) {
     ticking = nullptr;
     tickPart = "";
     // A level change ServerTravel asked for: Level.NextURL, once
-    // NextSwitchCountdown, which the game sets, has run out.
+    // NextSwitchCountdown, which the game sets, has run out; or ClientTravel's
+    // or the console's. The engine shows one frame of LEVACT_Loading before
+    // it loads: SHHud's DrawLevelAction draws its LOADING over the last view,
+    // or over black after SH2_Preamble, the logos' level.
     if (info && travel.empty() && info->cls->findProp(Name("NextURL"))) {
         std::string url = utf8(var(info, "NextURL").s());
         if (!url.empty()) {
@@ -379,6 +382,7 @@ void World::tick(float dt) {
             if (left.f() <= 0) travel = url;
         }
     }
+    if (info && !travel.empty() && info->cls->findProp(Name("LevelAction"))) var(info, "LevelAction") = Value::Int(1);
 }
 
 // ================================================================ natives

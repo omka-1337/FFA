@@ -603,7 +603,10 @@ fitted and in black, decoding up to the frame its time has reached
 (`src/audio/BinkVideo.cpp`), and plays its stereo sound from the same file. ServerTravel leaves the next level in
 Level.NextURL, KWGame adding the game state, Book_FrontEnd.unr?GameState=
 GSTATE000; once NextSwitchCountdown runs out the world asks for it, as do
-ClientTravel and the console's open, and ffa-play loads it in place of the
+ClientTravel and the console's open. Level.LevelAction is then
+LEVACT_Loading for the frame drawn before the load, and SHHud's
+DrawLevelAction draws its LOADING, over black after SH2_Preamble, the logos'
+level, over the last view elsewhere; ffa-play loads it in place of the
 one playing, the URL's options over the level's own.
 
 **The GUI.** `src/world/Gui.cpp` is the engine's side of GUI.u. After the
