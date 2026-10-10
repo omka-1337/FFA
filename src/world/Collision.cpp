@@ -241,8 +241,16 @@ std::vector<Triangle> Collision::worldTriangles(Placed& pl) {
 
 bool Collision::blocks(Object* o, const Object* ignore) {
     if (o == ignore || o->deleted || o == world.info) return false;
-    if (!world.flag(o, "bCollideActors") || !(world.flag(o, "bBlockActors") || world.flag(o, "bBlockPlayers")))
-        return false;
+    if (!world.flag(o, "bCollideActors")) return false;
+    // a player is stopped by bBlockPlayers, anything else by bBlockActors:
+    // the swamp's save fairy blocks actors and not players, and Shrek, who
+    // has to touch her to save, stood against her
+    bool player = false;
+    if (ignore && world.pawnClass && ignore->isA(world.pawnClass)) {
+        Object* c = world.obj(const_cast<Object*>(ignore), "Controller");
+        player = c && world.playerControllerClass && c->isA(world.playerControllerClass);
+    }
+    if (!world.flag(o, player ? "bBlockPlayers" : "bBlockActors")) return false;
     // a static mesh blocks with its triangles, unless it asks for its cylinder
     if (world.var(o, "DrawType").i() == DT_StaticMesh && world.obj(o, "StaticMesh") &&
         !world.flag(o, "bUseCylinderCollision"))

@@ -337,6 +337,11 @@ offered to the controller first; Flying, Rotating, Projectile and Trailer.
 Swimming, Karma, MovingBrush and the rest are counted as missing. A move ends
 in Touch and UnTouch with the actors whose cylinders it begins or stops
 overlapping, keeping each actor's Touching array, which TouchingActors reads.
+A player's pawn is stopped by what has bBlockPlayers, anything else by
+bBlockActors, and two touch unless each stops the other: pickups, the wanted
+poster and the save fairy block actors and not players, and drawn as solid
+against Shrek, the waffle could not be taken, the poster not torn down and
+the fairy not touched to save.
 
 Over twenty seconds of every level, no pawn falls through the world. Three
 fall more than 500 units, and they are not collision: Puss on The Hunt's

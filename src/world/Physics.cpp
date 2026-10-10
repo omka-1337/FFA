@@ -516,7 +516,15 @@ void updateTouching(World& w, Object* a) {
     if (!w.flag(a, "bCollideActors")) return;
     Vec3 p = vget(w, a, "Location");
     float r = w.var(a, "CollisionRadius").f(), h = w.var(a, "CollisionHeight").f();
-    bool blocksA = w.flag(a, "bBlockActors");
+    // what blocks a player is bBlockPlayers, anything else bBlockActors; two
+    // that block each other do not touch: the save fairy blocks actors and
+    // not players, and Shrek touches her to save
+    auto player = [&](Object* x) {
+        if (!w.pawnClass || !x->isA(w.pawnClass)) return false;
+        Object* c = w.obj(x, "Controller");
+        return c && w.playerControllerClass && c->isA(w.playerControllerClass);
+    };
+    auto stops = [&](Object* mover, Object* other) { return w.flag(other, player(mover) ? "bBlockPlayers" : "bBlockActors"); };
     Value& mine = w.var(a, "Touching");
     if (!mine.isArr()) mine = Value::Arr(Array());
     auto touching = [&](Object* x, Object* y) {
@@ -542,7 +550,7 @@ void updateTouching(World& w, Object* a) {
         if (w.var(o, "DrawType").i() == 8 && !w.flag(o, "bUseCylinderCollision") && w.obj(o, "StaticMesh") &&
             w.flag(o, "bStatic"))
             continue;   // level decoration touches through its triangles, not done
-        if (blocksA && w.flag(o, "bBlockActors")) continue;
+        if (stops(a, o) && stops(o, a)) continue;
         ActorShape sh = shapeOf(w, o);
         Vec3 q = sh.center;
         float dr = r + sh.radius, dh = h + sh.height;
