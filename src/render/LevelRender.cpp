@@ -732,7 +732,11 @@ void LevelRender::addMesh(Object* a) {
             if (it != w.actorAt.end()) zone = it->second;
         }
     }
-    d.ambient = bakedAmbientOf(w, zone);
+    // and the actor's AmbientGlow once, as a character takes it: the levels
+    // give it to meshes whose baked light leaves them dark, the factory's
+    // conveyor belts 50 over colours of 9 in 255
+    float glow = float(w.var(a, "AmbientGlow").i()) / 255.0f;
+    d.ambient = bakedAmbientOf(w, zone) + Vec3{glow, glow, glow} * 0.5f;
     d.unlit = w.flag(a, "bUnlit");
     // a texture a section: the mesh's Materials, an actor's Skins over them
     ObjectRef meshRef = refOf(mo);
@@ -844,14 +848,14 @@ LevelRender::SkelDraw& LevelRender::skelFor(Object* a) {
 }
 
 // A character's light at each of its points: the MaxLights lights strongest
-// where it stands, falling off as a static mesh's light does
-// (bakeVertexLight), but softer, by half Lambert: three times the zone's
+// where it stands that the BSP does not hide from it; three times the zone's
 // ambient and the AmbientGlow once (the shader's ambient is set for them), a
-// tenth of a sun's brightness and 1.2 of a point light's. The model is tuned
-// to the game's frames, not taken from the data (docs/rendering.md): on the
-// swamp, lit by ambient and suns, Shrek takes some 0.8 of his texture, nearly
-// evenly and nearly white; in the Fairy Godmother's office, with no ambient
-// and bright point lights, the citizens about their texture's own brightness.
+// tenth of a sun's brightness by half Lambert, white, and a point light as a
+// static mesh takes it (bakeVertexLight). The suns and the ambient are tuned
+// to the game's frames of the swamp, where Shrek takes some 0.8 of his
+// texture, nearly evenly and nearly white; the point lights to the factory's,
+// where HazMat Shrek's hood is blue at the top and sides from the lamps
+// behind him and his shirt near white from the one in front (docs).
 std::vector<Vec3> LevelRender::characterLight(Object* a, const SkeletalMesh& mesh, const std::vector<Vec3>& pts,
                                               const float r[3][3], Vec3 loc) {
     World& w = *session_.world;
@@ -879,6 +883,12 @@ std::vector<Vec3> LevelRender::characterLight(Object* a, const SkeletalMesh& mes
         li.radius = w.var(l, "LightRadius").f() * 25.0f;
         float d = length(li.pos - loc);
         if (!li.sun && d >= li.radius) continue;
+        // a light the level's walls hide from where it stands lights it not;
+        // one set into them still does
+        if (!li.sun) {
+            Hit h = session_.collision->bsp.lineCheck(li.pos, loc);
+            if (h && !h.startSolid) continue;
+        }
         float x = li.sun ? 0 : d / li.radius;
         li.strength = li.bright * (1 - x * x) * (1 - x * x);
         int32_t pr, yr, rr;
@@ -926,23 +936,21 @@ std::vector<Vec3> LevelRender::characterLight(Object* a, const SkeletalMesh& mes
         if (ln > 0) wn = wn * (1 / ln);
         Vec3 c{};
         for (const Lit& li : near) {
-            // half Lambert: the side away from a light keeps half of it
-            float k;
             if (li.sun) {
-                k = 0.5f + 0.5f * -dot(wn, li.dir);
+                // half Lambert, white: the side away from it keeps half; once
+                // the shader doubles it, a tenth of its brightness
+                float k = 0.5f + 0.5f * -dot(wn, li.dir);
+                c = c + Vec3{1, 1, 1} * (0.05f * li.bright / 255.0f * k);
             } else {
+                // as a static mesh takes it: its colour at 0.65 its
+                // brightness, by N.L
                 Vec3 d = li.pos - wp;
                 float dist = length(d);
                 if (dist <= 0 || dist >= li.radius) continue;
-                float x = dist / li.radius;
-                k = (1 - x * x) * (1 - x * x) * (0.5f + 0.5f * dot(wn, d) / dist);
+                float x = dist / li.radius, nl = dot(wn, d) / dist;
+                if (nl <= 0) continue;
+                c = c + li.col * (0.65f * li.bright / 255.0f * (1 - x * x) * (1 - x * x) * nl);
             }
-            // once the shader doubles it, a tenth of a sun's brightness and
-            // 1.2 of a point light's, white: the game's frames show its
-            // characters in their own colours under coloured light, Shrek's
-            // shirt neutral under the swamp's warm suns and the factory's
-            // purple lamps alike, where the lights' colour made it purple
-            c = c + Vec3{1, 1, 1} * ((li.sun ? 0.05f : 0.6f) * li.bright / 255.0f * k);
         }
         out[i] = {std::min(c.x, 1.0f), std::min(c.y, 1.0f), std::min(c.z, 1.0f)};
     }

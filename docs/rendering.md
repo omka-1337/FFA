@@ -60,31 +60,35 @@ adds the ambient to the baked light:
   the actor's Skins over the mesh's Materials; placed again every frame when
   the actor is not bStatic, so that movers move on the screen as well (the
   factory's doors stayed open, drawn where they started, while they closed),
-  left out while bHidden or destroyed, and those spawned added as they come; lit by the StaticMeshInstance's
-  vertex colours and the zone's ambient as the BSP holds it, together × 2;
-  bUnlit full bright. Where those colours are black
+  left out while bHidden or destroyed, and those spawned added as they come;
+  lit by the StaticMeshInstance's vertex colours, the zone's ambient as the
+  BSP holds it and the actor's AmbientGlow once, as a character takes it,
+  together × 2; bUnlit full bright. The levels give AmbientGlow to meshes
+  their baked light leaves dark: the factory's conveyor belts have 50 over
+  colours of 9 in 255 and were drawn black, the prisons 100 over meshes with
+  none. Where those colours are black
   throughout although lights reach the mesh, they are computed from the lights
   and their masks, by the formula the stored colours follow.
 
 - **Skeletal meshes**, each actor drawn as a mesh skinned on the CPU every
   frame from its pose, its faces by material, the actor's Skins over the
-  mesh's materials. Lit by its MaxLights lights strongest where it stands,
-  with the same falloff as the static meshes' baked light, but evenly, as the
-  game's frames show its characters: three times the zone's ambient, the
-  AmbientGlow once, and by half Lambert a tenth of a Sunlight's brightness
-  and 1.2 of a point light's. Tuned to two sets of frames, not taken from the
-  data. On the swamp, lit by its ambient and two suns, Shrek's shirt is 160
-  and 150 on its two sides and his skirt 178, about 0.8 of their texture in
-  every channel; this model gives 157 and 177, and 174, where plain N.L, as
-  the static meshes take light, gave 130 and 226, and yellow. In the Fairy
-  Godmother's office, with no ambient and point lights of 150 to 255, the
-  citizens' red clothes are about their texture's own brightness; this gives
-  1.0 to 1.3, where a tenth for every light, as first tuned on the swamp alone,
-  drew them black. The lights are taken white, their brightness without
-  their colour: in the game Shrek's shirt is neutral under the swamp's warm
-  suns and under the factory's purple lamps, 129, 127, 119 there, where their
-  colour made it 90, 66, 188. Against the swamp's frame from the start, his
-  sleeves and skirt are now within 8 of the game's in every channel.
+  mesh's materials. Lit by its MaxLights lights (four, as Pawn caps it)
+  strongest where it stands, among those the level's BSP does not hide from
+  it: three times the zone's ambient and the AmbientGlow once, by half
+  Lambert and white a tenth of a Sunlight's brightness, and a point light as
+  a static mesh takes it, its colour at 0.65 its brightness by the same
+  falloff and N.L, doubled. The suns and the ambient are tuned to the
+  swamp's frame from the start, where Shrek's shirt is 160 and 150 on its
+  two sides and his skirt 178, about 0.8 of their texture in every channel,
+  and with the point lights as they were this gave 157, 177 and 174; not
+  measured again since. The point lights were first taken white
+  and half Lambert too, and drew the factory's HazMat Shrek white from head
+  to foot, where the game's frame of the same shot has his hood dark blue
+  at the top and sides, his shirt 194, 186, 167 on the chest and his skirt
+  87: a white light in front of him (Light11) and blue ones behind and
+  above. With the static meshes' formula the chest comes to about 193; the
+  hidden lights have to go, as two blue ones above the ceiling are among
+  the four strongest and push the white one out, which drew him purple.
   bUnlit full bright. The normals come from the posed faces,
   turned to face away from the mesh's middle, as the winding is not settled. Holding forward on the swamp
   (`--hold W`), Shrek runs into the pond past the lily pads, arms swinging.
