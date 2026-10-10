@@ -282,8 +282,17 @@ would spin within a single frame.
 
 Traces go through the level's collision (`src/world/Collision.cpp`): the BSP,
 the terrains, and the static mesh actors that block traces, with the actors'
-cylinders when asked for. Trace returns the actor hit, the LevelInfo for the
-BSP, and zero vectors when nothing is hit. TraceActors yields the actors along
+cylinders when asked for: those a projectile would hit, bProjTarget or blocking
+both actors and players, as the game's own traces need. A cutscene's trigger
+over the swamp's pond, which collides but blocks nothing, was hit before, and
+Shrek's trace for what he stands in (TraceMaterial) found it and not the
+water. Trace returns the actor hit, the LevelInfo for the BSP, and zero
+vectors when nothing is hit; its out Material is the BSP surface's, or on a
+terrain the layer that shows most at the hit, each layer over those before by
+the weight of its alpha map, with the MaterialType its package gives it. The
+swamp's pond bed is its gravel layer, MaterialType 6, water: ShHeroController
+reads it every frame to wade, 150 a second where Shrek runs 550, its
+MovementAnims the WadeAnims. TraceActors yields the actors along
 the line nearest first and then the BSP's hit as the LevelInfo, which the
 data asks for: the camera's script, BaseCam.bShouldBlock, tests a hit with
 IsA('LevelInfo'). FastTrace counts world geometry only. SetLocation moves the
@@ -401,7 +410,11 @@ Pawns with bPhysicsAnimUpdate are animated by the engine as they move: walking
 faster than 10 units a second, the one of their four MovementAnims for the way
 they go against the way they face, looped on channel 0 and blended in over
 BlendChangeTime; stopped, KnowWonder's IdleAnimName, which their
-ChangeAnimation keeps up to date, apparently for this. When the engine switches
+ChangeAnimation keeps up to date, apparently for this. Leaving the ground
+going up is a jump: the engine sends PlayJump, which no script calls, and
+KWPawn plays its take-off on channel 1 over the whole body; walking off an
+edge is the Falling event instead. Without it the jump had no animation, only
+the landing on channel 1 when it came down. When the engine switches
 is modelled, not measured. Holding forward on the swamp, Shrek runs `run`,
 falls on channel 1 in `jumploop`, lands with `jumplandtorun`, idles in `Idle`,
 and blinks on channel 34. Twenty seconds of every level start 10605 sequences,

@@ -1,5 +1,8 @@
 #include "world/Collision.h"
 
+#include "render/Texture.h"
+#include "script/Tagged.h"
+
 #include <cctype>
 #include <algorithm>
 #include <filesystem>
@@ -62,6 +65,7 @@ Vec3 mulT(const float m[3][3], Vec3 v) {
 Collision::Collision(World& w, int mapPkg, int32_t model, const std::string& gameDir)
     : world(w), bsp(*w.linker.packages[size_t(mapPkg)], model), map_(*w.linker.packages[size_t(mapPkg)]),
       gameDir_(gameDir) {
+    mapPkg_ = mapPkg;
     const Package& p = map_;
     for (Object* a : w.actors) {
         if (a->deleted || a->cls->name != Name("TerrainInfo")) continue;
@@ -691,6 +695,11 @@ TraceHit Collision::lineCheck(Vec3 a, Vec3 b, const Object* ignore, bool actors,
             if (o == ignore || o->deleted || o == world.info) continue;
             if (!world.flag(o, "bCollideActors") || !world.flag(o, "bBlockZeroExtentTraces")) continue;
             if (world.var(o, "DrawType").i() == DT_StaticMesh && !world.flag(o, "bUseCylinderCollision")) continue;
+            // what a projectile would hit: a target, or what blocks actors
+            // and players both; not the triggers and volumes, which the
+            // swamp's pond has over its bed, where Shrek's trace for what he
+            // stands in found a cutscene's trigger and not the water
+            if (!world.flag(o, "bProjTarget") && !(world.flag(o, "bBlockActors") && world.flag(o, "bBlockPlayers"))) continue;
             ActorShape sh = shapeOf(world, o);
             Vec3 n;
             float t = sh.box ? enterBox(sh, a, b - a, {}, n) : cylinder(a, b, sh.center, sh.radius, sh.height, n);
@@ -704,6 +713,84 @@ TraceHit Collision::lineCheck(Vec3 a, Vec3 b, const Object* ignore, bool actors,
         }
     }
     return best;
+}
+
+ObjectRef Collision::refOf(const Object* o) {
+    if (!o || !library) return {};
+    std::vector<std::string> parts;
+    for (const Object* k = o; k; k = k->outer) parts.insert(parts.begin(), k->name.str());
+    if (parts.size() < 2) return {};
+    const Package* p = library->package(parts[0]);
+    if (!p) return {};
+    int idx = Library::findByPath(*p, std::vector<std::string>(parts.begin() + 1, parts.end()));
+    return idx ? ObjectRef{p, idx} : ObjectRef{};
+}
+
+Object* Collision::materialOf(const TraceHit& h) {
+    if (!h) return nullptr;
+    Object* m = nullptr;
+    if (!h.actor && h.node >= 0 && size_t(h.node) < bsp.nodes.size()) {
+        int32_t s = bsp.nodes[size_t(h.node)].surf;
+        if (s >= 0 && size_t(s) < bsp.surfs.size() && bsp.surfs[size_t(s)].material)
+            m = world.linker.objectRef(mapPkg_, bsp.surfs[size_t(s)].material);
+    } else if (h.actor) {
+        size_t ti = 0;
+        while (ti < terrainActors.size() && terrainActors[ti] != h.actor) ++ti;
+        if (ti == terrainActors.size()) return nullptr;
+        const Terrain& t = *terrains[ti];
+        auto it = terrainLayers_.find(ti);
+        if (it == terrainLayers_.end()) {
+            std::vector<Layer> layers;
+            Prop* lp = h.actor->cls->findProp(Name("Layers"));
+            for (int k = 0; lp && k < lp->dim; ++k) {
+                const Value& v = h.actor->props[size_t(lp->slot + k)];
+                if (!v.isStruct()) continue;
+                Prop* tf = v.st().type->field(Name("Texture"));
+                Prop* af = v.st().type->field(Name("AlphaMap"));
+                Object* tex = tf ? v.st().f[size_t(tf->slot)].o() : nullptr;
+                if (!tex) continue;
+                Layer l{tex, std::vector<uint8_t>(size_t(t.X) * size_t(t.Y), 255)};
+                ObjectRef ar = refOf(af ? v.st().f[size_t(af->slot)].o() : nullptr);
+                if (ar && ar.cls() == "Texture") {
+                    try {
+                        Image a = decodeTexture(*library, ar, 0);
+                        for (int y = 0; y < t.Y; ++y)
+                            for (int x = 0; x < t.X; ++x)
+                                l.weight[size_t(y * t.X + x)] =
+                                    a.rgba[(size_t(y * a.height / t.Y) * size_t(a.width) + size_t(x * a.width / t.X)) * 4 + 3];
+                    } catch (const std::exception&) {
+                    }
+                }
+                layers.push_back(std::move(l));
+            }
+            it = terrainLayers_.emplace(ti, std::move(layers)).first;
+        }
+        // each layer laid over those before by its weight: the one that
+        // shows most is its own weight times what those over it let through
+        int x, y;
+        t.gridAt(h.location, x, y);
+        float through = 1, most = 0;
+        for (size_t k = it->second.size(); k-- > 0;) {
+            float wgt = it->second[k].weight[size_t(y * t.X + x)] / 255.0f;
+            if (wgt * through > most) {
+                most = wgt * through;
+                m = it->second[k].material;
+            }
+            through *= 1 - wgt;
+        }
+    }
+    if (m && !materialTyped_[m]) {
+        materialTyped_[m] = true;
+        if (m->cls->findProp(Name("MaterialType"))) {
+            std::vector<TagEntry> tags;
+            size_t end = 0;
+            ObjectRef r = refOf(m);
+            if (r && Library::properties(r, tags, end))
+                if (const TagEntry* e = findTag(*r.pkg, tags, "MaterialType"))
+                    world.var(m, "MaterialType") = Value::Int(r.pkg->data[e->at]);
+        }
+    }
+    return m;
 }
 
 std::vector<TraceHit> Collision::multiLineCheck(Vec3 a, Vec3 b, const Object* ignore) {
@@ -823,6 +910,7 @@ void registerCollisionNatives(VM& vm) {
         }
         c.out(0, c.vm.vector(h.location.x, h.location.y, h.location.z));
         c.out(1, c.vm.vector(h.normal.x, h.normal.y, h.normal.z));
+        if (c.has(6)) c.out(6, Value::Obj(col.materialOf(h)));
         return Value::Obj(h.actor ? h.actor : w.info);
     };
     // FastTrace(End, optional Start): whether nothing of the world's geometry

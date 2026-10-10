@@ -115,6 +115,7 @@ Session::Session(const std::string& sys, const std::string& map) : systemDir(sys
     collision = std::make_unique<Collision>(*world, pkg, level.model, gameDir);
     world->collision = collision.get();
     library = std::make_unique<Library>(gameDir);
+    collision->library = library.get();
     library->adopt(linker->packages[size_t(pkg)].get());
     animator = std::make_unique<Animator>(*world, *library);
     registerAnimationNatives(*vm);

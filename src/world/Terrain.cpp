@@ -155,4 +155,9 @@ Hit Terrain::lineCheck(Vec3 a, Vec3 b) const {
     return hit;
 }
 
+void Terrain::gridAt(Vec3 p, int& x, int& y) const {
+    x = std::clamp(int(std::lround((p.x - origin_.x) / stepX_)), 0, std::max(0, X - 1));
+    y = std::clamp(int(std::lround((p.y - origin_.y) / stepY_)), 0, std::max(0, Y - 1));
+}
+
 }  // namespace ffa

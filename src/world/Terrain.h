@@ -42,6 +42,8 @@ public:
     void quad(int x, int y, int out[2][3]) const;
 
     Hit lineCheck(Vec3 a, Vec3 b) const;
+    // The grid vertex nearest p, in x and y.
+    void gridAt(Vec3 p, int& x, int& y) const;
 
     // The largest difference between a stored normal and the normal of the
     // triangle the split rule makes, over every quad.

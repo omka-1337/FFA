@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "core/Library.h"
 #include "world/Bsp.h"
 #include "world/StaticMesh.h"
 #include "world/Sweep.h"
@@ -39,6 +40,13 @@ public:
     // `worldOnly`, only what is world geometry.
     TraceHit lineCheck(Vec3 a, Vec3 b, const Object* ignore = nullptr, bool actors = false,
                        bool worldOnly = false);
+    // The Material a trace's hit lies on, for Trace's out Material: the BSP
+    // surface's, or the terrain's layer that shows most where it hit; null
+    // for an actor, whose own MaterialType tells. Its MaterialType is the
+    // one its package gives it.
+    Object* materialOf(const TraceHit& h);
+    Library* library = nullptr;     // for the terrains' alpha maps
+
     // Every actor the segment passes through before it hits the BSP, nearest
     // first, and then the BSP's hit as the LevelInfo.
     std::vector<TraceHit> multiLineCheck(Vec3 a, Vec3 b, const Object* ignore = nullptr);
@@ -74,6 +82,16 @@ public:
     std::map<std::string, size_t> problems;
 
 private:
+    // a terrain's layers, bottom first: the material and its weight at
+    // every grid vertex, from its alpha map
+    struct Layer {
+        Object* material;
+        std::vector<uint8_t> weight;
+    };
+    std::map<size_t, std::vector<Layer>> terrainLayers_;
+    std::map<Object*, bool> materialTyped_;
+    int mapPkg_ = 0;
+    ObjectRef refOf(const Object* o);
     struct Placed {
         Object* actor;
         const StaticMeshCollision* mesh;
