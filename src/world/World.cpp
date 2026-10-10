@@ -3,10 +3,13 @@
 #include "world/AI.h"
 #include "world/Animator.h"
 #include "world/Collision.h"
+#include "world/Gui.h"
 #include "world/Movie.h"
 #include "world/Physics.h"
 
+#include <chrono>
 #include <cmath>
+#include <ctime>
 #include <stdexcept>
 
 namespace ffa {
@@ -219,10 +222,34 @@ Object* World::login(const String& portal, const String& options) {
     return pc;
 }
 
+bool World::ticksWhilePaused(Object* a) {
+    return flag(a, "bAlwaysTick") || (playerControllerClass && a->isA(playerControllerClass));
+}
+
 void World::tick(float dt) {
     dt *= var(info, "TimeDilation").f();
-    time += dt;
+    // Paused, Level.Pauser set by GameInfo's SetPause, as the in-game menu
+    // does: the level's time stands, and only the player's controller and
+    // what is bAlwaysTick tick, the menu's book among them.
+    paused = info->cls->findProp(Name("Pauser")) && obj(info, "Pauser");
+    if (!paused) time += dt;
     var(info, "TimeSeconds") = Value::Float(time);
+    // the clock, as the engine keeps it in the LevelInfo: the menus' fades
+    // time themselves by its Millisecond
+    {
+        using namespace std::chrono;
+        auto now = system_clock::now();
+        std::time_t t = system_clock::to_time_t(now);
+        std::tm tm{};
+        localtime_r(&t, &tm);
+        int ms = int(duration_cast<milliseconds>(now.time_since_epoch()).count() % 1000);
+        const std::pair<const char*, int> parts[] = {{"Year", tm.tm_year + 1900}, {"Month", tm.tm_mon + 1},
+                                                     {"Day", tm.tm_mday},         {"DayOfWeek", tm.tm_wday},
+                                                     {"Hour", tm.tm_hour},        {"Minute", tm.tm_min},
+                                                     {"Second", tm.tm_sec},       {"Millisecond", ms}};
+        for (auto& [k, v] : parts)
+            if (info->cls->findProp(Name(k))) var(info, k) = Value::Int(v);
+    }
     ++frames;
     Value delta = Value::Float(dt);
     size_t n = actors.size();
@@ -262,7 +289,7 @@ void World::tick(float dt) {
     tickPart = "animation";
     if (animator) {
         try {
-            animator->tick(dt);
+            animator->tick(dt, paused);
             animator->attachments();
         } catch (const std::exception& ex) {
             failed["animation"]++;
@@ -271,9 +298,12 @@ void World::tick(float dt) {
     }
     tickPart = "movies";
     movieTick(*this);
+    tickPart = "GUI";
+    guiTick(*this, dt);
     for (size_t i = 0; i < n; ++i) {
         Object* a = actors[i];
         if (a->deleted || flag(a, "bStatic")) continue;
+        if (paused && !ticksWhilePaused(a)) continue;
         ticking = a;
         tickPart = "Tick";
         var(a, "bTicked") = Value::Bool(parity);
@@ -405,6 +435,11 @@ void registerWorldNatives(VM& vm) {
                             c.has(4) ? &rot : nullptr);
         return Value::Obj(a);
     };
+    // GetURLMap: the level's file, as the in-game menu asks to place its book
+    // by (the swamp's and the hunt's sit further back).
+    n["actor.geturlmap"] = [](NativeCall& c) { return Value::Str(widen(world(c).mapFile)); };
+    // SaveGameExists(iSlot): no game is saved yet, so none is.
+    n["actor.savegameexists"] = [](NativeCall&) { return Value::Bool(false); };
     // ClientTravel(URL, TravelType, bItems): the level to go to.
     n["playercontroller.clienttravel"] = [](NativeCall& c) {
         World& w = world(c);
@@ -412,8 +447,9 @@ void registerWorldNatives(VM& vm) {
         return Value();
     };
     // ConsoleCommand(Command): of the engine's commands, open, start and
-    // travel go to a level; what else script asks of the console, such as get
-    // ini:, answers nothing, which the game takes as the default.
+    // travel go to a level, exit and quit end the game, getcurrentres tells
+    // the screen; what else script asks of the console, such as get ini:,
+    // answers nothing, which the game takes as the default.
     auto console = [](NativeCall& c) {
         World& w = world(c);
         std::string cmd = utf8(c.s(0));
@@ -422,9 +458,15 @@ void registerWorldNatives(VM& vm) {
         for (char& ch : verb) ch = char(std::tolower(static_cast<unsigned char>(ch)));
         if ((verb == "open" || verb == "start" || verb == "travel") && sp != std::string::npos && w.travel.empty())
             w.travel = cmd.substr(cmd.find_first_not_of(' ', sp));
+        if (verb == "getcurrentres") return Value::Str(widen(guiResolution(w)));
+        if (verb == "exit" || verb == "quit") w.quit = true;
         return Value::Str(String());
     };
     n["actor.consolecommand"] = console;
+    n["interaction.consolecommand"] = [](NativeCall& c) {
+        c.vm.natives["actor.consolecommand"](c);
+        return Value::Bool(true);
+    };
     n["playercontroller.consolecommand"] = console;
     n["actor.sleep"] = [](NativeCall& c) {
         float left = c.f(0);

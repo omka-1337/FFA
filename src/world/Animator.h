@@ -72,8 +72,9 @@ class Animator {
 public:
     Animator(World& w, Library& lib);
 
-    // A frame of every animating actor: frames, notifies and AnimEnd.
-    void tick(float dt);
+    // A frame of every animating actor: frames, notifies and AnimEnd; paused,
+    // of those that tick while the game is paused.
+    void tick(float dt, bool paused = false);
 
     // The engine's own animation of a pawn that moves, for pawns with
     // bPhysicsAnimUpdate: walking, its MovementAnims for the way it goes

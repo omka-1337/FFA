@@ -323,7 +323,7 @@ const AnimSequence* Animator::find(Object* a, const std::string& name, const Mes
     return nullptr;
 }
 
-void Animator::tick(float dt) {
+void Animator::tick(float dt, bool paused) {
     // Script called from here may start sequences, add channels and notifies,
     // and give other actors states, so every element is found again by its
     // index after each call out.
@@ -336,6 +336,7 @@ void Animator::tick(float dt) {
     for (auto it = states_.begin(); it != states_.end(); ++it) {
         Object* a = it->first;
         AnimState& s = it->second;
+        if (paused && !a->deleted && !world.ticksWhilePaused(a)) continue;
         ++s.version;
         if (!a->deleted && world.pawnClass && a->isA(world.pawnClass)) movement(a);
         for (size_t k = 0; k < s.channels.size() && !a->deleted; ++k) {

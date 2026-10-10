@@ -9,6 +9,7 @@
 #include <stdexcept>
 
 #include "world/AI.h"
+#include "world/Gui.h"
 #include "world/Karma.h"
 #include "world/Movie.h"
 #include "world/Audio.h"
@@ -118,8 +119,10 @@ Session::Session(const std::string& sys, const std::string& map, const std::stri
     registerKarmaNatives(*vm);
     registerAudioNatives(*vm);
     registerMovieNatives(*vm);
+    registerGuiNatives(*vm);
     world = std::make_unique<World>(*vm, pkg, level);
     world->gameDir = gameDir;
+    world->mapFile = map.substr(map.find_last_of("/\\") + 1);
     collision = std::make_unique<Collision>(*world, pkg, level.model, gameDir);
     world->collision = collision.get();
     library = std::make_unique<Library>(gameDir);
@@ -162,6 +165,8 @@ void Session::begin() {
         world->var(world->info, "WorldInfo") = Value::Obj(vm->spawn(wi, Name("WorldInfo"), world->info->outer));
     world->beginPlay(gameClass, options);
     controller = world->login(widen(level.portal), options);
+    // the player's GUIController, as the engine makes it with the viewport
+    setupGui(*world, ini("Default.ini", "Engine.Engine", "GUIController"));
 }
 
 Object* Session::loadObject(const std::string& path, const Class* want) {

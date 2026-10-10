@@ -8,12 +8,14 @@
 // Canvas's Font, glyph by glyph from the font's pages. The tiles are drawn in
 // order over the frame. KnowWonder's cutscenes draw through it their
 // letterbox borders, the hourglass over a skipped cutscene, and subtitles.
+// The open menus are drawn after it on the same Canvas.
 #include <GLES2/gl2.h>
 
 #include <algorithm>
 #include <cmath>
 
 #include "render/LevelRender.h"
+#include "world/Gui.h"
 #include "world/World.h"
 
 namespace ffa {
@@ -200,6 +202,17 @@ void registerCanvasNatives(VM& vm) {
         text(c.vm, c.self, s, ff(c.vm, c.self, "OrgX") + x, ff(c.vm, c.self, "OrgY") + y, false);
         return Value();
     };
+    // DrawActor(Actor, Wireframe, optional ClearZ, optional DisplayFOV): the
+    // actor as the camera sees it, in turn with the tiles; the in-game
+    // menu's book over its page
+    n["canvas.drawactor"] = [](NativeCall& c) {
+        if (!current || !c.o(0)) return Value();
+        LevelRender::HudTile t;
+        t.actor = c.o(0);
+        t.clearZ = c.b(2);
+        current->hudPush(t);
+        return Value();
+    };
     n["canvas.textsize"] = [](NativeCall& c) {
         float XL, YL;
         measure(c.vm, c.self, c.s(0), XL, YL);
@@ -335,9 +348,8 @@ void LevelRender::drawHud(int width, int height) {
     VM& vm = *session_.vm;
     hud_.clear();
     Object* pc = session_.controller;
-    if (!pc || pc->deleted || !pc->cls->findProp(Name("myHUD"))) return;
-    Object* hud = w.obj(pc, "myHUD");
-    if (!hud || hud->deleted) return;
+    Object* hud = pc && !pc->deleted && pc->cls->findProp(Name("myHUD")) ? w.obj(pc, "myHUD") : nullptr;
+    if (hud && hud->deleted) hud = nullptr;
     if (!canvas_) {
         Class* cc = vm.findClass("Canvas");
         if (!cc) return;
@@ -352,11 +364,13 @@ void LevelRender::drawHud(int width, int height) {
         setf(vm, canvas_, "ClipX", float(width));
         setf(vm, canvas_, "ClipY", float(height));
         if (w.player && field(vm, canvas_, "Viewport").o() == nullptr) field(vm, canvas_, "Viewport") = Value::Obj(w.player);
-        vm.event(hud, "PostRender", {Value::Obj(canvas_)});
+        if (hud) vm.event(hud, "PostRender", {Value::Obj(canvas_)});
     } catch (const std::exception& ex) {
         ++hudFailures;
         w.failures[std::string("HUD: ") + ex.what()]++;
     }
+    // the menus over it, on the same Canvas (world/Gui.cpp)
+    drawGui(w, canvas_, width, height);
     current = nullptr;
     hudTiles = hud_.size();
     if (hud_.empty()) return;
@@ -379,7 +393,23 @@ void LevelRender::drawHud(int width, int height) {
     for (int a = 2; a < 5; ++a) glDisableVertexAttribArray(GLuint(a));
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
+    auto hudState = [&] {
+        glUseProgram(hudProgram_);
+        glDisable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+        glActiveTexture(GL_TEXTURE0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+        for (int a = 2; a < 5; ++a) glDisableVertexAttribArray(GLuint(a));
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+    };
     for (const HudTile& t : hud_) {
+        if (t.actor) {
+            drawHudActor(t.actor, t.clearZ);
+            hudState();
+            continue;
+        }
         // ERenderStyle: Normal and Alpha blend by the texture's alpha, Masked
         // cuts at half, Translucent and Additive add, Modulated multiplies
         float cut = -1;

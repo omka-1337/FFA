@@ -1039,108 +1039,139 @@ std::vector<Vec3> LevelRender::characterLight(Object* a, const SkeletalMesh& mes
     return out;
 }
 
-void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye, bool blended) {
+void LevelRender::drawSkelParts(const SkelDraw& d, bool blended) {
+    GLint uM = glGetUniformLocation(meshProgram_, "uMvp"), uC = glGetUniformLocation(meshProgram_, "uCut");
+    GLint uA = glGetUniformLocation(meshProgram_, "uAmb");
+    glUniformMatrix4fv(uM, 1, GL_FALSE, d.mvp);
+    glUniform3f(uA, d.ambient.x, d.ambient.y, d.ambient.z);
+    glBindBuffer(GL_ARRAY_BUFFER, d.vertices);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), nullptr);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), reinterpret_cast<void*>(12));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), reinterpret_cast<void*>(20));
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, d.indices);
+    for (const MeshDraw::Part& part : d.parts) {
+        if (part.mat.blended() != blended) continue;
+        applyBlend(part.mat);
+        glBindTexture(GL_TEXTURE_2D, part.texture);
+        glUniform1f(uC, part.mat.alphaRef);
+        glDrawElements(GL_TRIANGLES, part.count, GL_UNSIGNED_SHORT, reinterpret_cast<void*>(size_t(part.first) * 2));
+    }
+}
+
+bool LevelRender::prepareSkel(Object* a, const float mvp[16], Vec3 eye, SkelDraw*& out) {
     World& w = *session_.world;
     Animator& an = *session_.animator;
+    if (a->deleted || w.var(a, "DrawType").i() != 2 || !w.obj(a, "Mesh")) return false;
+    Vec3 o;
+    w.vm.unvector(w.var(a, "Location"), o.x, o.y, o.z);
+    if (length(o - eye) > 8000) return false;
+    SkelDraw& d = skelFor(a);
+    if (!d.mesh) return false;
+    // the zone's ambient and the actor's own glow; unlit, full bright, the
+    // texture as it is (the in-game menu's book)
+    Vec3 ambient{};
+    if (!w.flag(a, "bUnlit")) {
+        ambient = ambientOf(w, zoneOf(w, a));
+        float glow = float(w.var(a, "AmbientGlow").i()) / 255.0f;
+        // once the shader doubles it, three times the zone's ambient and
+        // the glow once
+        ambient = ambient * 1.5f + Vec3{glow, glow, glow} * 0.5f;
+    }
+    // the pose, skinned, into the actor's space; the actor's transform
+    // goes to the shader
+    std::vector<Vec3> pts = d.mesh->skin(an.pose(a));
+    for (Vec3& p : pts) p = d.mesh->toActor(p);
+    float r[3][3], model[16] = {0};
+    Vec3 loc;
+    an.meshToWorld(a, r, loc);
+    std::vector<Vec3> light = characterLight(a, *d.mesh, pts, r, loc);
+    d.world.resize(pts.size());
+    for (size_t i = 0; i < pts.size(); ++i) {
+        const Vec3& p = pts[i];
+        d.world[i] = {loc.x + r[0][0] * p.x + r[0][1] * p.y + r[0][2] * p.z,
+                      loc.y + r[1][0] * p.x + r[1][1] * p.y + r[1][2] * p.z,
+                      loc.z + r[2][0] * p.x + r[2][1] * p.y + r[2][2] * p.z};
+    }
+    for (size_t i = 0; i < d.mesh->wedges.size(); ++i) {
+        const SkeletalMesh::Wedge& wd = d.mesh->wedges[i];
+        const Vec3& p = pts[wd.point];
+        const Vec3& c = light[wd.point];
+        float* v = &d.scratch[i * 8];
+        v[0] = p.x;
+        v[1] = p.y;
+        v[2] = p.z;
+        v[3] = wd.u;
+        v[4] = wd.v;
+        v[5] = c.x;
+        v[6] = c.y;
+        v[7] = c.z;
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, d.vertices);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(d.scratch.size() * sizeof(float)), d.scratch.data());
+    for (int c = 0; c < 3; ++c)
+        for (int k = 0; k < 3; ++k) model[c * 4 + k] = r[k][c];
+    model[12] = loc.x;
+    model[13] = loc.y;
+    model[14] = loc.z;
+    model[15] = 1;
+    for (int c = 0; c < 4; ++c)
+        for (int k = 0; k < 4; ++k) {
+            float sum = 0;
+            for (int j = 0; j < 4; ++j) sum += mvp[j * 4 + k] * model[c * 4 + j];
+            d.mvp[c * 4 + k] = sum;
+        }
+    d.ambient = ambient;
+    out = &d;
+    return true;
+}
+
+void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye, bool blended) {
+    World& w = *session_.world;
     glUseProgram(meshProgram_);
     glActiveTexture(GL_TEXTURE0);
-    GLint uM = glGetUniformLocation(meshProgram_, "uMvp"), uB = glGetUniformLocation(meshProgram_, "uBaked");
-    GLint uC = glGetUniformLocation(meshProgram_, "uCut"), uA = glGetUniformLocation(meshProgram_, "uAmb");
-    glUniform1f(uB, 1.0f);
-    auto parts = [&](const SkelDraw& d) {
-        glUniformMatrix4fv(uM, 1, GL_FALSE, d.mvp);
-        glUniform3f(uA, d.ambient.x, d.ambient.y, d.ambient.z);
-        glBindBuffer(GL_ARRAY_BUFFER, d.vertices);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), nullptr);
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), reinterpret_cast<void*>(12));
-        glEnableVertexAttribArray(2);
-        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), reinterpret_cast<void*>(20));
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, d.indices);
-        for (const MeshDraw::Part& part : d.parts) {
-            if (part.mat.blended() != blended) continue;
-            applyBlend(part.mat);
-            glBindTexture(GL_TEXTURE_2D, part.texture);
-            glUniform1f(uC, part.mat.alphaRef);
-            glDrawElements(GL_TRIANGLES, part.count, GL_UNSIGNED_SHORT, reinterpret_cast<void*>(size_t(part.first) * 2));
-        }
-    };
+    glUniform1f(glGetUniformLocation(meshProgram_, "uBaked"), 1.0f);
     if (blended) {
         // after every opaque thing, as the engine draws what blends: a part
         // that writes no depth would have the world drawn over it
         for (auto& [a, d] : skel_)
-            if (d.drawn) parts(d);
+            if (d.drawn) drawSkelParts(d, true);
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);
         return;
     }
     for (auto& [a, d] : skel_) d.drawn = false;
     for (Object* a : w.actors) {
-        if (a->deleted || w.var(a, "DrawType").i() != 2 || hidden(w, a) || !w.obj(a, "Mesh")) continue;
-        Vec3 o;
-        w.vm.unvector(w.var(a, "Location"), o.x, o.y, o.z);
-        if (length(o - eye) > 8000) continue;
-        SkelDraw& d = skelFor(a);
-        if (!d.mesh) continue;
-        // the zone's ambient and the actor's own glow; unlit, full bright
-        Vec3 ambient{};
-        {
-            ambient = ambientOf(w, zoneOf(w, a));
-            float glow = float(w.var(a, "AmbientGlow").i()) / 255.0f;
-            // once the shader doubles it, three times the zone's ambient and
-            // the glow once
-            ambient = ambient * 1.5f + Vec3{glow, glow, glow} * 0.5f;
-        }
-        // the pose, skinned, into the actor's space; the actor's transform
-        // goes to the shader
-        std::vector<Vec3> pts = d.mesh->skin(an.pose(a));
-        for (Vec3& p : pts) p = d.mesh->toActor(p);
-        float r[3][3], model[16] = {0};
-        Vec3 loc;
-        an.meshToWorld(a, r, loc);
-        std::vector<Vec3> light = characterLight(a, *d.mesh, pts, r, loc);
-        d.world.resize(pts.size());
-        for (size_t i = 0; i < pts.size(); ++i) {
-            const Vec3& p = pts[i];
-            d.world[i] = {loc.x + r[0][0] * p.x + r[0][1] * p.y + r[0][2] * p.z,
-                          loc.y + r[1][0] * p.x + r[1][1] * p.y + r[1][2] * p.z,
-                          loc.z + r[2][0] * p.x + r[2][1] * p.y + r[2][2] * p.z};
-        }
-        for (size_t i = 0; i < d.mesh->wedges.size(); ++i) {
-            const SkeletalMesh::Wedge& wd = d.mesh->wedges[i];
-            const Vec3& p = pts[wd.point];
-            const Vec3& c = light[wd.point];
-            float* v = &d.scratch[i * 8];
-            v[0] = p.x;
-            v[1] = p.y;
-            v[2] = p.z;
-            v[3] = wd.u;
-            v[4] = wd.v;
-            v[5] = c.x;
-            v[6] = c.y;
-            v[7] = c.z;
-        }
-        glBindBuffer(GL_ARRAY_BUFFER, d.vertices);
-        glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(d.scratch.size() * sizeof(float)), d.scratch.data());
-        for (int c = 0; c < 3; ++c)
-            for (int k = 0; k < 3; ++k) model[c * 4 + k] = r[k][c];
-        model[12] = loc.x;
-        model[13] = loc.y;
-        model[14] = loc.z;
-        model[15] = 1;
-        for (int c = 0; c < 4; ++c)
-            for (int k = 0; k < 4; ++k) {
-                float sum = 0;
-                for (int j = 0; j < 4; ++j) sum += mvp[j * 4 + k] * model[c * 4 + j];
-                d.mvp[c * 4 + k] = sum;
-            }
-        d.ambient = ambient;
-        d.drawn = true;
-        parts(d);
+        if (a->deleted || hidden(w, a)) continue;
+        SkelDraw* d = nullptr;
+        if (!prepareSkel(a, mvp, eye, d)) continue;
+        d->drawn = true;
+        drawSkelParts(*d, false);
     }
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
+}
+
+// Canvas's DrawActor, in the HUD's turn: the actor as the frame's camera sees
+// it, opaque then what blends, over the depth cleared when asked.
+void LevelRender::drawHudActor(Object* a, bool clearZ) {
+    // the depth written to, before it is cleared: the HUD has it off
+    glDepthMask(GL_TRUE);
+    if (clearZ) glClear(GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST);
+    glUseProgram(meshProgram_);
+    glActiveTexture(GL_TEXTURE0);
+    glUniform1f(glGetUniformLocation(meshProgram_, "uBaked"), 1.0f);
+    SkelDraw* d = nullptr;
+    if (prepareSkel(a, frameMvp_, frameEye_, d)) {
+        drawSkelParts(*d, false);
+        drawSkelParts(*d, true);
+    }
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    for (int k = 0; k < 5; ++k) glDisableVertexAttribArray(GLuint(k));
 }
 
 namespace {
@@ -1552,6 +1583,8 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
     }
     float mvp[16];
     viewFrom(loc, mvp);
+    std::copy(mvp, mvp + 16, frameMvp_);
+    frameEye_ = loc;
     // What is opaque first, the BSP, the terrains, the characters and the
     // static meshes; then the projectors on it; then what blends over it.
     // What is opaque first, the BSP, the terrains, the characters and the

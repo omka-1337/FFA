@@ -77,10 +77,15 @@ public:
     };
     std::map<Object*, MoviePlay> movies;
     std::string gameDir;            // the directory above System
+    std::string mapFile;            // the level's file, 1_Shreks_Swamp.unr
     // The level the game asked to go to, its URL: Level.NextURL once its
     // countdown is out, as ServerTravel leaves it, or ClientTravel's, or an
     // open command's. Whoever plays the world goes there.
     std::string travel;
+    bool quit = false;              // the game asked to end: exit or quit
+    // The GUI's own state: its controller, the controls made, the mouse,
+    // timers (world/Gui.cpp).
+    std::shared_ptr<void> gui;
     // Karma's hanging bodies, found when first asked (world/Karma.cpp).
     std::shared_ptr<void> karma;
     // Where a walking pawn last found its floor, standing on the world: a pawn
@@ -124,6 +129,10 @@ public:
     // run on to its next wait, its timer, its physics, and its LifeSpan. Actors spawned
     // during the frame first tick in the next.
     void tick(float dt);
+    bool paused = false;            // Level.Pauser is set, this frame
+    // What still ticks while paused: the player's controller, and what is
+    // bAlwaysTick.
+    bool ticksWhilePaused(Object* a);
 
     // The local player's input, as the engine's input system gives it each
     // frame: every variable of the controller declared `input` set to zero,

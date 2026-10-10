@@ -594,6 +594,41 @@ GSTATE000; once NextSwitchCountdown runs out the world asks for it, as do
 ClientTravel and the console's open, and ffa-play loads it in place of the
 one playing, the URL's options over the level's own.
 
+**The GUI.** `src/world/Gui.cpp` is the engine's side of GUI.u. After the
+login the engine makes the player's GUIController, of Default.ini's class
+(ShGame.ShGUIController), with the Player as its ViewportOwner, and its
+InitializeController registers the styles and fonts in script. Pages open
+through OpenMenu: the menu level's cutscene does GotoMenu SHGame.ShFEGUIPage
+once its book has turned its first page, and the in-game menu opens on
+Escape, the game's EscHandler. A page's controls are not in its data as an
+array: its variables hold templates, GUIButton cBtnOptions and the rest, made
+in the page's package with only their flags and delegates, and
+InitializeControls gives the page a copy of each, the template's delegates
+bound to the page, as its Controls, in the order the variables are declared;
+the page's script places them (ShFEGUIPage from its SHMenuBook's sizes).
+WinLeft, WinTop, WinWidth and WinHeight of 1 or less are parts of the screen,
+or with bBoundToParent and bScaleToParent of the control they are on, and
+more are pixels. Each frame, after the HUD and on its Canvas, the pages of
+the menu stack are drawn: a page's Background, then its OnDraw (the in-game
+menu draws its book there, through Canvas's DrawActor, over the depth
+cleared), then each control by RenderWeight, a button through its style's
+Draw and DrawText, a label its caption, an image its image, and last the
+mouse cursor. A style's Draw and DrawText set the Canvas to the state's
+colour, render style and font, the font of the largest resolution not over the
+screen's width, before its OnDraw and OnDrawText, which Shrek's styles answer
+themselves and leave the font as it is; the controls call them as the
+engine's own, past the script functions of the same name some styles declare.
+The mouse watches the control under it and clicks it with OnClick; the keys
+go to the page's OnKeyEvent, then Escape closes the menu, Enter clicks what
+is watched, and the arrows, the pad's among them, move what is watched to the
+nearest control that way, Shrek's buttons being all bNeverFocus. Calling a
+delegate by name through super runs the parent's own body, not the delegate,
+as ShInGameMenuGUIPage's Internal_OnDraw ends with super.OnDraw(Canvas).
+While Level.Pauser is set, as the in-game menu's SetPause sets it, the level's
+time stands and only the player's controller and what is bAlwaysTick tick and
+animate, the menu's book among them; the LevelInfo keeps the clock, which the
+menus' fades time themselves by.
+
 **Lip sync.** A sound with lip sync (docs/package-format.md, Sounds) moves
 the face of the actor that plays it, from when it is played until its last
 frame or StopSound. The Animator lays the face over the body's pose: each

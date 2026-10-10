@@ -380,8 +380,11 @@ void zeroLocals(Function* fn, std::vector<Value>& locals) {
 }
 }  // namespace
 
-Value VM::invoke(Function* fn, Object* self, const std::vector<Ins>& args, Frame& f) {
-    if (fn->flags & FUNC_Delegate) std::tie(fn, self) = bindDelegate(fn, self);
+Value VM::invoke(Function* fn, Object* self, const std::vector<Ins>& args, Frame& f, bool bind) {
+    // A delegate called goes where it is bound; called by name through super
+    // it is the parent's own body, as ShInGameMenuGUIPage's Internal_OnDraw
+    // ends with super.OnDraw(Canvas).
+    if (bind && (fn->flags & FUNC_Delegate)) std::tie(fn, self) = bindDelegate(fn, self);
     if (fn->isNative()) return callNative(fn, self, args, f);
     if ((fn->flags & FUNC_Singular) && self->singular) return fn->ret ? fn->ret->zero() : Value();
     compile(fn);
@@ -548,6 +551,7 @@ Value VM::eventOut(Object* self, std::string_view name, std::vector<Value>& args
     if (self->deleted || self->disabled.count(n)) return Value();
     Function* fn = findVirtual(self, n);
     if (!fn) return Value();
+    if (fn->flags & FUNC_Delegate) std::tie(fn, self) = bindDelegate(fn, self);
     if (fn->isNative()) return callFunction(fn, self, args);
     compile(fn);
     Frame callee;
@@ -929,7 +933,7 @@ Value VM::ev(const Ins& n, Frame& f, Object* ctx) {
         return invoke(fn, ctx, n.kids, f);
     }
     case Op::FinalFunction:
-        return invoke(n.fn, ctx, n.kids, f);
+        return invoke(n.fn, ctx, n.kids, f, false);
     case Op::NativeCall:
         return callNative(n.fn, ctx, n.kids, f);
     case Op::InstanceDelegate:

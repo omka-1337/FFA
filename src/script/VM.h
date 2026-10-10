@@ -178,7 +178,7 @@ private:
     void stmt(const Ins& n, Frame& f);
     void run(Frame& f);
     Value execute(Frame& callee);
-    Value invoke(Function* fn, Object* self, const std::vector<Ins>& args, Frame& f);
+    Value invoke(Function* fn, Object* self, const std::vector<Ins>& args, Frame& f, bool bind = true);
     Value callNative(Function* fn, Object* self, const std::vector<Ins>& args, Frame& f);
     void prepareNative(NativeCall& c, const std::vector<Ins>& args, Frame& f);
     Value runNative(NativeCall& c);

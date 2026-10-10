@@ -204,7 +204,11 @@ Engine:
 - [x] The game from its start: Default.ini's LocalMap, the logos as movies of
   their length, and travel to the next level, the menu.
 - [ ] Movies' pictures and sound: Bink video, stereo Bink Audio.
-- [ ] The GUI: the menu, the in-game menu, the wanted posters.
+- [x] The GUI: the controller, pages from their templates, styles, fonts,
+  timers, mouse, keys and pad, DrawActor; the menu and the in-game menu, and
+  the pause.
+- [ ] The GUI's other controls (lists, sliders, edit boxes, tabs) as the
+  options pages need them; the wanted posters; saving and loading.
 - [ ] `ffa install`: the game from its disc, ISO, MSI and cabinet.
 - [x] A window: `ffa-play`, SDL2 and OpenGL ES 2, the BSP, terrains and
   static meshes textured and lit as baked, from the game's own camera.

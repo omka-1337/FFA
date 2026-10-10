@@ -37,6 +37,7 @@ add_library(ffa_script
   src/world/AI.cpp
   src/world/Karma.cpp
   src/world/Movie.cpp
+  src/world/Gui.cpp
   src/world/Audio.cpp
   src/world/Physics.cpp
   src/world/Session.cpp

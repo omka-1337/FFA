@@ -101,6 +101,7 @@ struct Value {
     bool isObj() const { return std::holds_alternative<Object*>(v); }
     bool isStruct() const { return std::holds_alternative<StructVal>(v); }
     bool isArr() const { return std::holds_alternative<Array>(v); }
+    bool isDlg() const { return std::holds_alternative<Delegate>(v); }
 
     // Lenient readers: a value of a neighbouring type converts as C would,
     // and an empty value reads as the type's zero.

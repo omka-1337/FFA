@@ -12,12 +12,16 @@
 // controller through the game's own bindings in DefUser.ini, and the view is
 // the one the controller's PlayerCalcView gives. The mouse goes through its
 // bindings too, MouseX and MouseY, and the mouse buttons; Tab lets the mouse
-// go. Escape quits. A game controller plays as the keys and the mouse do (the
-// game's own Joy bindings are all empty): the left stick moves as WASD, by how
+// go. Escape is the game's: its in-game menu, or a movie skipped. A game
+// controller plays as the keys and the mouse do (the game's own Joy bindings
+// are all empty): the left stick moves as WASD, by how
 // far it is pushed, the right stick turns the camera as the mouse does, A
 // jumps (RightMouse), X punches (LeftMouse), B grabs (G), Y uses (Enter), LB
 // ducks (C), RB turns to the nearest (O), Start skips a cutscene (Space), the
 // pad is the arrow keys and the right stick's button zooms (MiddleMouse).
+// While a menu is open the mouse is its pointer, and the pad's A, B and arrows
+// are Enter, Escape and the arrows. Without a map the game begins as its own
+// does, at Default.ini's LocalMap, and goes on to the levels it travels to.
 #include <SDL2/SDL.h>
 #include <GLES2/gl2.h>
 
@@ -38,6 +42,7 @@
 #include "Mixer.h"
 #include "core/Library.h"
 #include "render/LevelRender.h"
+#include "world/Gui.h"
 #include "world/Session.h"
 
 using namespace ffa;
@@ -58,9 +63,23 @@ std::string engineKey(SDL_Keycode k) {
     case SDLK_LALT: case SDLK_RALT: return "Alt";
     case SDLK_RETURN: return "Enter";
     case SDLK_TAB: return "Tab";
+    case SDLK_ESCAPE: return "Escape";
     }
     const char* n = SDL_GetKeyName(k);
     return n && std::strlen(n) == 1 ? std::string(n) : std::string();
+}
+
+// The engine's number for a key a menu minds (EInputKey), or 0.
+int guiKeyOf(SDL_Keycode k) {
+    switch (k) {
+    case SDLK_RETURN: case SDLK_KP_ENTER: return 13;
+    case SDLK_ESCAPE: return 27;
+    case SDLK_LEFT: return 37;
+    case SDLK_UP: return 38;
+    case SDLK_RIGHT: return 39;
+    case SDLK_DOWN: return 40;
+    }
+    return 0;
 }
 
 // A key of a section of an .ini file, or empty.
@@ -238,11 +257,13 @@ int main(int argc, char** argv) {
             Uint64 last = SDL_GetPerformanceCounter();
             double behind = 0;
             float mouseX = 0, mouseY = 0;
+            bool menuWasOpen = false;
+            float played = 0;
             Uint64 lastMouse = SDL_GetPerformanceCounter();
             if (!shot) SDL_SetRelativeMouseMode(SDL_TRUE);
             int drawn = 0;
             Uint64 titled = SDL_GetPerformanceCounter();
-            while (running && w.travel.empty()) {
+            while (running && w.travel.empty() && !w.quit) {
                 SDL_Event e;
                 while (SDL_PollEvent(&e)) {
                     if (e.type == SDL_QUIT) running = false;
@@ -253,7 +274,30 @@ int main(int argc, char** argv) {
                         pad = nullptr;
                         openPad();
                     }
-                    if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) running = false;
+                    // An open menu takes the mouse, the keys it minds and the pad
+                    // (world/Gui.cpp): the pad's A is Enter, B and Start Escape,
+                    // its arrows the arrows, which move between the buttons.
+                    if (guiActive(w)) {
+                        if (e.type == SDL_MOUSEMOTION) guiMouse(w, float(e.motion.x), float(e.motion.y));
+                        if ((e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) && e.button.button == SDL_BUTTON_LEFT)
+                            guiKey(w, 1, e.type == SDL_MOUSEBUTTONDOWN ? 1 : 3);
+                        if ((e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) && !e.key.repeat)
+                            if (int k = guiKeyOf(e.key.keysym.sym)) guiKey(w, k, e.type == SDL_KEYDOWN ? 1 : 3);
+                        if (e.type == SDL_CONTROLLERBUTTONDOWN || e.type == SDL_CONTROLLERBUTTONUP) {
+                            int k = 0;
+                            switch (e.cbutton.button) {
+                            case SDL_CONTROLLER_BUTTON_A: k = 13; break;
+                            case SDL_CONTROLLER_BUTTON_B: case SDL_CONTROLLER_BUTTON_START: k = 27; break;
+                            case SDL_CONTROLLER_BUTTON_DPAD_LEFT: k = 37; break;
+                            case SDL_CONTROLLER_BUTTON_DPAD_UP: k = 38; break;
+                            case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: k = 39; break;
+                            case SDL_CONTROLLER_BUTTON_DPAD_DOWN: k = 40; break;
+                            default: break;
+                            }
+                            if (k) guiKey(w, k, e.type == SDL_CONTROLLERBUTTONDOWN ? 1 : 3);
+                        }
+                        continue;
+                    }
                     if (e.type == SDL_KEYDOWN && !e.key.repeat && e.key.keysym.sym == SDLK_TAB) {
                         // Tab lets the mouse go and takes it again
                         SDL_SetRelativeMouseMode(SDL_GetRelativeMouseMode() ? SDL_FALSE : SDL_TRUE);
@@ -308,6 +352,21 @@ int main(int argc, char** argv) {
                         height = e.window.data2;
                     }
                 }
+                // the mouse is the GUI's pointer while a menu is open, and the
+                // camera's otherwise
+                if (!shot) {
+                    bool menu = guiActive(w);
+                    if (menu != menuWasOpen) {
+                        SDL_SetRelativeMouseMode(menu ? SDL_FALSE : SDL_TRUE);
+                        if (menu) {
+                            int mx = 0, my = 0;
+                            SDL_GetMouseState(&mx, &my);
+                            guiMouse(w, float(mx), float(my));
+                        }
+                        down.clear();
+                        menuWasOpen = menu;
+                    }
+                }
                 // the axes of the keys held, by their bindings, and the mouse's
                 // movement this frame through its own, MouseX and MouseY
                 w.held.clear();
@@ -323,7 +382,7 @@ int main(int argc, char** argv) {
                 // movement keys, by how far it is pushed; the right one as the
                 // mouse, 1200 counts a second at its full, which turns Shrek's
                 // camera some 180 degrees a second.
-                if (pad) {
+                if (pad && !menuWasOpen) {
                     auto stick = [&](SDL_GameControllerAxis ax) {
                         float v = float(SDL_GameControllerGetAxis(pad, ax)) / 32767.0f;
                         if (std::fabs(v) < 0.2f) return 0.0f;
@@ -360,8 +419,11 @@ int main(int argc, char** argv) {
                 // second exactly, as fast as it can.
                 float dt = shot ? step : float(std::min(behind, 0.1));
                 behind = 0;
+                // the time played, which runs on while the game is paused, for
+                // --exec and --shot
+                played += dt;
                 for (auto& [t, command] : execs)
-                    if (!command.empty() && w.time >= t) {
+                    if (!command.empty() && played >= t) {
                         session.exec(command);
                         command.clear();
                     }
@@ -375,7 +437,7 @@ int main(int argc, char** argv) {
                 if (session.controller) fov = w.var(session.controller, "FovAngle").f();
                 if (fov < 10 || fov > 170) fov = 85;
                 render.draw(loc, rot, width, height, fov);
-                if (shot && w.time >= shotAt) {
+                if (shot && played >= shotAt) {
                     writePng(shot, readFramebuffer(width, height));
                     std::printf("shot                %s at %.2f s, camera (%.0f, %.0f, %.0f) rotation (%d, %d, %d), fov %.0f\n",
                                 shot, w.time, loc.x, loc.y, loc.z, rot[0], rot[1], rot[2], fov);
@@ -416,7 +478,8 @@ int main(int argc, char** argv) {
             }
             quitting = true;
             if (watchdog.joinable()) watchdog.join();
-            if (!w.travel.empty()) {
+            if (w.quit) running = false;
+            if (!w.travel.empty() && !w.quit) {
                 url = w.travel;
                 std::printf("travel              %s\n", url.c_str());
                 if (logFile) logLine(stamp() + "travel  " + url);

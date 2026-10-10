@@ -38,6 +38,7 @@ public:
     // the engine calls it, and the tiles and text its natives draw
     // (render/Hud.cpp). Called by draw.
     void drawHud(int width, int height);
+    void drawHudActor(Object* a, bool clearZ);
     size_t hudTiles = 0, hudFailures = 0;
 
     // What Canvas's natives draw into, one rectangle of a texture each, in
@@ -47,6 +48,10 @@ public:
         float x = 0, y = 0, w = 0, h = 0, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
         float color[4] = {1, 1, 1, 1};
         int style = 1;
+        // Canvas's DrawActor: the actor drawn here in the order of the
+        // tiles, as the world's camera sees it, over the depth cleared or not
+        Object* actor = nullptr;
+        bool clearZ = false;
     };
     void hudPush(const HudTile& t) { hud_.push_back(t); }
     // A material's texture for the HUD, and its size in texels; 0 for none.
@@ -155,6 +160,12 @@ private:
     // Skeletal meshes: posed and their opaque parts drawn, or, after every
     // opaque thing, their blended parts.
     void drawSkeletal(const float mvp[16], Vec3 eye, bool blended);
+    // A skeletal actor's vertices for its pose and light, and its transform
+    // for the view; false for one not to be drawn.
+    bool prepareSkel(Object* a, const float mvp[16], Vec3 eye, SkelDraw*& out);
+    void drawSkelParts(const SkelDraw& d, bool blended);
+    float frameMvp_[16] = {};       // the world's view this frame, for DrawActor
+    Vec3 frameEye_;
     // The BSP's opaque batches, or its blended ones.
     void drawBsp(const float mvp[16], Vec3 eye, bool blended, bool sky);
     void drawMeshes(const float mvp[16], Vec3 eye, bool blended, bool sky);
