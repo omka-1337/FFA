@@ -94,6 +94,13 @@ unsigned upload(const Image& img, bool mipmaps) {
     return t;
 }
 
+// Not drawn: bHidden, or KnowWonder's bSpecialHidden, which leaves an actor to
+// animate unseen; the climb's InfoAnimHelper, a copy of the climber whose root
+// bone moves the climber, has it, and drawn it stood beside Shrek as a twin.
+bool hidden(World& w, Object* a) {
+    return w.flag(a, "bHidden") || (a->cls->findProp(Name("bSpecialHidden")) && w.flag(a, "bSpecialHidden"));
+}
+
 // A zone's ambient light, 0 to 1: AmbientHue, AmbientSaturation and
 // AmbientBrightness as plain HSV, saturation 255 being white, as the viewer
 // reads them (tools/uview.py).
@@ -680,7 +687,7 @@ void LevelRender::updateMeshes() {
     }
     for (MeshDraw& d : meshDraws_) {
         Object* a = d.actor;
-        d.shown = !a->deleted && !w.flag(a, "bHidden") && w.var(a, "DrawType").i() == 8 && w.obj(a, "StaticMesh") == d.source;
+        d.shown = !a->deleted && !hidden(w, a) && w.var(a, "DrawType").i() == 8 && w.obj(a, "StaticMesh") == d.source;
         if (d.shown && d.moves) placeMesh(a, d.model);
     }
 }
@@ -1043,7 +1050,7 @@ void LevelRender::drawSkeletal(const float mvp[16], Vec3 eye, bool blended) {
     }
     for (auto& [a, d] : skel_) d.drawn = false;
     for (Object* a : w.actors) {
-        if (a->deleted || w.var(a, "DrawType").i() != 2 || w.flag(a, "bHidden") || !w.obj(a, "Mesh")) continue;
+        if (a->deleted || w.var(a, "DrawType").i() != 2 || hidden(w, a) || !w.obj(a, "Mesh")) continue;
         Vec3 o;
         w.vm.unvector(w.var(a, "Location"), o.x, o.y, o.z);
         if (length(o - eye) > 8000) continue;
@@ -1307,7 +1314,7 @@ void LevelRender::drawProjectors(const float mvp[16], Vec3 eye) {
             // the actor, with its 128 square ShadowBitmapMaterial. So the
             // shadow on the ground is larger than the actor, and soft.
             Object* actor = w.obj(p, "ShadowActor");
-            if (!actor || actor->deleted || w.flag(actor, "bHidden") || !w.flag(p, "bShadowActive")) continue;
+            if (!actor || actor->deleted || hidden(w, actor) || !w.flag(p, "bShadowActive")) continue;
             int fov = w.var(p, "FOV").i();
             if (fov <= 0 || fov >= 180) continue;
             tanHalf = std::tan(float(fov) * 3.14159265f / 360.0f);

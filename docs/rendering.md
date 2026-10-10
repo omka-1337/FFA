@@ -69,7 +69,7 @@ adds the ambient to the baked light:
   the actor's Skins over the mesh's Materials; placed again every frame when
   the actor is not bStatic, so that movers move on the screen as well (the
   factory's doors stayed open, drawn where they started, while they closed),
-  left out while bHidden or destroyed, and those spawned added as they come;
+  left out while bHidden (or KnowWonder's bSpecialHidden) or destroyed, and those spawned added as they come;
   lit by the StaticMeshInstance's vertex colours, the zone's ambient as the
   BSP holds it and the actor's AmbientGlow once, as a character takes it,
   together × 2; bUnlit full bright. The levels give AmbientGlow to meshes
