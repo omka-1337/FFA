@@ -1,0 +1,41 @@
+# The engine built and tested on every push: the library, ffa-script and
+# ffa-play (SDL2 and OpenGL ES 2), the VM's tests against the packages
+# tests/fixtures.py writes, and the Python tools compiled. ffa-play and
+# ffa-script are kept as an artifact. No game data is needed or used.
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libsdl2-dev libgles-dev python3
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Python tools
+        run: python3 -m py_compile ffa tools/*.py tests/fixtures.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffa-linux-x86_64
+          path: |
+            build/ffa-play
+            build/ffa-script
+          if-no-files-found: error
