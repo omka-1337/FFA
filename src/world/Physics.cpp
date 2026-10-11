@@ -443,7 +443,8 @@ void moveMover(World& w, Object* m, Vec3 to, int32_t rot[3]) {
 
 // MovingBrush: a mover on its way from OldPos and OldRot to its key, at
 // PhysRate, eased in and out for MV_GlideByTime. At the end, bInterpolating
-// goes and FinishedInterpolation is sent.
+// goes and KeyFrameReached is sent, or FinishedInterpolation to what is not
+// a Mover.
 void physMovingBrush(World& w, Object* a, float dt) {
     if (!w.flag(a, "bInterpolating")) return;
     float alpha = w.var(a, "PhysAlpha").f() + w.var(a, "PhysRate").f() * dt;
@@ -468,7 +469,14 @@ void physMovingBrush(World& w, Object* a, float dt) {
     moveMover(w, a, oldPos + (basePos + keyPos - oldPos) * t, r);
     if (done) {
         w.var(a, "bInterpolating") = Value::Bool(false);
-        w.vm.event(a, "FinishedInterpolation");
+        // a Mover is told KeyFrameReached, which goes on to the next key of
+        // its way, fires KWMover's KeyEvent for the key and, at the last,
+        // ends its MoveAmbientSound; anything else FinishedInterpolation
+        static const Name keyFrame("KeyFrameReached");
+        if (w.vm.findVirtual(a, keyFrame))
+            w.vm.event(a, "KeyFrameReached");
+        else
+            w.vm.event(a, "FinishedInterpolation");
     }
 }
 

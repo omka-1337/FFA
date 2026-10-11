@@ -752,7 +752,7 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
                 worstName = a->path() + " (" + a->cls->name.str() + ")";
             }
         }
-        size_t moved = 0, interpolating = 0;
+        size_t moved = 0, interpolating = 0, sounding = 0;
         float farthest = 0;
         for (auto& [m, v0] : moverStart) {
             Vec3 v;
@@ -761,10 +761,12 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
             moved += d > 1;
             farthest = std::max(farthest, d);
             interpolating += w.flag(m, "bInterpolating");
+            // a mover at rest with its MoveAmbientSound still on
+            sounding += !w.flag(m, "bInterpolating") && w.obj(m, "AmbientSound") != nullptr;
         }
         if (!moverStart.empty())
-            std::printf("movers              %zu: %zu moved, the farthest %.0f; %zu moving at the end\n", moverStart.size(),
-                        moved, farthest, interpolating);
+            std::printf("movers              %zu: %zu moved, the farthest %.0f; %zu moving at the end, %zu at rest with a sound on\n",
+                        moverStart.size(), moved, farthest, interpolating, sounding);
         std::printf("pawns               %zu: within a unit of where they started %zu, higher %zu, lower %zu, "
                     "more than 500 lower %zu; the lowest %s by %.0f\n",
                     startZ.size(), still, up, down, fell, worstName.c_str(), -worst);

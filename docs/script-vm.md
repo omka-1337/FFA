@@ -363,8 +363,14 @@ physics moves the mover from OldPos to BasePos + KeyPos[KeyNum] as PhysAlpha
 goes from 0 to 1 at PhysRate, eased in and out as 3a^2 - 2a^3 for
 MV_GlideByTime and straight for MV_MoveByTime, its rotation the same way, the
 short way round with bUseShortestRotation. What stands on the mover, its Base,
-goes with it. At the end bInterpolating is cleared and FinishedInterpolation
-sent, and the latent FinishInterpolation waits for that. KnowWonder's
+goes with it. At the end bInterpolating is cleared and the mover is sent
+KeyFrameReached, anything else FinishedInterpolation; the latent
+FinishInterpolation waits for bInterpolating to stay clear. KeyFrameReached
+does what the rest of the way needs: it interpolates on to the next key of a
+mover of several, KWMover's fires the key's KeyEvent, and at the last key it
+ends the MoveAmbientSound. Without it the factory's potion lift stopped at its
+first key of five and the bridges' moving sound looped on once they were up;
+`run` counts the movers at rest with a sound still on. KnowWonder's
 MV_SpringByTime moves straight for now. Movers wait to be triggered, so
 `run ... --event LightMover1` sends an event first, through the game's own
 TriggerEvent: the five swinging lights of the first story book then go
