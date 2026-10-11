@@ -4,6 +4,7 @@
 //   ffa-play <System dir> <map.unr> --shot <png> <seconds> run that long, save a frame, quit
 //   ... --hold <key>                                       hold a key from the start, as W
 //   ... --exec <seconds>=<command>                         run a command once, as BypassCutscene
+//   ... --fullscreen                                       the display's size, as on a handheld
 //   ... --log <file>                                       the script's log, keys, frames a second,
 //                                                          and where a frame that does not end is
 //
@@ -138,7 +139,9 @@ int main(int argc, char** argv) {
     std::vector<std::string> holdKeys;
     std::vector<std::pair<float, std::string>> execs;
     const char* logPath = nullptr;
+    bool fullscreen = false;
     for (int i = first; i < argc; ++i) {
+        if (std::string(argv[i]) == "--fullscreen") fullscreen = true;
         if (std::string(argv[i]) == "--shot" && i + 2 < argc) {
             shot = argv[i + 1];
             shotAt = std::stof(argv[i + 2]);
@@ -156,15 +159,24 @@ int main(int argc, char** argv) {
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
         SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
         int width = 1280, height = 720;
-        Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | (shot ? SDL_WINDOW_HIDDEN : 0);
-        SDL_Window* win = SDL_CreateWindow("Far Far Away", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width,
-                                           height, flags);
-        if (!win) throw std::runtime_error(SDL_GetError());
-        SDL_GLContext gl = SDL_GL_CreateContext(win);
-        if (!gl) throw std::runtime_error(SDL_GetError());
+        // --fullscreen, as a handheld runs it: the display's own size
+        Uint32 flags = SDL_WINDOW_OPENGL | (fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : SDL_WINDOW_RESIZABLE) |
+                       (shot ? SDL_WINDOW_HIDDEN : 0);
+        // a 24 bit depth buffer, else 16, which some handhelds' GPUs offer alone
+        SDL_Window* win = nullptr;
+        SDL_GLContext gl = nullptr;
+        for (int depth : {24, 16}) {
+            SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, depth);
+            win = SDL_CreateWindow("Far Far Away", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, flags);
+            if (win && (gl = SDL_GL_CreateContext(win))) break;
+            if (win) SDL_DestroyWindow(win);
+            win = nullptr;
+        }
+        if (!win || !gl) throw std::runtime_error(SDL_GetError());
+        SDL_GL_GetDrawableSize(win, &width, &height);
+        if (fullscreen) SDL_ShowCursor(SDL_DISABLE);
         SDL_GL_SetSwapInterval(1);
         std::printf("GL %s, %s\n", glGetString(GL_VERSION), glGetString(GL_RENDERER));
 

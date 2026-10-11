@@ -8,6 +8,13 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
+# For PortMaster: the C++ runtime linked in, as the handhelds' own libstdc++
+# is older than the compiler the port is built with.
+option(FFA_STATIC_RUNTIME "Link libstdc++ and libgcc statically" OFF)
+if(FFA_STATIC_RUNTIME AND NOT MSVC)
+  add_link_options(-static-libstdc++ -static-libgcc)
+endif()
+
 if(MSVC)
   add_compile_options(/W4)
 else()

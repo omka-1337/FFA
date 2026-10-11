@@ -39,3 +39,42 @@ jobs:
             build/ffa-play
             build/ffa-script
           if-no-files-found: error
+
+  # The PortMaster build: aarch64, in PortMaster's own build container
+  # (Ubuntu 20.04, glibc 2.31, old enough for the handhelds) with gcc 10 for
+  # C++20, the C++ runtime linked in. SDL2 and GLES come from the device.
+  # Kept as a port to unzip into the ports folder.
+  portmaster:
+    runs-on: ubuntu-24.04-arm
+    container: monkeyx/retro_builder:arm64
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Dependencies
+        run: |
+          rm -f /etc/apt/sources.list.d/kitware*
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends g++-10 gcc-10 ninja-build libsdl2-dev libgles2-mesa-dev zip
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc-10 -DCMAKE_CXX_COMPILER=g++-10 -DFFA_STATIC_RUNTIME=ON
+
+      - name: Build
+        run: cmake --build build --target ffa-play
+
+      - name: Package
+        run: |
+          mkdir -p pkg/farfaraway/gamedata
+          cp build/ffa-play pkg/farfaraway/
+          strip pkg/farfaraway/ffa-play
+          cp port/README.md pkg/farfaraway/README.md
+          cp "port/Far Far Away.sh" pkg/
+          touch pkg/farfaraway/gamedata/.keep
+          ldd pkg/farfaraway/ffa-play || true
+          objdump -T pkg/farfaraway/ffa-play | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: farfaraway-portmaster-aarch64
+          path: pkg/
+          if-no-files-found: error
