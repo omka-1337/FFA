@@ -544,6 +544,15 @@ KnowWonder made pawns turn off, the levers, tents, umbrellas and lockers.
 Their meshes are made about their middle, and taken down they sank their
 height into what they stood on, the swamp's lever into its stump and the
 factory's levers 60 down their walls.
+A spawned actor is given its PhysicsVolume, the one of highest Priority it
+stands in, else the level's DefaultPhysicsVolume: ComputeTrajectoryByTime
+reads its Gravity, and the bandits' wheel, thrown with a gravity of none, went
+along the ground and not over the log. A pawn out of the world's collision, as
+KnowWonder's enemies are while they faint, is not turned to its controller's
+Focus, which still holds the hero (inferred). A sequence script plays once on
+channel 0, not a movement one, plays out before the movement animation takes
+the channel again: the wheel bandits' faint, played as their step back slid
+them, was run over at once.
 AttachToBone makes the actor the attachment's Base with its AttachmentBone
 set, and what hangs on a bone has no physics of its own (the wheel the bandit
 steals is PHYS_Walking, and fell from his hand out of the world), and each frame, after the animation, an attachment is put on its bone at

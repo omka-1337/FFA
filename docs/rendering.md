@@ -242,6 +242,11 @@ decides over what it wraps.
 - Sprites (DT_Sprite), beam and mesh emitters, fog, translucency sorted by
   depth, water's cubemap.
 
+A static mesh actor no placing baked, one that moves or was spawned, as the
+carriage's breakable logs, is lit at its vertices by the lights that reach it
+and its zone's ambient, as the placed ones' baked light is, not drawn at its
+texture's full brightness.
+
 ## Particles
 
 The Emitters' SpriteEmitters (`src/world/Particles.cpp`, drawn by

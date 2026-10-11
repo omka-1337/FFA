@@ -473,6 +473,10 @@ void Animator::movement(Object* a) {
         ch.animating = true;
         ++sequencesPlayed;
     };
+    // A sequence script plays once on the channel, not one of the movement
+    // ones, plays out over the moving: the wheel bandits' faint, played as
+    // their step back slides them along the ground, was run over at once.
+    if (ch.seq && ch.animating && !ch.looping && !isMovement(ch.name)) return;
     if (speed > 10) {
         int32_t pitch, yaw, roll;
         w.vm.unrotator(w.var(a, "Rotation"), pitch, yaw, roll);

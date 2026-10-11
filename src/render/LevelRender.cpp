@@ -794,6 +794,27 @@ void LevelRender::addMesh(Object* a) {
             }
         }
     }
+    // A mesh no placing baked, an actor that moves or was spawned, as the
+    // carriage's breakable logs: lit by the lights that reach it, as the
+    // engine lights it, not drawn at the texture's full brightness, which
+    // was twice the logs beside it.
+    if (!inst && !d.colors && !w.flag(a, "bUnlit") && m->normals.size() == m->positions.size()) {
+        buildLights();
+        std::vector<std::pair<Object*, std::vector<uint8_t>>> lights;
+        const std::vector<uint8_t> all((m->positions.size() + 7) / 8, 0xFF);
+        for (Object* l : lights_) {
+            if (l->deleted) continue;
+            Vec3 lp;
+            w.vm.unvector(w.var(l, "Location"), lp.x, lp.y, lp.z);
+            float reach = w.var(l, "LightRadius").f() * 25.0f + d.radius;
+            if (l->cls->name == Name("Sunlight") || length(lp - centre) < reach) lights.emplace_back(l, all);
+        }
+        std::vector<uint8_t> rgb = bakeVertexLight(w, *m, d.model, lights);
+        glGenBuffers(1, &d.colors);
+        glBindBuffer(GL_ARRAY_BUFFER, d.colors);
+        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(rgb.size()), rgb.data(), GL_STATIC_DRAW);
+        ++relit;
+    }
     // The zone's ambient. A mesh whose origin is sunk into the ground has
     // the LevelInfo for its zone, which has none, and would be black
     // where no light reaches it, where the game draws the bushes by the
@@ -941,18 +962,22 @@ LevelRender::SkelDraw& LevelRender::skelFor(Object* a) {
 // texture, nearly evenly and nearly white; the point lights to the factory's,
 // where HazMat Shrek's hood is blue at the top and sides from the lamps
 // behind him and his shirt near white from the one in front (docs).
+void LevelRender::buildLights() {
+    if (lightsBuilt_) return;
+    lightsBuilt_ = true;
+    World& w = *session_.world;
+    if (Class* lc = session_.vm->findClass("Light"))
+        for (Object* l : w.actors)
+            if (!l->deleted && l->isA(lc) && w.var(l, "LightType").i() != 0 && w.var(l, "LightBrightness").f() > 0)
+                lights_.push_back(l);
+}
+
 std::vector<Vec3> LevelRender::characterLight(Object* a, const SkeletalMesh& mesh, const std::vector<Vec3>& pts,
                                               const float r[3][3], Vec3 loc) {
     World& w = *session_.world;
     std::vector<Vec3> out(pts.size(), Vec3{0.5f, 0.5f, 0.5f});
     if (w.flag(a, "bUnlit")) return out;
-    if (!lightsBuilt_) {
-        lightsBuilt_ = true;
-        if (Class* lc = session_.vm->findClass("Light"))
-            for (Object* l : w.actors)
-                if (!l->deleted && l->isA(lc) && w.var(l, "LightType").i() != 0 && w.var(l, "LightBrightness").f() > 0)
-                    lights_.push_back(l);
-    }
+    buildLights();
     struct Lit {
         bool sun;
         Vec3 pos, dir, col;

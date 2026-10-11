@@ -195,6 +195,7 @@ private:
     std::vector<Vec3> characterLight(Object* a, const SkeletalMesh& mesh, const std::vector<Vec3>& pts,
                                      const float r[3][3], Vec3 loc);
     std::vector<Object*> lights_;
+    void buildLights();
     bool lightsBuilt_ = false;
     SkelDraw& skelFor(Object* a);
     std::map<Object*, SkelDraw> skel_;

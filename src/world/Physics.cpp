@@ -126,7 +126,8 @@ void physicsRotation(World& w, Object* a, float dt) {
     bool toDesired = w.flag(a, "bRotateToDesired"), fixed = w.flag(a, "bFixedRotationDir");
     Object* ctl = w.pawnClass && a->isA(w.pawnClass) ? controllerOf(w, a) : nullptr;
     bool player = ctl && !ctl->deleted &&
-                  ((w.playerControllerClass && ctl->isA(w.playerControllerClass)) || aiSteering(w, ctl));
+                  ((w.playerControllerClass && ctl->isA(w.playerControllerClass)) ||
+                   (aiSteering(w, ctl) && w.flag(a, "bCollideActors")));
     if (!toDesired && !fixed && !player) return;
     w.vm.unrotator(w.var(a, "DesiredRotation"), want[0], want[1], want[2]);
     if (player) {

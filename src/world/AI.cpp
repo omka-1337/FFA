@@ -340,6 +340,12 @@ bool aiSteering(World& w, Object* ctl) {
 void aiTick(World& w, Object* ctl) {
     Object* pawn = w.obj(ctl, "Pawn");
     if (!live(pawn)) return;
+    // A pawn that has left the world's collision, as KnowWonder's enemies
+    // do as they faint (CombatController's and WheelStealerController's
+    // stateFaint SetCollision(false, false, false) and keep their Focus on
+    // the hero), is not turned to what it looks at: the beaten bandits
+    // turned to follow Shrek where they lay. Inferred, not read.
+    if (!w.flag(pawn, "bCollideActors")) return;
     Object* focus = w.obj(ctl, "Focus");
     if (focus && focus->deleted) {
         w.var(ctl, "Focus") = Value::Obj(nullptr);

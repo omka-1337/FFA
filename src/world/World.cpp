@@ -108,6 +108,32 @@ Object* World::spawn(Class* c, Object* spawner, Object* owner, Name tag, const V
         Vec3 at;
         vm.unvector(var(a, "Location"), at.x, at.y, at.z);
         collision->place(a, at, false);
+        // and its PhysicsVolume, the one of the highest Priority it stands
+        // in, else the level's default: script reads its Gravity, and the
+        // bandits' thrown wheel, its trajectory reckoned with a gravity of
+        // none, went along the ground instead of over the log
+        if (Prop* pv = a->cls->findProp(Name("PhysicsVolume")); pv && !a->props[size_t(pv->slot)].o()) {
+            Class* volumes = vm.findClass("PhysicsVolume");
+            Class* fallback = vm.findClass("DefaultPhysicsVolume");
+            Object* best = nullptr;
+            int bestPriority = -1000000;
+            for (size_t i = 0; volumes && i + 1 < actors.size(); ++i) {
+                Object* v = actors[i];
+                if (v->deleted || !v->isA(volumes)) continue;
+                if (fallback && v->isA(fallback)) {
+                    if (!best) best = v;
+                    continue;
+                }
+                bool known = false;
+                if (!collision->volumeOverlaps(v, at, Vec3{}, known) || !known) continue;
+                int priority = var(v, "Priority").i();
+                if (!best || (fallback && best->isA(fallback)) || priority > bestPriority) {
+                    best = v;
+                    bestPriority = priority;
+                }
+            }
+            if (best) a->props[size_t(pv->slot)] = Value::Obj(best);
+        }
     }
     if (owner) setOwner(a, owner);
     if (!begunPlay) return a;
