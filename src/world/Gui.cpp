@@ -277,7 +277,7 @@ void placeTabs(World& w, Object* canvas, Object* c) {
     }
 }
 
-// A GUIGFXButton's Graphic, over its style: by its Position, ICP_Normal at
+// A GUIGFXButton's Graphic: by its Position, ICP_Normal at
 // its size from the corner, ICP_Center at its size in the middle, ICP_Scaled
 // and ICP_Stretched across the button, ICP_Bound at its size but no larger;
 // within the style's BorderOffsets when bClientBound. The wanted poster's
@@ -323,10 +323,14 @@ void drawGraphic(World& w, Object* canvas, Object* c, Object* style, Box b) {
 // caption, a label its caption, an image its image, the rest their style.
 void drawOwn(World& w, Object* canvas, Object* c, Object* style, int state, const Box& b) {
     Gui& g = gui(w);
-    if (g.button && c->isA(g.button)) {
+    if (g.gfxButton && c->isA(g.gfxButton)) {
+        // its Graphic alone: the game shows the wanted poster without the
+        // frame its RoundButton style would draw across the screen, the two
+        // poster pages being the only GFX buttons Shrek has
+        drawGraphic(w, canvas, c, style, b);
+    } else if (g.button && c->isA(g.button)) {
         styleDraw(w, canvas, style, state, b);
         styleText(w, canvas, style, state, b, 1, w.var(c, "Caption").s());
-        if (g.gfxButton && c->isA(g.gfxButton)) drawGraphic(w, canvas, c, style, b);
     } else if (g.label && c->isA(g.label)) {
         String text = w.var(c, "Caption").s();
         int align = w.var(c, "TextAlign").i();
