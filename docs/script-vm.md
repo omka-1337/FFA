@@ -530,14 +530,19 @@ origin, and every pawn with one stood exactly its cylinder's height in the
 air, Bandit 40, FatKnight 33, the rats 27 and 34, the prisoners 150, and the
 factory's HazMatShrek 38, whose mesh is Shrek's, the same skeleton and
 points, with a MeshOrigin of 0 where Shrek's is -49; the game's frames show
-him on the floor. That rule is inferred from those, not read, but it has the
+him on the floor. A MeshOrigin is not scaled by DrawScale: the carriage's
+horses, at 1.8 with an origin of 35 and a cylinder 35 high, stood 28 into the
+ground scaled, and the scaled characters with an origin the levels place,
+knights at 1.2, Puss at 1.25, a giant Donkey at 5, have it at their
+cylinder's height or within five of it unscaled. That rule is inferred from those, not read, but it has the
 engine's flag: Actor's bAlignBottom, true by default, which the props
 KnowWonder made pawns turn off, the levers, tents, umbrellas and lockers.
 Their meshes are made about their middle, and taken down they sank their
 height into what they stood on, the swamp's lever into its stump and the
 factory's levers 60 down their walls.
 AttachToBone makes the actor the attachment's Base with its AttachmentBone
-set, and each frame, after the animation, an attachment is put on its bone at
+set, and what hangs on a bone has no physics of its own (the wheel the bandit
+steals is PHYS_Walking, and fell from his hand out of the world), and each frame, after the animation, an attachment is put on its bone at
 its RelativeLocation and RelativeRotation. A rotator is made from axes by the
 inverse of rotationAxes, which the tests take round trips through.
 

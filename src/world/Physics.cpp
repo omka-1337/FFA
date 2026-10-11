@@ -493,6 +493,10 @@ void physMovingBrush(World& w, Object* a, float dt) {
 
 void performPhysics(World& w, Object* a, float dt) {
     if (!w.collision) return;
+    // What hangs on a bone goes with the bone, whatever its Physics: the
+    // wheel the bandit steals is PHYS_Walking, and fell out of his hand and
+    // the world from the start of the level, unseen in the cutscene
+    if (Object* base = w.obj(a, "Base"); base && !base->deleted && !w.var(a, "AttachmentBone").n().isNone()) return;
     int mode = w.var(a, "Physics").i();
     switch (mode) {
     case PHYS_None:

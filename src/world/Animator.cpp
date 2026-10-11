@@ -174,6 +174,20 @@ void Animator::meshToWorld(Object* a, float out[3][3], Vec3& origin) {
     Vec3 pp;
     world.vm.unvector(world.var(a, "PrePivot"), pp.x, pp.y, pp.z);
     origin = origin + pp;
+    // The MeshOrigin is not scaled by DrawScale: the carriage's horses, at
+    // 1.8 with an origin of 35 and a cylinder 35 high, stood 28 into the
+    // ground with it scaled, and of the scaled characters the levels place
+    // with an origin, the knights at 1.2 and 1.35, Puss at 1.25, the giant
+    // Donkey at 5, the origin is the cylinder's height or within five of it
+    // unscaled, and up to 108 off scaled.
+    if (const AnimState& st = state(a); st.mesh) {
+        Vec3 t0 = st.mesh->toActor(Vec3{});
+        Vec3 turned{ax[0][0] * t0.x + ax[1][0] * t0.y + ax[2][0] * t0.z, ax[0][1] * t0.x + ax[1][1] * t0.y + ax[2][1] * t0.z,
+                    ax[0][2] * t0.x + ax[1][2] * t0.y + ax[2][2] * t0.z};
+        Vec3 scaled{out[0][0] * t0.x + out[0][1] * t0.y + out[0][2] * t0.z, out[1][0] * t0.x + out[1][1] * t0.y + out[1][2] * t0.z,
+                    out[2][0] * t0.x + out[2][1] * t0.y + out[2][2] * t0.z};
+        origin = origin + turned - scaled;
+    }
     // A pawn whose mesh has no MeshOrigin stands on the bottom of its
     // cylinder. Such a mesh has its feet at its origin, and every pawn with
     // one would have them at its Location, its cylinder's height in the air:
