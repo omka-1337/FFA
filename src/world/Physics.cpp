@@ -566,7 +566,10 @@ void updateTouching(World& w, Object* a) {
         auto& arr = t.arr();
         arr.erase(std::remove_if(arr.begin(), arr.end(), [&](const Value& e) { return e.o() == y; }), arr.end());
     };
-    for (Object* o : w.actors) {
+    // by index: a Touch may spawn, and the list grow under a range's feet,
+    // as it did at the swamp's end, reading an actor from freed memory
+    for (size_t i = 0; i < w.actors.size(); ++i) {
+        Object* o = w.actors[i];
         if (o == a || o->deleted || o == w.info || !w.flag(o, "bCollideActors")) continue;
         if (w.var(o, "DrawType").i() == 8 && !w.flag(o, "bUseCylinderCollision") && w.obj(o, "StaticMesh") &&
             w.flag(o, "bStatic"))
