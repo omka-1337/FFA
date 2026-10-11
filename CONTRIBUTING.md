@@ -209,7 +209,8 @@ Engine:
   timers, mouse, keys and pad, DrawActor; the menu and the in-game menu, and
   the pause.
 - [ ] The GUI's other controls (lists, sliders, edit boxes, tabs) as the
-  options pages need them; the wanted posters; saving and loading.
+  options pages need them; the wanted posters' collection page (the poster
+  picked up shows); saving and loading.
 - [ ] `ffa install`: the game from its disc, ISO, MSI and cabinet.
 - [x] A window: `ffa-play`, SDL2 and OpenGL ES 2, the BSP, terrains and
   static meshes textured and lit as baked, from the game's own camera.

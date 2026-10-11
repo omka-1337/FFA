@@ -646,8 +646,11 @@ more are pixels. Each frame, after the HUD and on its Canvas, the pages of
 the menu stack are drawn: a page's Background, then its OnDraw (the in-game
 menu draws its book there, through Canvas's DrawActor, over the depth
 cleared), then each control by RenderWeight, a button through its style's
-Draw and DrawText, a label its caption, an image its image, and last the
-mouse cursor. A style's Draw and DrawText set the Canvas to the state's
+Draw and DrawText, a GUIGFXButton its Graphic over that by its Position, in
+the style's BorderOffsets with bClientBound and blended by its alpha (the
+wanted poster's page, opened when a poster is picked up, is one button the
+screen's size, the poster centred in it), a label its caption, an image its
+image, and last the mouse cursor. A style's Draw and DrawText set the Canvas to the state's
 colour, render style and font, the font of the largest resolution not over the
 screen's width, before its OnDraw and OnDrawText, which Shrek's styles answer
 themselves and leave the font as it is; the controls call them as the

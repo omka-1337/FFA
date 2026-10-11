@@ -25,7 +25,7 @@ struct Gui {
     std::vector<Object*> timers;
     std::unordered_set<Object*> made;       // controls made from templates
     Class *component = nullptr, *multi = nullptr, *page = nullptr, *button = nullptr, *label = nullptr,
-          *image = nullptr, *tabs = nullptr;
+          *image = nullptr, *tabs = nullptr, *gfxButton = nullptr;
 };
 
 Gui& gui(World& w) {
@@ -38,6 +38,7 @@ Gui& gui(World& w) {
         g->label = w.vm.findClass("GUILabel");
         g->image = w.vm.findClass("GUIImage");
         g->tabs = w.vm.findClass("GUITabControl");
+        g->gfxButton = w.vm.findClass("GUIGFXButton");
         w.gui = g;
     }
     return *static_cast<Gui*>(w.gui.get());
@@ -276,6 +277,48 @@ void placeTabs(World& w, Object* canvas, Object* c) {
     }
 }
 
+// A GUIGFXButton's Graphic, over its style: by its Position, ICP_Normal at
+// its size from the corner, ICP_Center at its size in the middle, ICP_Scaled
+// and ICP_Stretched across the button, ICP_Bound at its size but no larger;
+// within the style's BorderOffsets when bClientBound. The wanted poster's
+// page is one, the poster its Graphic.
+void drawGraphic(World& w, Object* canvas, Object* c, Object* style, Box b) {
+    Object* mat = w.obj(c, "Graphic");
+    if (!mat) return;
+    if (style && w.flag(c, "bClientBound") && has(style, "BorderOffsets")) {
+        float o[4];
+        for (int k = 0; k < 4; ++k) o[k] = float(element(style, "BorderOffsets", k).i());
+        b = {b.x + o[0], b.y + o[1], b.w - o[0] - o[2], b.h - o[1] - o[3]};
+    }
+    float u = has(mat, "USize") ? float(w.var(mat, "USize").i()) : b.w;
+    float v = has(mat, "VSize") ? float(w.var(mat, "VSize").i()) : b.h;
+    float x = b.x, y = b.y, dw = u, dh = v;
+    switch (w.var(c, "Position").i()) {
+    case 1:
+        x += (b.w - u) / 2;
+        y += (b.h - v) / 2;
+        break;
+    case 2:
+    case 3:
+        dw = b.w;
+        dh = b.h;
+        break;
+    case 4:
+        dw = std::min(u, b.w);
+        dh = std::min(v, b.h);
+        break;
+    default:
+        break;
+    }
+    // blended by its alpha: the poster's torn edges and nail hole are
+    // DXT5's alpha, black drawn as they are
+    w.vm.call(canvas, "SetDrawColor", {Value::Int(255), Value::Int(255), Value::Int(255), Value::Int(255)});
+    w.var(canvas, "Style") = Value::Int(5);
+    w.vm.call(canvas, "SetPos", {Value::Float(x), Value::Float(y)});
+    w.vm.call(canvas, "DrawTile", {Value::Obj(mat), Value::Float(dw), Value::Float(dh), Value::Float(0), Value::Float(0),
+                                   Value::Float(u), Value::Float(v)});
+}
+
 // What a control draws of its own, by its kind: a button its style and its
 // caption, a label its caption, an image its image, the rest their style.
 void drawOwn(World& w, Object* canvas, Object* c, Object* style, int state, const Box& b) {
@@ -283,6 +326,7 @@ void drawOwn(World& w, Object* canvas, Object* c, Object* style, int state, cons
     if (g.button && c->isA(g.button)) {
         styleDraw(w, canvas, style, state, b);
         styleText(w, canvas, style, state, b, 1, w.var(c, "Caption").s());
+        if (g.gfxButton && c->isA(g.gfxButton)) drawGraphic(w, canvas, c, style, b);
     } else if (g.label && c->isA(g.label)) {
         String text = w.var(c, "Caption").s();
         int align = w.var(c, "TextAlign").i();
