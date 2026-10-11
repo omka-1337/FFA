@@ -23,6 +23,7 @@ struct AudioSink {
     virtual ~AudioSink() = default;
     virtual void play(const SoundPlay& s) = 0;
     virtual void stop(Object* actor, Object* sound) = 0;      // sound null for all of it
+    virtual void stopAll() {}                                  // the console's stopsounds
     virtual int playMusic(const std::string& song, float fadeIn, bool loop) = 0;
     virtual void stopMusic(int handle, float fadeOut) = 0;     // -1 for all
 };

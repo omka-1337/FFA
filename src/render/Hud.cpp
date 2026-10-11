@@ -413,8 +413,22 @@ void LevelRender::drawHud(int width, int height) {
             return width;
         };
     current = this;
+    try {
+        vm.call(canvas_, "Reset");
+        field(vm, canvas_, "SizeX") = Value::Int(width);
+        field(vm, canvas_, "SizeY") = Value::Int(height);
+        setf(vm, canvas_, "ClipX", float(width));
+        setf(vm, canvas_, "ClipY", float(height));
+        if (w.player && field(vm, canvas_, "Viewport").o() == nullptr) field(vm, canvas_, "Viewport") = Value::Obj(w.player);
+        if (hud) vm.event(hud, "PostRender", {Value::Obj(canvas_)});
+    } catch (const std::exception& ex) {
+        ++hudFailures;
+        w.failures[std::string("HUD: ") + ex.what()]++;
+    }
     // A movie the HUD plays covers the frame in black, its pictures fitted
-    // in the middle.
+    // in the middle, over the HUD, as the engine draws it last: the potion
+    // commercial's trigger leaves the HUD shown, and its bars must not show
+    // through.
     for (auto& [m, play] : w.movies)
         if (play.playing) {
             HudTile t;
@@ -436,18 +450,6 @@ void LevelRender::drawHud(int width, int height) {
             }
             break;
         }
-    try {
-        vm.call(canvas_, "Reset");
-        field(vm, canvas_, "SizeX") = Value::Int(width);
-        field(vm, canvas_, "SizeY") = Value::Int(height);
-        setf(vm, canvas_, "ClipX", float(width));
-        setf(vm, canvas_, "ClipY", float(height));
-        if (w.player && field(vm, canvas_, "Viewport").o() == nullptr) field(vm, canvas_, "Viewport") = Value::Obj(w.player);
-        if (hud) vm.event(hud, "PostRender", {Value::Obj(canvas_)});
-    } catch (const std::exception& ex) {
-        ++hudFailures;
-        w.failures[std::string("HUD: ") + ex.what()]++;
-    }
     // the menus over it, on the same Canvas (world/Gui.cpp)
     drawGui(w, canvas_, width, height);
     current = nullptr;

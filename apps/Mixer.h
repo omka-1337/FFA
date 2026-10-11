@@ -81,6 +81,14 @@ public:
         for (Voice& v : voices_)
             if (v.actor == actor && (!sound || v.sound == sound) && !v.ambient && !v.movie) v.done = true;
     }
+    // Every sound playing ends, as skipping a cutscene asks; the ambient
+    // ones are taken up again where they are in reach, and a movie's sound
+    // is the movie's.
+    void stopAll() override {
+        std::lock_guard<std::mutex> lock(m_);
+        for (Voice& v : voices_)
+            if (!v.movie) v.done = true;
+    }
     int playMusic(const std::string&, float, bool) override { return ++music_; }
     void stopMusic(int, float) override {}
 

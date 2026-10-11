@@ -572,6 +572,9 @@ plays to its end: the swamp's NEWSwampIntro in 68 seconds of level time, the
 carriage's in 38, the hunt's in 33, Hamlet's in 49, and the player has the
 pawn back after it. Space bypasses one, BypassCutscene, an exec function of
 the HUD, which the console reaches after the controller and its pawn.
+KWCutScene's bypass asks the console to stopsounds, which ends every sound
+playing and every face speaking, so a skipped line does not go on over what
+the cutscene's ONEXIT starts, the swamp's potion commercial among them.
 A line lasts as its sound does: GetSoundDuration counts what a Bink file's
 packets say they decode to, without decoding it, and DeliverLocalizedDialog
 and WaitForSay wait on that.
@@ -609,7 +612,8 @@ there (`src/world/Movie.cpp`). A movie is a Bink file of Movies/, its name's
 case not minded, as long as its header's frames over its frame rate say:
 DW_LOGO 21.7 seconds, ACTIVSN 10.4, KWlogo 12. At its end, or at StopNow,
 which Space and Escape ask for while one plays, the Movie's MovieEnded
-relays it to the MovieManager. ffa-play shows its pictures over the frame,
+relays it to the MovieManager. ffa-play shows its pictures over the frame
+and the HUD,
 fitted and in black, decoding up to the frame its time has reached
 (`src/audio/BinkVideo.cpp`), and plays its stereo sound from the same file. ServerTravel leaves the next level in
 Level.NextURL, KWGame adding the game state, Book_FrontEnd.unr?GameState=

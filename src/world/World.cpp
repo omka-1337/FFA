@@ -2,6 +2,7 @@
 
 #include "world/AI.h"
 #include "world/Animator.h"
+#include "world/Audio.h"
 #include "world/Collision.h"
 #include "world/Gui.h"
 #include "world/Movie.h"
@@ -452,9 +453,10 @@ void registerWorldNatives(VM& vm) {
         return Value();
     };
     // ConsoleCommand(Command): of the engine's commands, open, start and
-    // travel go to a level, exit and quit end the game, getcurrentres tells
-    // the screen, get reads the configuration; what else script asks of the
-    // console answers nothing, which the game takes as the default.
+    // travel go to a level, exit and quit end the game, stopsounds ends the
+    // sounds playing, getcurrentres tells the screen, get reads the
+    // configuration; what else script asks of the console answers nothing,
+    // which the game takes as the default.
     auto console = [](NativeCall& c) {
         World& w = world(c);
         std::string cmd = utf8(c.s(0));
@@ -465,6 +467,12 @@ void registerWorldNatives(VM& vm) {
             w.travel = cmd.substr(cmd.find_first_not_of(' ', sp));
         if (verb == "getcurrentres") return Value::Str(widen(guiResolution(w)));
         if (verb == "exit" || verb == "quit") w.quit = true;
+        // stopsounds: what is playing ends, KWCutScene's bypass asks it, so
+        // a skipped cutscene's lines do not go on over what follows
+        if (verb == "stopsounds") {
+            w.speaking.clear();
+            if (w.audio) w.audio->stopAll();
+        }
         // get <class> <variable>: the class's configuration; with ini:, the
         // class an engine setting names, ini:Engine.Engine.ViewportManager
         // being WinDrv.WindowsClient, whose FullscreenViewportX the menus
