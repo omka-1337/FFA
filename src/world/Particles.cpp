@@ -369,6 +369,17 @@ void step(World& w, Particles& P, EmitterRun& run, const Settings& s, const Basi
         run.delay -= dt;
         return;
     }
+    // spawned first, then all moved by the tick, the new ones among them: a
+    // warmup of ticks longer than a life leaves none of those it spawned,
+    // which is how the punch's starburst and glow, 80 to 300 and growing 50
+    // times, warmed up at 0.8 ticks a second for 0.2 seconds, are never seen
+    for (int n = toSpawn(P, run, s, dt); n > 0; --n) spawnOne(P, run, s, f);
+    if (run.deferred > 0) {
+        float rate = run.deferredRate > 0 ? run.deferredRate : 1e9f;
+        int n = std::min(run.deferred, std::max(1, int(rate * dt)));
+        run.deferred -= n;
+        for (; n > 0; --n) spawnOne(P, run, s, f);
+    }
     for (Particle& p : run.ps) {
         if (!p.alive) continue;
         p.time += dt;
@@ -403,13 +414,6 @@ void step(World& w, Particles& P, EmitterRun& run, const Settings& s, const Basi
             }
         }
         p.loc = next;
-    }
-    for (int n = toSpawn(P, run, s, dt); n > 0; --n) spawnOne(P, run, s, f);
-    if (run.deferred > 0) {
-        float rate = run.deferredRate > 0 ? run.deferredRate : 1e9f;
-        int n = std::min(run.deferred, std::max(1, int(rate * dt)));
-        run.deferred -= n;
-        for (; n > 0; --n) spawnOne(P, run, s, f);
     }
 }
 
@@ -457,6 +461,11 @@ void gather(World&, EmitterRun& run, const Settings& s, const Basis& f, Particle
         c[0] *= p.colorMul.x;
         c[1] *= p.colorMul.y;
         c[2] *= p.colorMul.z;
+        // the colour scale's alpha is left out, the fades and Opacity
+        // making the particle's: the game's scales have it 0 nearly
+        // throughout, the coins' sparkle and the third punch's dust among
+        // them, which are seen
+        c[3] = s.opacity;
         // fading in to FadeInEndTime and out from FadeOutStartTime, each
         // channel by its factor
         if (s.fadeIn && s.fadeInEnd > 0 && p.time < s.fadeInEnd) {
@@ -467,11 +476,6 @@ void gather(World&, EmitterRun& run, const Settings& s, const Basis& f, Particle
             float u = (p.time - s.fadeOutStart) / (p.life - s.fadeOutStart);
             for (int i = 0; i < 4; ++i) c[i] *= 1 - u * s.fadeOutFactor[i];
         }
-        // the styles that add or take away by the colour leave its alpha
-        // out, Opacity aside: the coins' sparkle has a colour scale of
-        // alpha 0 and twinkles
-        if (s.style == 3 || s.style == 5 || s.style == 2) c[3] = 1;
-        c[3] *= s.opacity;
         for (int i = 0; i < 4; ++i) sp.color[i] = std::clamp(c[i], 0.0f, 1.0f);
         int frames = s.columns * s.rows;
         if (s.randomSub || frames <= 1) {

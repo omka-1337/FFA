@@ -261,9 +261,15 @@ whatever ParticlesPerSecond says: the torches' 0.01 would have them out
 after their first flames. Every Emitter of KnowWonder's is AutoDestroy, and goes once its
 particles are dead and none of its emitters will spawn more; one Disabled is
 not done, since a trigger may start it: the coins' sparkle, Coin_Twirl, is
-disabled while the camera is further than 1024, and went at once. The
-styles that add or darken by the colour, Translucent, Darken and Modulated,
-leave the colour scale's alpha out, as the sparkle's is 0. Level.DetailMode
+disabled while the camera is further than 1024, and went at once. A
+particle's alpha is its fades and Opacity, the colour scale's own left out:
+the game's scales have it 0 nearly throughout, the coins' sparkle and the
+third punch's dust among them, which are seen. A tick spawns first and then
+moves every particle, the new ones too, so a warmup in ticks longer than a
+life leaves nothing of what it spawned: Punch_Shrek's starburst and glow,
+80 to 300 across and growing fifty times, warm up at 0.8 ticks a second for
+0.2 seconds and are never seen; drawn, they flashed the whole screen yellow
+at every punch that landed. Level.DetailMode
 is DM_SuperHigh, from D3DDrv's SuperHighDetailActors: at DM_Low, the
 default, Shrek's punches spawn no Punch_Shrek and much of the rest is left
 out.
