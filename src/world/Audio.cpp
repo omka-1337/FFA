@@ -59,7 +59,9 @@ void registerAudioNatives(VM& vm) {
     // Music/, by name, its handle
     n["actor.playmusic"] = [](NativeCall& c) {
         World* w = worldOf(c);
-        if (!w || !w->audio) return Value::Int(0);
+        if (!w) return Value::Int(0);
+        c.vm.write("Music", "PlayMusic " + utf8(c.s(0)) + " fade " + std::to_string(c.f(1)));
+        if (!w->audio) return Value::Int(0);
         return Value::Int(w->audio->playMusic(utf8(c.s(0)), c.f(1), c.has(2) ? c.b(2) : true));
     };
     n["actor.stopmusic"] = [](NativeCall& c) {

@@ -30,6 +30,7 @@
 
 #include "audio/Bink.h"
 #include "audio/BinkVideo.h"
+#include "audio/Vorbis.h"
 #include "world/Particles.h"
 #include "script/VM.h"
 #include "render/Texture.h"
@@ -55,7 +56,8 @@ int usage() {
                  "       ffa-script run <System dir> <map.unr> <seconds> [--hold <key>] [--axis <var>=<value>] [--event <tag>] [--log <word>] [--exec <seconds>=<command>] [--tap <key>=<period>]...\n"
                  "       ffa-script collide <System dir> <map.unr or .usx>...\n"
                  "       ffa-script bink <sound.bik or .wav> [reference.f32]\n"
-                 "       ffa-script binkv <movie.bik> <binkw32.dll> [frames] [out.yuv]\n");
+                 "       ffa-script binkv <movie.bik> <binkw32.dll> [frames] [out.yuv]\n"
+                 "       ffa-script ogg <music.ogg> [reference.f32]\n");
     return 2;
 }
 
@@ -1183,7 +1185,37 @@ int binkv(int argc, char** argv) {
     return 0;
 }
 
+// An Ogg Vorbis file decoded whole, against FFmpeg's decoding of it as 32
+// bit floats when given: the largest difference, over the reference's peak,
+// and how long it took.
+int ogg(const char* path, const char* reference) {
+    std::ifstream in(path, std::ios::binary);
+    std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    auto t0 = std::chrono::steady_clock::now();
+    VorbisDecoder v(std::move(data));
+    std::vector<float> all, buf(4096 * size_t(v.channels()));
+    for (size_t n; (n = v.read(buf.data(), 4096)) > 0;) all.insert(all.end(), buf.begin(), buf.begin() + long(n) * v.channels());
+    double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    std::printf("%s\t%d Hz\t%d channels\t%zu frames\tdecoded in %.2f s", path, v.rate(), v.channels(),
+                all.size() / size_t(v.channels()), s);
+    if (reference) {
+        std::ifstream r(reference, std::ios::binary);
+        std::vector<char> raw((std::istreambuf_iterator<char>(r)), std::istreambuf_iterator<char>());
+        std::vector<float> ref(raw.size() / 4);
+        std::memcpy(ref.data(), raw.data(), ref.size() * 4);
+        float err = 0, peak = 1e-9f;
+        for (size_t i = 0; i < std::min(ref.size(), all.size()); ++i) {
+            err = std::max(err, std::fabs(ref[i] - all[i]));
+            peak = std::max(peak, std::fabs(ref[i]));
+        }
+        std::printf("\treference %zu frames\terror %.2e", ref.size() / size_t(v.channels()), err / peak);
+    }
+    std::printf("\n");
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc >= 3 && std::string(argv[1]) == "ogg") return ogg(argv[2], argc >= 4 ? argv[3] : nullptr);
     if (argc >= 4 && std::string(argv[1]) == "binkv") return binkv(argc, argv);
     if (argc >= 3 && std::string(argv[1]) == "bink") return bink(argv[2], argc >= 4 ? argv[3] : nullptr);
     if (argc < 3) return usage();

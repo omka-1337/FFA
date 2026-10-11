@@ -153,6 +153,7 @@ Not done yet, roughly in order:
 | `tools/usound.py` | Sounds: the Bink and WAV files inside, and their lip sync data |
 | `tools/ubink.py` | Bink Audio decoded, mono and stereo |
 | `tools/ubinkv.py` | Bink video decoded, its tables read from the game's binkw32.dll |
+| `tools/uogg.py` | Ogg Vorbis, the music, decoded from the specification |
 | `tools/uterrain.py` | Terrain: heightmaps, holes, and the world transform |
 | `tools/uskel.py` | Skeletal meshes: reference pose and skeleton |
 | `tools/uanim.py` | Animations: bones, keyframe tracks, sequences, playback |

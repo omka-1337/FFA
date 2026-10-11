@@ -9,12 +9,17 @@
 // as the engine family measures it, at SoundVolume / 255 and SoundPitch / 64.
 // A stereo clip keeps its two channels. A movie the HUD plays has its sound
 // from its own file, at where its time is, while it plays and is not paused.
-// Music is not played yet: its Ogg Vorbis has no decoder here.
+// Music is the songs of Music/, Ogg Vorbis (audio/Vorbis.h), decoded as they
+// play, faded in and out as PlayMusic and StopMusic ask, looping unless told
+// not, at the configuration's MusicVolume, 0.3 in Default.ini.
 #pragma once
 
 #include <SDL2/SDL.h>
 
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <filesystem>
 #include <cmath>
 #include <fstream>
 #include <iterator>
@@ -24,6 +29,7 @@
 #include <vector>
 
 #include "audio/Bink.h"
+#include "audio/Vorbis.h"
 #include "audio/SoundBank.h"
 #include "world/Audio.h"
 #include "world/Geometry.h"
@@ -45,6 +51,10 @@ public:
         if (device_) {
             rate_ = have.freq;
             SDL_PauseAudioDevice(device_, 0);
+        }
+        if (w_.config) {
+            std::string v = w_.config("ALAudio.ALAudioSubsystem", "MusicVolume");
+            if (!v.empty()) musicVolume_ = std::clamp(std::strtof(v.c_str(), nullptr), 0.0f, 1.0f);
         }
     }
     ~Mixer() override {
@@ -89,8 +99,45 @@ public:
         for (Voice& v : voices_)
             if (!v.movie) v.done = true;
     }
-    int playMusic(const std::string&, float, bool) override { return ++music_; }
-    void stopMusic(int, float) override {}
+    // A song of Music/ by its name, its case not minded, faded in over
+    // fadeIn seconds; its handle for StopMusic.
+    int playMusic(const std::string& song, float fadeIn, bool loop) override {
+        int handle = ++music_;
+        if (!device_) return handle;
+        std::string path = songFile(song);
+        if (path.empty()) return handle;
+        Song s;
+        try {
+            std::ifstream in(path, std::ios::binary);
+            std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            s.decoder = std::make_shared<VorbisDecoder>(std::move(data));
+        } catch (const std::exception&) {
+            return handle;
+        }
+        s.handle = handle;
+        s.loop = loop;
+        s.gain = fadeIn > 0 ? 0.0f : 1.0f;
+        s.target = 1;
+        s.fade = fadeIn > 0 ? 1.0f / fadeIn : 0.0f;
+        s.step = double(s.decoder->rate()) / double(rate_);
+        std::lock_guard<std::mutex> lock(m_);
+        songs_.push_back(std::move(s));
+        return handle;
+    }
+    // A song faded out over fadeOut seconds and ended; -1 for every song.
+    void stopMusic(int handle, float fadeOut) override {
+        std::lock_guard<std::mutex> lock(m_);
+        for (Song& s : songs_)
+            if (handle < 0 || s.handle == handle) {
+                s.target = 0;
+                if (fadeOut > 0) {
+                    s.fade = 1.0f / fadeOut;
+                } else {
+                    s.gain = 0;
+                    s.done = true;
+                }
+            }
+    }
 
     // Once a frame, from the game's side: where the listener is, the voices'
     // gains for it, and the ambient sounds in reach.
@@ -196,6 +243,85 @@ private:
         voices_.push_back(std::move(v));
     }
 
+    struct Song {
+        std::shared_ptr<VorbisDecoder> decoder;
+        int handle = 0;
+        bool loop = true, done = false;
+        float gain = 1, target = 1, fade = 0;   // fade: gain a second
+        double step = 1, pos = 0;               // in the song's frames
+        std::vector<float> buf;                 // decoded, interleaved
+        size_t frames = 0;                      // in buf
+    };
+
+    std::string songFile(const std::string& song) {
+        namespace fs = std::filesystem;
+        std::string want = song;
+        if (want.size() < 4 || want.substr(want.size() - 4) != ".ogg") want += ".ogg";
+        for (char& c : want) c = char(std::tolower(static_cast<unsigned char>(c)));
+        std::error_code ec;
+        for (const auto& e : fs::directory_iterator(fs::path(w_.gameDir) / "Music", ec)) {
+            std::string f = e.path().filename().string();
+            for (char& c : f) c = char(std::tolower(static_cast<unsigned char>(c)));
+            if (f == want) return e.path().string();
+        }
+        return {};
+    }
+
+    // A frame of the song at its position, between the two decoded frames
+    // around it; false at its end.
+    bool songFrame(Song& s, float out[2]) {
+        int ch = s.decoder->channels();
+        while (s.pos + 1 >= double(s.frames)) {
+            // keep the last frame, for the step across into the next lot
+            size_t keep = s.frames ? 1 : 0;
+            if (keep) std::copy(s.buf.end() - ch, s.buf.end(), s.buf.begin());
+            s.pos -= double(s.frames - keep);
+            s.buf.resize(size_t(ch) * (keep + 1024));
+            size_t n = s.decoder->read(s.buf.data() + keep * size_t(ch), 1024);
+            if (n == 0 && s.loop) {
+                s.decoder->rewind();
+                n = s.decoder->read(s.buf.data() + keep * size_t(ch), 1024);
+            }
+            s.frames = keep + n;
+            if (n == 0) return false;
+        }
+        size_t k = size_t(s.pos);
+        float t = float(s.pos - double(k));
+        for (int c = 0; c < 2; ++c) {
+            int cc = std::min(c, ch - 1);
+            float a = s.buf[k * size_t(ch) + size_t(cc)], b = s.buf[(k + 1) * size_t(ch) + size_t(cc)];
+            out[c] = a + (b - a) * t;
+        }
+        s.pos += s.step;
+        return true;
+    }
+
+    void mixSongs(float* out, int frames) {
+        float volume = musicVolume_;
+        const float dt = 1.0f / float(rate_);
+        for (Song& s : songs_) {
+            if (s.done) continue;
+            for (int i = 0; i < frames; ++i) {
+                if (s.gain != s.target) {
+                    float d = s.fade > 0 ? s.fade * dt : 1.0f;
+                    s.gain = s.gain < s.target ? std::min(s.target, s.gain + d) : std::max(s.target, s.gain - d);
+                }
+                if (s.target == 0 && s.gain <= 0) {
+                    s.done = true;
+                    break;
+                }
+                float f[2];
+                if (!songFrame(s, f)) {
+                    s.done = true;
+                    break;
+                }
+                out[2 * i] += f[0] * s.gain * volume;
+                out[2 * i + 1] += f[1] * s.gain * volume;
+            }
+        }
+        songs_.erase(std::remove_if(songs_.begin(), songs_.end(), [](const Song& s) { return s.done; }), songs_.end());
+    }
+
     void place(Voice& v) {
         if (v.actor && !v.actor->deleted) w_.vm.unvector(w_.var(v.actor, "Location"), v.at.x, v.at.y, v.at.z);
         float g = v.volume;
@@ -241,6 +367,7 @@ private:
                 v.pos += v.step;
             }
         }
+        mixSongs(out, frames);
         for (int i = 0; i < frames * 2; ++i) out[i] = std::clamp(out[i] * gain_, -1.0f, 1.0f);
     }
 
@@ -252,6 +379,8 @@ private:
     Vec3 ear_, right_{0, 1, 0};
     float gain_ = 0.9f;
     int music_ = 0;
+    std::vector<Song> songs_;
+    float musicVolume_ = 0.3f;
     Object* movie_ = nullptr;
     float movieStart_ = 0;
     std::map<std::string, std::shared_ptr<const DecodedSound>> movieClips_;

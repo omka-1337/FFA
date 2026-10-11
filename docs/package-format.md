@@ -1525,6 +1525,24 @@ public description leaves open: the inverse DCT counts the first coefficient
 whole and scales by 2 over the block length. Music is not in packages at all; it is plain
 Ogg Vorbis in `Music/`.
 
+## Music
+
+The 69 songs of `Music/` are Ogg Vorbis, all of one kind: libVorbis I
+20020717 (Sonic Foundry's encoder), 44100 Hz stereo, blocks of 256 and 2048,
+42 codebooks, two floors of type 1 and two residues of type 2. Our decoder
+(`tools/uogg.py`, and `src/audio/Vorbis.cpp` after it) is written from the
+Vorbis I specification: the Ogg pages and their lacing into packets, the three
+headers, the codebooks (codewords the lowest free of their length in entry
+order, vector lookups of both kinds), floor 1's amplitudes and line rendering
+over its dB table, 10^(7 (i + 1) / 256 - 7), residue partitions in eight
+passes, inverse channel coupling, the inverse MDCT (a DCT-IV by an FFT of a
+quarter of the block), the power-complementary window, and the overlap from
+one block's middle to the next's. Against FFmpeg's decoding of all 69, the
+output has the same number of samples, the last page's granule cutting the
+end, and agrees to 4e-6 of the peak; ten files of a second of silence aside,
+which FFmpeg makes 128 samples shorter. C++ decodes 80 seconds in a quarter
+of one.
+
 **Lip sync.** After every sound comes a block starting with an i32 version,
 each checked against the sound's length as FFmpeg decodes it:
 

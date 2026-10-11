@@ -615,7 +615,11 @@ AmbientSound looping within SoundRadius times 25, as the engine family
 measures it (the swamp's water has 50 to 90, its birds 400), at SoundVolume
 over 255 and SoundPitch over 64. Sounds are decoded when first played and
 kept (`src/audio/SoundBank.cpp`); a line of a few seconds takes a few
-milliseconds. Music, Ogg Vorbis, is not played yet.
+milliseconds. PlayMusic finds its song in `Music/`, its case not minded,
+and the mixer decodes it as it plays (`src/audio/Vorbis.h`), fading it in
+over FadeInTime and, at StopMusic or StopAllMusic, out over its time,
+looping unless bLoop says not, at the configuration's MusicVolume (0.3);
+several may play at once, as the game crossfades them. bStab is not minded.
 
 **The console.** ConsoleCommand answers what the game asks of it: open,
 start and travel go to a level, exit and quit end the game, getcurrentres
