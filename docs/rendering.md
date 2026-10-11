@@ -258,4 +258,12 @@ particle's own size: the torches' fire has a single key, nothing at 1.5 of
 its life, and shrinks to a third by its end. AutomaticInitialSpawning keeps
 MaxParticles alive, as many a second as their longest life allows, over
 whatever ParticlesPerSecond says: the torches' 0.01 would have them out
-after their first flames.
+after their first flames. Every Emitter of KnowWonder's is AutoDestroy, and goes once its
+particles are dead and none of its emitters will spawn more; one Disabled is
+not done, since a trigger may start it: the coins' sparkle, Coin_Twirl, is
+disabled while the camera is further than 1024, and went at once. The
+styles that add or darken by the colour, Translucent, Darken and Modulated,
+leave the colour scale's alpha out, as the sparkle's is 0. Level.DetailMode
+is DM_SuperHigh, from D3DDrv's SuperHighDetailActors: at DM_Low, the
+default, Shrek's punches spawn no Punch_Shrek and much of the rest is left
+out.

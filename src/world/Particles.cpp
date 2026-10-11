@@ -467,6 +467,10 @@ void gather(World&, EmitterRun& run, const Settings& s, const Basis& f, Particle
             float u = (p.time - s.fadeOutStart) / (p.life - s.fadeOutStart);
             for (int i = 0; i < 4; ++i) c[i] *= 1 - u * s.fadeOutFactor[i];
         }
+        // the styles that add or take away by the colour leave its alpha
+        // out, Opacity aside: the coins' sparkle has a colour scale of
+        // alpha 0 and twinkles
+        if (s.style == 3 || s.style == 5 || s.style == 2) c[3] = 1;
         c[3] *= s.opacity;
         for (int i = 0; i < 4; ++i) sp.color[i] = std::clamp(c[i], 0.0f, 1.0f);
         int frames = s.columns * s.rows;
@@ -488,8 +492,11 @@ bool done(const EmitterRun& run, const Settings& s) {
     for (const Particle& p : run.ps)
         if (p.alive) return false;
     if (run.deferred > 0) return false;
-    if (run.killed || s.disabled || s.maxParticles == 0) return true;
-    return !s.respawn && run.spawned >= s.maxParticles;
+    if (run.killed || s.maxParticles == 0) return true;
+    // a disabled one is not done, as a trigger or SetActive may start it:
+    // the coins' sparkle is disabled while the camera is far, and every
+    // Emitter of KnowWonder's is AutoDestroy
+    return !s.disabled && !s.respawn && run.spawned >= s.maxParticles;
 }
 
 std::vector<Object*> emittersOf(World& w, Object* actor) {

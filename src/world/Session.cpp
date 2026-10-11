@@ -177,6 +177,19 @@ void Session::begin() {
     std::string wiName = ini("Default.ini", "Engine.Engine", "WorldInfo");
     if (Class* wi = wiName.empty() ? nullptr : linker->findClass(wiName.substr(wiName.find('.') + 1)))
         world->var(world->info, "WorldInfo") = Value::Obj(vm->spawn(wi, Name("WorldInfo"), world->info->outer));
+    // Level.DetailMode as the engine sets it from the render device's
+    // section: D3DDrv's SuperHighDetailActors and HighDetailActors are on,
+    // so DM_SuperHigh. At DM_Low the punches spawn no Punch_Shrek and the
+    // levers are drawn unlit.
+    {
+        std::string dev = ini("Default.ini", "Engine.Engine", "RenderDevice");
+        auto on = [&](const char* key) {
+            std::string v = ini("Default.ini", dev, key);
+            return !v.empty() && (v[0] == 'T' || v[0] == 't' || v[0] == '1');
+        };
+        int mode = on("SuperHighDetailActors") ? 2 : on("HighDetailActors") ? 1 : 0;
+        if (world->info->cls->findProp(Name("DetailMode"))) world->var(world->info, "DetailMode") = Value::Int(mode);
+    }
     world->beginPlay(gameClass, options);
     controller = world->login(widen(level.portal), options);
     // the player's GUIController, as the engine makes it with the viewport
