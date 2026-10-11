@@ -750,6 +750,7 @@ bool VM::gotoState(Object* o, Name state, Name label) {
     // Either notification may itself change state, and then the change in
     // progress gives way to it.
     if (!o->cls) return false;
+    bool notFound = false;
     Name current = o->state ? o->state->name : o->cls->name;
     if (state != current) {
         State* next = nullptr;
@@ -757,10 +758,13 @@ bool VM::gotoState(Object* o, Name state, Name label) {
             next = o->cls->autoState();
         } else if (!state.isNone()) {
             next = o->cls->findState(state);
-            if (!next) {
-                write("ScriptWarning", o->path() + ": GotoState " + state.str() + ": state not found");
-                return false;
-            }
+            // A state not there is no state, as the engine's GotoState takes
+            // it: the object leaves the one it is in and its code ends. The
+            // carriage's WheelStealerSpawnPoint, done spawning, goes to a
+            // waitToSpawn it lacks and then back to its Loop label; staying
+            // put, it spun there, a third of a million times a tick.
+            if (!next) write("ScriptWarning", o->path() + ": GotoState " + state.str() + ": state not found");
+            notFound = !next;
         }
         State* old = o->state;
         uint32_t mark = ++o->stateChanges;
@@ -775,6 +779,11 @@ bool VM::gotoState(Object* o, Name state, Name label) {
             event(o, "BeginState");
             if (o->stateChanges != mark) return false;
         }
+    }
+    if (notFound) {
+        o->code.reset();
+        o->latent = nullptr;
+        return false;
     }
     if (!gotoLabel(o, label.isNone() ? Name("Begin") : label) && !label.isNone())
         write("ScriptWarning", o->path() + ": GotoState " + state.str() + " " + label.str() +

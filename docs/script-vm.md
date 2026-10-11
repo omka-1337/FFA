@@ -123,8 +123,12 @@ Writing past the end of a dynamic array grows it (script appends with
 new one, and either may change state again, in which case the change in
 progress stops there. Then state code resumes at the label, Begin by default,
 found through the state and the states it extends. GotoState to the current
-state changes nothing but the label. In no state, an object runs as its class,
-and GetStateName gives the class's name.
+state changes nothing but the label. GotoState to a state the class does not
+have leaves the object in no state, its state code ended: the carriage's
+WheelStealerSpawnPoint, done spawning, asks for a waitToSpawn it lacks and
+then jumps back to its Loop label, and kept in its state it spun there a
+third of a million times a tick, the frame rate down to one. In no state, an
+object runs as its class, and GetStateName gives the class's name.
 
 State code runs a statement at a time until it calls a latent function, reaches
 Stop, or runs out. A latent function leaves an action the object waits on;

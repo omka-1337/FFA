@@ -201,7 +201,23 @@ int main(int argc, char** argv) {
                 std::snprintf(t, sizeof t, "%8.2f  ", worldPtr->time);
                 return std::string(t);
             };
-            if (logFile) session.vm->sink = [&](const std::string& tag, const std::string& text) { logLine(stamp() + tag + "  " + text); };
+            // the same line over and over written once, with how many times
+            // when another comes: a script spinning on a warning filled half
+            // a gigabyte in two seconds
+            std::string lastLine;
+            size_t repeats = 0;
+            if (logFile)
+                session.vm->sink = [&](const std::string& tag, const std::string& text) {
+                    std::string line = tag + "  " + text;
+                    if (line == lastLine) {
+                        ++repeats;
+                        return;
+                    }
+                    if (repeats) logLine(stamp() + "(the line before " + std::to_string(repeats) + " times more)");
+                    repeats = 0;
+                    lastLine = line;
+                    logLine(stamp() + line);
+                };
             Library lib(sys + "/..");
             lib.adopt(session.linker->packages[size_t(session.pkg)].get());
             // the sound, before play begins, so that the level's first sounds play
