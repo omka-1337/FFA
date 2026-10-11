@@ -338,6 +338,10 @@ frames; now he stands, and jumping onto the bank he slides back down in the
 air, as the game does; Falling with gravity from the PhysicsVolume, TerminalVelocity, and
 Landed on a floor whose normal has Z of 0.7 or more, HitWall otherwise, each
 offered to the controller first; Flying, Rotating, Projectile and Trailer.
+A flyer is not held by what it starts inside: the save fairy's touch is a
+cylinder of 150 by 200 that overlaps the swamp's ground and the hill beside
+her, and her FlyAway, whose HitWall ends her, had her gone at its first
+frame; she flies off now, through them, until a hill she meets.
 Swimming, Karma, MovingBrush and the rest are counted as missing. A move ends
 in Touch and UnTouch with the actors whose cylinders it begins or stops
 overlapping, keeping each actor's Touching array, which TouchingActors reads.

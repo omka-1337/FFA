@@ -400,6 +400,15 @@ void physFlying(World& w, Object* a, float dt) {
     for (int pass = 0; pass < 2 && length(delta) > 0.01f; ++pass) {
         TraceHit h = move(w, a, delta);
         if (!h || a->deleted) return;
+        // What a flyer starts inside does not hold it or count as a wall:
+        // the save fairy's touch is a cylinder of 150 by 200, which overlaps
+        // the swamp's ground and the hill beside her, and she flies off
+        // through them, not into the HitWall that ends her.
+        if (h.startSolid) {
+            w.collision->place(a, vget(w, a, "Location") + delta);
+            updateTouching(w, a);
+            return;
+        }
         hitWall(w, a, h);
         if (a->deleted || w.var(a, "Physics").i() != PHYS_Flying) return;
         Vec3 rest = delta * (1 - h.time);
