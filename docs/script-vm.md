@@ -518,7 +518,12 @@ origin, and every pawn with one stood exactly its cylinder's height in the
 air, Bandit 40, FatKnight 33, the rats 27 and 34, the prisoners 150, and the
 factory's HazMatShrek 38, whose mesh is Shrek's, the same skeleton and
 points, with a MeshOrigin of 0 where Shrek's is -49; the game's frames show
-him on the floor. That rule is inferred from those, not read.
+him on the floor. That rule is inferred from those, not read, but it has the
+engine's flag: Actor's bAlignBottom, true by default, which the props
+KnowWonder made pawns turn off, the levers, tents, umbrellas and lockers.
+Their meshes are made about their middle, and taken down they sank their
+height into what they stood on, the swamp's lever into its stump and the
+factory's levers 60 down their walls.
 AttachToBone makes the actor the attachment's Base with its AttachmentBone
 set, and each frame, after the animation, an attachment is put on its bone at
 its RelativeLocation and RelativeRotation. A rotator is made from axes by the

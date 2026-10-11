@@ -180,11 +180,14 @@ void Animator::meshToWorld(Object* a, float out[3][3], Vec3& origin) {
     // Bandit 40, FatKnight 33, the rats 27 and 34, the prisoners 150, the
     // factory's HazMatShrek 38, whom the game's frames show on the floor.
     // The meshes with an origin are set by it, the scaled ones with a PrePivot
-    // for the rest (above), so this is for the ones without, inferred, not
-    // read: nothing in their data says it.
+    // for the rest (above), so this is for the ones without. It is the
+    // engine's bAlignBottom, true for every actor but those that say not:
+    // the props KnowWonder made pawns, the levers, tents, umbrellas and
+    // lockers, whose meshes are made about their middle and which would
+    // otherwise sink their height into what they stand on.
     const AnimState& s = state(a);
     if (s.mesh && s.mesh->origin.x == 0 && s.mesh->origin.y == 0 && s.mesh->origin.z == 0 && world.pawnClass &&
-        a->isA(world.pawnClass))
+        a->isA(world.pawnClass) && world.flag(a, "bAlignBottom"))
         origin.z -= world.var(a, "CollisionHeight").f();
 }
 
