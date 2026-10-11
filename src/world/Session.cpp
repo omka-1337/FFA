@@ -12,6 +12,7 @@
 #include "world/Gui.h"
 #include "world/Karma.h"
 #include "world/Movie.h"
+#include "world/Particles.h"
 #include "world/Audio.h"
 #include "world/Physics.h"
 
@@ -125,6 +126,7 @@ Session::Session(const std::string& sys, const std::string& map, const std::stri
     registerAudioNatives(*vm);
     registerMovieNatives(*vm);
     registerGuiNatives(*vm);
+    registerParticleNatives(*vm);
     world = std::make_unique<World>(*vm, pkg, level);
     world->gameDir = gameDir;
     world->mapFile = map.substr(map.find_last_of("/\\") + 1);

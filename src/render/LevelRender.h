@@ -42,6 +42,9 @@ public:
     void drawHud(int width, int height);
     void drawHudActor(Object* a, bool clearZ);
     size_t hudTiles = 0, hudFailures = 0;
+    // The Emitters' sprites, after what blends (render/ParticleRender.cpp).
+    void drawParticles(const float mvp[16], Vec3 eye, const float axes[3][3]);
+    size_t particlesDrawn = 0;
 
     // What Canvas's natives draw into, one rectangle of a texture each, in
     // pixels from the top left, and the fonts they draw text with.
@@ -146,7 +149,7 @@ private:
     // The screen flash over the frame: the player controller's FlashScale and
     // FlashFog, which the game's fades set.
     void drawFlash();
-    unsigned flashProgram_ = 0;
+    unsigned flashProgram_ = 0, particleProgram_ = 0;
     std::vector<HudTile> hud_;
     // The movie the HUD plays, its frames decoded as far as its time has
     // gone, into one texture; its tables from the game's binkw32.dll.

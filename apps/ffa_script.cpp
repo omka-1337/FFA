@@ -30,6 +30,7 @@
 
 #include "audio/Bink.h"
 #include "audio/BinkVideo.h"
+#include "world/Particles.h"
 #include "script/VM.h"
 #include "render/Texture.h"
 #include "world/Bsp.h"
@@ -767,6 +768,21 @@ int start(const std::string& dir, const std::string& map, float seconds, const s
         if (!moverStart.empty())
             std::printf("movers              %zu: %zu moved, the farthest %.0f; %zu moving at the end, %zu at rest with a sound on\n",
                         moverStart.size(), moved, farthest, interpolating, sounding);
+        {
+            // the Emitters' sprites at the end, by texture
+            size_t sprites = 0;
+            std::map<std::string, size_t> byTexture;
+            for (const ParticleDraw& d : particleDraws(w)) {
+                sprites += d.sprites.size();
+                byTexture[d.texture ? d.texture->name.str() : "none"] += d.sprites.size();
+            }
+            std::vector<std::pair<size_t, std::string>> top3;
+            for (auto& [t, k] : byTexture) top3.push_back({k, t});
+            std::sort(top3.rbegin(), top3.rend());
+            std::string most;
+            for (size_t i = 0; i < top3.size() && i < 5; ++i) most += " " + top3[i].second + " " + std::to_string(top3[i].first);
+            std::printf("particles           %zu sprites of %zu emitters drawn at the end:%s\n", sprites, particleDraws(w).size(), most.c_str());
+        }
         std::printf("pawns               %zu: within a unit of where they started %zu, higher %zu, lower %zu, "
                     "more than 500 lower %zu; the lowest %s by %.0f\n",
                     startZ.size(), still, up, down, fell, worstName.c_str(), -worst);

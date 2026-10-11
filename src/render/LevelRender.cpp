@@ -217,6 +217,7 @@ LevelRender::~LevelRender() {
     for (unsigned t : lightMapTex_) glDeleteTextures(1, &t);
     for (auto& [k, t] : cubes_) glDeleteTextures(1, &t);
     glDeleteTextures(1, &white_);
+    if (particleProgram_) glDeleteProgram(particleProgram_);
     if (movie_.texture) glDeleteTextures(1, &movie_.texture);
     glDeleteProgram(program_);
 }
@@ -1627,6 +1628,8 @@ void LevelRender::draw(Vec3 loc, const int32_t rot[3], int width, int height, fl
     drawBsp(mvp, loc, true, false);
     drawSkeletal(mvp, loc, true);
     drawMeshes(mvp, loc, true, false);
+    particlesDrawn = 0;
+    drawParticles(mvp, loc, ax);
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
     glActiveTexture(GL_TEXTURE0);

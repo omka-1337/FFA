@@ -260,7 +260,9 @@ target:
 The natives still missing on the way are animation (AnimBlendParams, HasAnim,
 LinkSkelAnim), attachment (AttachToBone, SetRelativeLocation and Rotation),
 projectors, ParticleEmitter.Trigger, and those that need collision, SetLocation
-and Move.
+and Move. ParticleEmitter's Trigger and SpawnParticle and Emitter's Kill are
+now in `src/world/Particles.cpp`, which gives a spawned Emitter its own copies
+of the ParticleEmitters its class names, before its script sets them.
 
 ## Running a level
 

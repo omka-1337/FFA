@@ -439,8 +439,8 @@ int main(int argc, char** argv) {
                 render.draw(loc, rot, width, height, fov);
                 if (shot && played >= shotAt) {
                     writePng(shot, readFramebuffer(width, height));
-                    std::printf("shot                %s at %.2f s, camera (%.0f, %.0f, %.0f) rotation (%d, %d, %d), fov %.0f\n",
-                                shot, w.time, loc.x, loc.y, loc.z, rot[0], rot[1], rot[2], fov);
+                    std::printf("shot                %s at %.2f s, camera (%.0f, %.0f, %.0f) rotation (%d, %d, %d), fov %.0f, %zu particles\n",
+                                shot, w.time, loc.x, loc.y, loc.z, rot[0], rot[1], rot[2], fov, render.particlesDrawn);
                     running = false;
                 }
                 SDL_GL_SwapWindow(win);

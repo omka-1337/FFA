@@ -6,6 +6,7 @@
 #include "world/Collision.h"
 #include "world/Gui.h"
 #include "world/Movie.h"
+#include "world/Particles.h"
 #include "world/Physics.h"
 
 #include <chrono>
@@ -84,6 +85,7 @@ Object* World::spawn(Class* c, Object* spawner, Object* owner, Name tag, const V
     }
     Object* a = vm.spawn(c, uniqueName(c), outer_);
     giveMovie(*this, a);
+    giveEmitters(*this, a);
     // An actor's Tag is its class's name until it is given one: 1359 of the
     // swamp's 1650 placed actors still carry theirs.
     var(a, "Tag") = Value::Nm(tag.isNone() ? c->name : tag);
@@ -298,6 +300,8 @@ void World::tick(float dt) {
             failures[std::string("animation: ") + ex.what()]++;
         }
     }
+    tickPart = "particles";
+    if (!paused) particlesTick(*this, dt);
     tickPart = "movies";
     movieTick(*this);
     tickPart = "GUI";

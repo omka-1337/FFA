@@ -239,4 +239,23 @@ decides over what it wraps.
 
 - The Spotlight's cone in the vertex light computed for black instances
   (docs/package-format.md, StaticMeshInstance) and on characters.
-- Sprites and emitters, fog, translucency sorted by depth, water's cubemap.
+- Sprites (DT_Sprite), beam and mesh emitters, fog, translucency sorted by
+  depth, water's cubemap.
+
+## Particles
+
+The Emitters' SpriteEmitters (`src/world/Particles.cpp`, drawn by
+`src/render/ParticleRender.cpp`) after everything that blends, far emitter to
+near, with depth tested and not written. A sprite is a quad of half extent
+its size, facing the camera, or with UseDirectionAs PTDU_Up along its
+velocity and PTDU_Normal flat about ProjectionNormal, turned by its spin; it
+takes one frame of the texture's TextureU and V subdivisions, at random with
+UseRandomSubdivision, else by its age. DrawStyle blends it: Regular opaque,
+AlphaBlend by its alpha, Modulated times the frame, Translucent added with its
+colour times its alpha, AlphaModulate added over what its alpha leaves,
+Darken taken away, Brighten added by its alpha. A size scale begins from the
+particle's own size: the torches' fire has a single key, nothing at 1.5 of
+its life, and shrinks to a third by its end. AutomaticInitialSpawning keeps
+MaxParticles alive, as many a second as their longest life allows, over
+whatever ParticlesPerSecond says: the torches' 0.01 would have them out
+after their first flames.

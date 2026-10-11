@@ -233,7 +233,10 @@ Engine:
 - [ ] Bone controllers (SetBoneRotation and the rest), tweening between
   sequences, turning in place (TurnLeftAnim, TurnRightAnim), the walking rate,
   and lighting characters.
-- [ ] Sprites and emitters.
+- [x] Particle emitters: SpriteEmitters run and drawn, spawning, motion,
+  size and colour scales, fades, spin, subdivisions, the draw styles,
+  Trigger, SpawnParticle and Kill.
+- [ ] BeamEmitters and MeshEmitters; sprites (DT_Sprite).
 
 Open questions, written up in the format document with the measurements so
 far:

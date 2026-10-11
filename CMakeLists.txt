@@ -38,6 +38,7 @@ add_library(ffa_script
   src/world/AI.cpp
   src/world/Karma.cpp
   src/world/Movie.cpp
+  src/world/Particles.cpp
   src/world/Gui.cpp
   src/world/Audio.cpp
   src/world/Physics.cpp
@@ -61,7 +62,7 @@ if(PkgConfig_FOUND)
   pkg_check_modules(GLESV2 IMPORTED_TARGET glesv2)
 endif()
 if(SDL2_FOUND AND GLESV2_FOUND)
-  add_library(ffa_render src/render/LevelRender.cpp src/render/Hud.cpp src/render/Font.cpp)
+  add_library(ffa_render src/render/LevelRender.cpp src/render/Hud.cpp src/render/Font.cpp src/render/ParticleRender.cpp)
   target_link_libraries(ffa_render PUBLIC ffa_script PkgConfig::GLESV2)
   find_package(Threads REQUIRED)
   add_executable(ffa-play apps/ffa_play.cpp)

@@ -96,6 +96,8 @@ public:
     std::shared_ptr<void> gui;
     // Karma's hanging bodies, found when first asked (world/Karma.cpp).
     std::shared_ptr<void> karma;
+    // The Emitters' particles and what is drawn of them (world/Particles.cpp).
+    std::shared_ptr<void> particles;
     // Where a walking pawn last found its floor, standing on the world: a pawn
     // that has not moved since need not look for it again (world/Physics.cpp).
     std::unordered_map<const Object*, Vec3> restingAt;
